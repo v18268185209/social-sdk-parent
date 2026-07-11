@@ -114,6 +114,10 @@ public class CdpClient implements AutoCloseable {
         return sessionId;
     }
 
+    public String getTargetId() {
+        return targetId;
+    }
+
     /** 发送一条 CDP 命令，返回结果（或异常的）future。 */
     public CompletableFuture<JsonNode> send(String method) {
         return send(method, null);
@@ -155,7 +159,7 @@ public class CdpClient implements AutoCloseable {
     public String createTarget(String url) {
         ObjectNode p = MAPPER.createObjectNode();
         p.put("url", url == null ? "about:blank" : url);
-        JsonNode r = send("Target.createTarget", p).join();
+        JsonNode r = send("Target.createTarget", p, true).join();
         this.targetId = r.get("targetId").asText();
         return this.targetId;
     }
@@ -164,7 +168,7 @@ public class CdpClient implements AutoCloseable {
         ObjectNode p = MAPPER.createObjectNode();
         p.put("targetId", targetId);
         p.put("flatten", true);
-        JsonNode r = send("Target.attachToTarget", p).join();
+        JsonNode r = send("Target.attachToTarget", p, true).join();
         return r.get("sessionId").asText();
     }
 

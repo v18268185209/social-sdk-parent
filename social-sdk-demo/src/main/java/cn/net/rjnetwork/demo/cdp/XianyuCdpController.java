@@ -74,14 +74,48 @@ public class XianyuCdpController {
 
     @GetMapping("/login/qr")
     public ApiResponse<?> loginQr() {
+        CdpClient c = null;
         try {
-            // 每次取码前强制新建 target：旧 target 在后台越久越被 Chrome 节流冻结
-            // （evaluate 卡死 60s），新建 target 短暂在前台活跃，保证秒出码。
-            sessionManager.freshTarget();
-            Map<String, Object> qr = bot().getLoginQrBase64();
+            c = CdpClient.attachRemote(sessionManager.getEndpoint());
+
+            // 发现已有 goofish/taobao/alibaba tab
+            java.net.http.HttpClient http = java.net.http.HttpClient.newBuilder()
+                    .proxy(java.net.ProxySelector.of(null)).build();
+            String listUrl = sessionManager.getEndpoint().replaceAll("/$", "") + "/json/list";
+            String listResp = http.send(
+                    java.net.http.HttpRequest.newBuilder(java.net.URI.create(listUrl)).GET()
+                            .timeout(java.time.Duration.ofSeconds(5)).build(),
+                    java.net.http.HttpResponse.BodyHandlers.ofString()).body();
+
+            com.fasterxml.jackson.databind.JsonNode list = new com.fasterxml.jackson.databind.ObjectMapper().readTree(listResp);
+            String targetId = null;
+            for (com.fasterxml.jackson.databind.JsonNode t : list) {
+                if (!"page".equals(t.get("type").asText())) continue;
+                String url = t.get("url").asText();
+                String title = t.has("title") ? t.get("title").asText() : "";
+                if (!url.startsWith("chrome://") && !url.isEmpty()) {
+                    targetId = t.get("id").asText();
+                    break;
+                }
+            }
+
+            if (targetId == null) {
+                targetId = c.createTarget(sessionManager.getXianyuUrl());
+            }
+
+            String sid = c.attachTarget(targetId);
+            c.setSessionId(sid);
+            c.activateTarget(targetId);
+
+            XianyuCdpBot bot = new XianyuCdpBot(c, sessionManager.getXianyuUrl());
+            Map<String, Object> qr = bot.getLoginQrBase64();
             return ApiResponse.ok(qr);
         } catch (Exception e) {
             return ApiResponse.fail("获取登录二维码失败: " + e.getMessage());
+        } finally {
+            if (c != null) {
+                try { c.close(); } catch (Exception ignore) {}
+            }
         }
     }
 

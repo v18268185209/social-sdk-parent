@@ -82,7 +82,24 @@ public class CdpSessionManager {
                 connect();
                 return;
             }
-            // 不显式关闭旧 target（防止 browser 级 closeTarget 卡死）；直接新建 target 并激活。
+            // 关闭旧 target 并新建一个（同一 browser 连接）。
+            // remote Chrome 后台 target 越久越被节流冻结（evaluate 卡死 60s），
+            // 关闭旧 target + 新建 target 短暂在前台活跃，保证秒出码。
+            if (targetId != null) {
+                // 用 HTTP API 关 target（比 CDP Target.closeTarget 更可靠，不会卡死）
+                try {
+                    java.net.http.HttpClient http = java.net.http.HttpClient.newBuilder()
+                            .proxy(java.net.ProxySelector.of(null)).build();
+                    String url = endpoint.replaceAll("/$", "") + "/json/close/" + targetId;
+                    java.net.http.HttpRequest req = java.net.http.HttpRequest.newBuilder(
+                            java.net.URI.create(url)).GET()
+                            .timeout(java.time.Duration.ofSeconds(3)).build();
+                    http.send(req, java.net.http.HttpResponse.BodyHandlers.discarding());
+                } catch (Exception ignore) {
+                    // 后台标签卡住也继续
+                }
+            }
+            // 新建 target 并导航
             String tid = client.createTarget(xianyuUrl);
             String sid = client.attachTarget(tid);
             client.setSessionId(sid);

@@ -357,50 +357,38 @@ public class XianyuCdpBot {
      * 获取登录二维码。直接读取页面 DOM 中二维码图片/Canvas 的 src（base64 或 URL）。
      * 不依赖 Page.captureScreenshot（背景标签无合成帧，必然卡死 60s）。
      */
+    /**
+     * 获取登录二维码。流程：点击「登录」→ 点击「扫码登录」→ 截图返回。
+     * 截图方案是唯一可靠方案：二维码在跨域 iframe（login.taobao.com）中，无法 DOM 提取；
+     * 新建 target 已激活到前台，Page.captureScreenshot 可用（后台标签才卡死）。
+     */
+    /**
+     * 获取登录二维码。流程：点击「登录」→ 点击「扫码登录」→ 截图返回。
+     * 截图方案是唯一可靠方案：二维码在跨域 iframe（login.taobao.com）中，无法 DOM 提取。
+     */
     public Map<String, Object> getLoginQrBase64() {
         Map<String, Object> out = new LinkedHashMap<>();
 
-        // 1. 导航到闲鱼（不阻塞等 load 事件）
-        navigate(xianyuUrl);
-
-        // 2. 直接尝试从当前 DOM 提取二维码（可能页面已经有二维码）
-        Map<String, Object> qr = extractQrSourceLightweight();
-        if (qr != null && qr.get("data") != null && !qr.get("data").toString().isEmpty()) {
-            out.putAll(qr);
-            out.put("present", true);
-            return out;
-        }
-
-        // 3. 尝试点击登录入口（轻量点击 — 文本匹配 + 校验 viewport 内）
+        // 1. 点击「登录」按钮
         clickByText("登录", true);
-        sleep(800);
+        sleep(1500);
 
-        // 4. 再试提取（可能默认就是扫码面板）
-        qr = extractQrSourceLightweight();
-        if (qr != null && qr.get("data") != null && !qr.get("data").toString().isEmpty()) {
-            out.putAll(qr);
-            out.put("present", true);
-            return out;
-        }
-
-        // 5. 如果当前是密码/短信面板，点「扫码登录」切换
+        // 2. 如果默认不是扫码面板，点击「扫码登录」切换
         clickByText("扫码登录", true);
-        sleep(1200);
+        sleep(2000);
 
-        // 6. 轮询 8s 等二维码渲染
-        long deadline = System.currentTimeMillis() + 8000;
-        while (System.currentTimeMillis() < deadline) {
-            qr = extractQrSourceLightweight();
-            if (qr != null && qr.get("data") != null && !qr.get("data").toString().isEmpty()) {
-                out.putAll(qr);
-                out.put("present", true);
-                return out;
-            }
-            sleep(700);
+        // 3. 截图（使用已激活的 tab）
+        String b64 = screenshotViewport();
+        if (b64 != null && !b64.isEmpty()) {
+            out.put("present", true);
+            out.put("mode", "image");
+            out.put("qr", b64);
+            out.put("message", "已截取登录页面，请用手机闲鱼 App 扫描图中的二维码");
+            return out;
         }
 
         out.put("present", false);
-        out.put("message", "未在页面检测到二维码元素。闲鱼登录面板可能未加载或二维码位于跨域 iframe 中。");
+        out.put("message", "未能截取二维码截图，请确认登录面板已显示二维码");
         return out;
     }
 
