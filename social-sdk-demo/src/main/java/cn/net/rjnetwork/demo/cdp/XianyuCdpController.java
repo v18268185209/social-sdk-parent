@@ -75,6 +75,9 @@ public class XianyuCdpController {
     @GetMapping("/login/qr")
     public ApiResponse<?> loginQr() {
         try {
+            // 每次取码前强制新建 target：旧 target 在后台越久越被 Chrome 节流冻结
+            // （evaluate 卡死 60s），新建 target 短暂在前台活跃，保证秒出码。
+            sessionManager.freshTarget();
             Map<String, Object> qr = bot().getLoginQrBase64();
             return ApiResponse.ok(qr);
         } catch (Exception e) {

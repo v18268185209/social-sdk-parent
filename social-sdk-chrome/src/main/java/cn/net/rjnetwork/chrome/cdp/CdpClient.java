@@ -57,6 +57,7 @@ public class CdpClient implements AutoCloseable {
     private final Map<Long, CompletableFuture<JsonNode>> pending = new ConcurrentHashMap<>();
     private final Map<String, List<Consumer<JsonNode>>> eventHandlers = new ConcurrentHashMap<>();
     private volatile String sessionId;
+    private volatile String targetId;
 
     private CdpClient(WebSocket ws, HttpClient httpClient) {
         this.ws = ws;
@@ -119,6 +120,15 @@ public class CdpClient implements AutoCloseable {
     }
 
     public CompletableFuture<JsonNode> send(String method, JsonNode params) {
+        return send(method, params, false);
+    }
+
+    /**
+     * 发送一条 CDP 命令。
+     * @param browserLevel 为 true 时不带 sessionId（用于 Target.activateTarget 等 browser 级命令，
+     *                     避免被路由到 page session 而失效）。
+     */
+    public CompletableFuture<JsonNode> send(String method, JsonNode params, boolean browserLevel) {
         long id = msgId.incrementAndGet();
         ObjectNode req = MAPPER.createObjectNode();
         req.put("id", id);
@@ -126,15 +136,12 @@ public class CdpClient implements AutoCloseable {
         if (params != null) {
             req.set("params", params);
         }
-        if (sessionId != null) {
+        if (!browserLevel && sessionId != null) {
             req.put("sessionId", sessionId);
         }
         CompletableFuture<JsonNode> fut = new CompletableFuture<>();
         pending.put(id, fut);
         ws.sendText(req.toString(), true);
-        // 防止对端宕机/连接断开导致调用方永久阻塞。
-        // 放宽到 60s：远程 Windows Chrome 的后台标签页常被节流/冻结，
-        // 指令回 ack 可能延迟到数十秒，20s 会误判为失败。
         return fut.orTimeout(60, java.util.concurrent.TimeUnit.SECONDS);
     }
 
@@ -149,7 +156,8 @@ public class CdpClient implements AutoCloseable {
         ObjectNode p = MAPPER.createObjectNode();
         p.put("url", url == null ? "about:blank" : url);
         JsonNode r = send("Target.createTarget", p).join();
-        return r.get("targetId").asText();
+        this.targetId = r.get("targetId").asText();
+        return this.targetId;
     }
 
     public String attachTarget(String targetId) {
@@ -160,10 +168,22 @@ public class CdpClient implements AutoCloseable {
         return r.get("sessionId").asText();
     }
 
-    public void closeTarget(String targetId) {
+    /** 把当前 target 拉到前台（避免 Chrome 在后台节流/冻结渲染进程导致 evaluate 卡死）。 */
+    public void activateTarget() {
+        if (targetId == null) return;
+        send("Target.activateTarget", MAPPER.createObjectNode().put("targetId", targetId), true).join();
+    }
+
+    /** 把指定 target 拉到前台（避免 Chrome 在后台节流/冻结渲染进程导致 evaluate 卡死）。 */
+    public void activateTarget(String targetId) {
+        send("Target.activateTarget", MAPPER.createObjectNode().put("targetId", targetId), true).join();
+    }
+
+    /** 关闭指定 target（带 future，调用方可做超时控制）。 */
+    public CompletableFuture<JsonNode> closeTarget(String targetId) {
         ObjectNode p = MAPPER.createObjectNode();
         p.put("targetId", targetId);
-        send("Target.closeTarget", p).join();
+        return send("Target.closeTarget", p, true);
     }
 
     // ============================ Page / Runtime ============================

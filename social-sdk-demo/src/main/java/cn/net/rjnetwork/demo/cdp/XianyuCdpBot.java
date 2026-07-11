@@ -72,17 +72,31 @@ public class XianyuCdpBot {
 
     public void navigate(String url) {
         try {
-            // 远端标签冻结时 Page.navigate 可能迟迟不回 ack；导航通常仍会异步完成，
-            // 因此超时仅作告警，不阻断后续流程。
-            client.navigate(url).get(60, java.util.concurrent.TimeUnit.SECONDS);
+            // ⚠️ 远端后台标签页的 Page.navigate【永远不会触发 load 事件】，
+            // 因此不能大超时硬等——用 5s 兜底即可（实际导航命令本身是异步立即返回的）。
+            client.navigate(url).get(5, java.util.concurrent.TimeUnit.SECONDS);
         } catch (Exception e) {
-            // 忽略单次导航超时，继续等待页面渲染
+            // SPA 页面（如 goofish）不提供 load 命令确认，超时正常，忽略
         }
-        sleep(1500);
+        sleep(3000); // SPA 渲染需要更长时间
     }
 
+    /**
+     * 提取页面可见文本（轻量版）：使用 TreeWalker 遍历前 200 个文本节点，
+     * 避免 innerText 在 heavy SPA 页上触发布局/样式计算导致长时间阻塞。
+     * 返回前 2500 字符的拼接，足以做登录态等关键词检测。
+     */
     public String getBodyText() {
-        return eval("document.body?document.body.innerText:document.documentElement.innerText");
+        return eval("(function(){"
+                + "var s='',n;"
+                + "var it=document.createTreeWalker(document.body||document.documentElement,NodeFilter.SHOW_TEXT,null,false);"
+                + "for(var c=0;(n=it.nextNode())&&c<200;c++){"
+                + "  var t=n.textContent||'';"
+                + "  s+=t;"
+                + "  if(s.length>2500)break;"
+                + "}"
+                + "return s;"
+                + "})()");
     }
 
     public String getUrl() {
@@ -211,10 +225,10 @@ public class XianyuCdpBot {
         }
     }
 
-    /** 截图视口，返回 base64 PNG（带 8s 上限，避免远端 Chrome 合成卡死导致长时间阻塞）。 */
+    /** 截图视口，返回 base64 PNG（15s 上限，兼容大图网络传输）。 */
     public String screenshotViewport() {
         try {
-            JsonNode r = client.captureScreenshot().get(8, TimeUnit.SECONDS);
+            JsonNode r = client.captureScreenshot().get(15, TimeUnit.SECONDS);
             return r.get("data").asText();
         } catch (Exception e) {
             return "";
@@ -339,55 +353,132 @@ public class XianyuCdpBot {
         return m;
     }
 
-    /** 打开登录二维码并轮询提取。优先从 DOM 直接提取二维码图片/Canvas（避开易卡死的合成截图）。 */
+    /**
+     * 获取登录二维码。直接读取页面 DOM 中二维码图片/Canvas 的 src（base64 或 URL）。
+     * 不依赖 Page.captureScreenshot（背景标签无合成帧，必然卡死 60s）。
+     */
     public Map<String, Object> getLoginQrBase64() {
         Map<String, Object> out = new LinkedHashMap<>();
+
+        // 1. 导航到闲鱼（不阻塞等 load 事件）
         navigate(xianyuUrl);
-        // 等首页基本渲染（出现登录入口）
-        waitForText("登录", 8000);
-        // 点击登录入口；部分页面默认密码登录，需再点「扫码登录」
-        if (!clickByText("登录", true)) {
-            clickByText("扫码登录", true);
-        }
-        // 轮询二维码：最多 ~20s
-        long deadline = System.currentTimeMillis() + 20000;
-        Map<String, Object> qr = null;
-        while (System.currentTimeMillis() < deadline) {
-            qr = extractQrSource();
-            if (qr != null && qr.get("data") != null && !qr.get("data").toString().isEmpty()) {
-                break;
-            }
-            sleep(1000);
-        }
+
+        // 2. 直接尝试从当前 DOM 提取二维码（可能页面已经有二维码）
+        Map<String, Object> qr = extractQrSourceLightweight();
         if (qr != null && qr.get("data") != null && !qr.get("data").toString().isEmpty()) {
+            out.putAll(qr);
             out.put("present", true);
-            out.put("mode", qr.get("mode"));
-            out.put("qr", qr.get("data"));
-            out.put("message", "已从页面提取登录二维码（" + qr.get("mode") + "），请用手机闲鱼 App 扫码");
             return out;
         }
-        // 退化：带 8s 上限的合成截图（远端后台标签可能卡，仅兜底）
-        String b64 = screenshotElementByText("扫码登录");
-        if (b64 == null || b64.isEmpty()) {
-            b64 = screenshotElementByText("二维码");
-        }
-        if (b64 == null || b64.isEmpty()) {
-            b64 = screenshotElementByText("扫码");
-        }
-        if (b64 == null || b64.isEmpty()) {
-            b64 = screenshotViewport();
-        }
-        if (b64 != null && !b64.isEmpty()) {
+
+        // 3. 尝试点击登录入口（轻量点击 — 文本匹配 + 校验 viewport 内）
+        clickByText("登录", true);
+        sleep(800);
+
+        // 4. 再试提取（可能默认就是扫码面板）
+        qr = extractQrSourceLightweight();
+        if (qr != null && qr.get("data") != null && !qr.get("data").toString().isEmpty()) {
+            out.putAll(qr);
             out.put("present", true);
-            out.put("mode", "image");
-            out.put("qr", b64);
-            out.put("message", "已通过截图获取二维码");
-        } else {
-            out.put("present", false);
-            out.put("message", "未检测到二维码：登录面板可能未加载，或二维码位于跨域 iframe 中无法读取。"
-                    + "请确认已在可见的 Chrome 标签页中点击「登录」，然后重试。");
+            return out;
         }
+
+        // 5. 如果当前是密码/短信面板，点「扫码登录」切换
+        clickByText("扫码登录", true);
+        sleep(1200);
+
+        // 6. 轮询 8s 等二维码渲染
+        long deadline = System.currentTimeMillis() + 8000;
+        while (System.currentTimeMillis() < deadline) {
+            qr = extractQrSourceLightweight();
+            if (qr != null && qr.get("data") != null && !qr.get("data").toString().isEmpty()) {
+                out.putAll(qr);
+                out.put("present", true);
+                return out;
+            }
+            sleep(700);
+        }
+
+        out.put("present", false);
+        out.put("message", "未在页面检测到二维码元素。闲鱼登录面板可能未加载或二维码位于跨域 iframe 中。");
         return out;
+    }
+
+    /**
+     * 轻量级二维码提取（eval 代价低：直接查询 img/canvas 元素 src）。不读取 body 文本。
+     */
+    private Map<String, Object> extractQrSourceLightweight() {
+        // 策略1: 找含 qr/login 关键词的 img
+        String js1 = "(function(){"
+            + "var imgs=document.querySelectorAll('img');"
+            + "for(var i=0;i<imgs.length;i++){"
+            + "  var s=imgs[i].src||'';"
+            + "  if(s.indexOf('qr')>=0||s.indexOf('login')>=0||s.indexOf('ewm')>=0||s.indexOf('code')>=0){"
+            + "    return {mode:'img',data:s};"
+            + "  }"
+            + "}"
+            + "return null;})()";
+        try {
+            String r = eval(js1);
+            if (r != null && !r.isEmpty() && !r.equals("null") && r.contains("data")) {
+                JsonNode n = mapper.readTree(r);
+                if (n.has("data") && n.get("data") != null && !n.get("data").asText().isEmpty()) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("mode", n.get("mode").asText());
+                    m.put("qr", n.get("data").asText());
+                    return m;
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // 策略2: 找 canvas 二维码（当前页面截图的一部分）
+        String js2 = "(function(){"
+            + "var canvases=document.querySelectorAll('canvas');"
+            + "for(var i=0;i<canvases.length;i++){"
+            + "  try{"
+            + "    var d=canvases[i].toDataURL('image/png');"
+            + "    if(d&&d.length>100)return {mode:'image',data:d};"
+            + "  }catch(e){}"
+            + "}"
+            + "return null;})()";
+        try {
+            String r = eval(js2);
+            if (r != null && !r.isEmpty() && !r.equals("null") && r.contains("data")) {
+                JsonNode n = mapper.readTree(r);
+                if (n.has("data") && n.get("data") != null && !n.get("data").asText().isEmpty()) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("mode", n.path("mode").asText("image"));
+                    m.put("qr", n.get("data").asText());
+                    return m;
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // 策略3: 取最大正方形 img（通常是二维码）
+        String js3 = "(function(){"
+            + "var imgs=document.querySelectorAll('img'),best=null,bestSize=0;"
+            + "for(var i=0;i<imgs.length;i++){"
+            + "  var w=imgs[i].naturalWidth||imgs[i].width||0,"
+            + "      h=imgs[i].naturalHeight||imgs[i].height||0;"
+            + "  if(w>80&&h>80&&Math.abs(w-h)<w*0.2&&w*h>bestSize){"
+            + "    bestSize=w*h;best=imgs[i].src;"
+            + "  }"
+            + "}"
+            + "return best?{mode:'img',data:best}:null;})()";
+        try {
+            String r = eval(js3);
+            if (r != null && !r.isEmpty() && !r.equals("null") && r.contains("data")) {
+                JsonNode n = mapper.readTree(r);
+                if (n.has("data") && n.get("data") != null && !n.get("data").asText().isEmpty()) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("mode", n.path("mode").asText("img"));
+                    m.put("qr", n.get("data").asText());
+                    return m;
+                }
+            }
+        } catch (Exception ignored) {}
+
+        return null;
     }
 
     /**

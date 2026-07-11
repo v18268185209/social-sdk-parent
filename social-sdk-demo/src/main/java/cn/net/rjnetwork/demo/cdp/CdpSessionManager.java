@@ -51,6 +51,7 @@ public class CdpSessionManager {
             String tid = c.createTarget(xianyuUrl);
             String sid = c.attachTarget(tid);
             c.setSessionId(sid);
+            c.activateTarget(tid);  // 拉到前台，避免 Chrome 在后台节流冻结
             this.client = c;
             this.targetId = tid;
             this.connected = true;
@@ -70,7 +71,25 @@ public class CdpSessionManager {
         return connected && client != null;
     }
 
-    /** 断开旧连接并重建（远程浏览器休眠/重连场景）。 */
+    /**
+     * 关闭旧 target 并新建一个（同一 browser 连接）。
+     * 目的：远程 Chrome 后台 target 越久越被节流冻结（evaluate 卡死 60s），
+     * 新建 target 短暂在前台活跃，保证 navigate + evaluate + 提取二维码快速完成。
+     */
+    public void freshTarget() throws Exception {
+        synchronized (lock) {
+            if (client == null) {
+                connect();
+                return;
+            }
+            // 不显式关闭旧 target（防止 browser 级 closeTarget 卡死）；直接新建 target 并激活。
+            String tid = client.createTarget(xianyuUrl);
+            String sid = client.attachTarget(tid);
+            client.setSessionId(sid);
+            client.activateTarget(tid);
+            this.targetId = tid;
+        }
+    }
     public void reconnect() throws Exception {
         synchronized (lock) {
             closeQuietly();
@@ -86,12 +105,13 @@ public class CdpSessionManager {
     private void closeQuietly() {
         connected = false;
         if (client != null) {
-            try {
-                if (targetId != null) {
-                    client.closeTarget(targetId);
+            if (targetId != null) {
+                try {
+                    // 加 3s 超时：后台标签的 closeTarget 可能卡死，不能无限等
+                    client.closeTarget(targetId).get(3, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (Exception ignore) {
+                    // 后台标签卡住也继续，不阻塞
                 }
-            } catch (Exception ignore) {
-                // 远程可能已断开，忽略
             }
             try {
                 client.close();
