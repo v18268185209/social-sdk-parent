@@ -132,8 +132,10 @@ public class CdpClient implements AutoCloseable {
         CompletableFuture<JsonNode> fut = new CompletableFuture<>();
         pending.put(id, fut);
         ws.sendText(req.toString(), true);
-        // 防止对端宕机/连接断开导致调用方永久阻塞
-        return fut.orTimeout(20, java.util.concurrent.TimeUnit.SECONDS);
+        // 防止对端宕机/连接断开导致调用方永久阻塞。
+        // 放宽到 60s：远程 Windows Chrome 的后台标签页常被节流/冻结，
+        // 指令回 ack 可能延迟到数十秒，20s 会误判为失败。
+        return fut.orTimeout(60, java.util.concurrent.TimeUnit.SECONDS);
     }
 
     /** 注册 CDP 事件监听（可多次注册同一事件）。 */

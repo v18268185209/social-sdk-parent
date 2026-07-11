@@ -71,8 +71,14 @@ public class XianyuCdpBot {
     }
 
     public void navigate(String url) {
-        client.navigate(url).join();
-        sleep(1200);
+        try {
+            // 远端标签冻结时 Page.navigate 可能迟迟不回 ack；导航通常仍会异步完成，
+            // 因此超时仅作告警，不阻断后续流程。
+            client.navigate(url).get(60, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            // 忽略单次导航超时，继续等待页面渲染
+        }
+        sleep(1500);
     }
 
     public String getBodyText() {
