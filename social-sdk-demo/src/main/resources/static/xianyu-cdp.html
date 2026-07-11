@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>闲鱼 CDP 管理台</title>
+  <style>
+    :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ec; --muted:#8b93a1; --red:#ff4d4f; --green:#27c08a; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif; }
+    header { padding:16px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
+    header h1 { font-size:18px; margin:0; }
+    .badge { font-size:12px; color:var(--muted); border:1px solid var(--line); padding:2px 10px; border-radius:999px; }
+    .wrap { display:grid; grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); gap:16px; padding:20px 24px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+    .card h2 { margin:0 0 10px; font-size:15px; display:flex; align-items:center; gap:8px; }
+    .card h2 .n { width:22px;height:22px; border-radius:6px; background:var(--red); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:12px; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+    input { flex:1; min-width:120px; background:#0c0e12; border:1px solid var(--line); color:var(--txt); border-radius:8px; padding:8px 10px; }
+    button { background:var(--red); color:#fff; border:none; border-radius:8px; padding:8px 14px; cursor:pointer; font-size:13px; }
+    button.ghost { background:transparent; border:1px solid var(--line); color:var(--txt); }
+    button:active { transform:translateY(1px); }
+    pre { background:#0c0e12; border:1px solid var(--line); border-radius:8px; padding:10px; max-height:200px; overflow:auto; font-size:12px; color:var(--muted); white-space:pre-wrap; word-break:break-all; }
+    img.qr { max-width:220px; border-radius:8px; background:#fff; display:block; margin-top:8px; }
+    .hint { color:var(--muted); font-size:12px; margin:4px 0 10px; }
+    .topbar { padding:0 24px 12px; }
+    .topbar button { margin-right:8px; }
+    #status { color:var(--muted); font-size:12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>闲鱼 CDP 管理台</h1>
+    <span class="badge" id="endpointBadge">CDP: —</span>
+    <span id="status">未连接</span>
+  </header>
+
+  <div class="topbar">
+    <button id="btnConnect">① 连接浏览器</button>
+    <button id="btnStatus" class="ghost">刷新登录态</button>
+    <button id="btnQr" class="ghost">获取登录二维码</button>
+    <span class="hint">连接后若未登录，先扫码登录；登录态下其余功能直接可用。</span>
+  </div>
+
+  <div class="wrap">
+
+    <!-- 1. 登录 -->
+    <div class="card">
+      <h2><span class="n">1</span>登录管理</h2>
+      <div class="row"><button id="btnLogout" class="ghost">退出登录</button></div>
+      <div id="loginOut" class="hint">点击「获取登录二维码」后用手机闲鱼扫码。</div>
+      <img id="qrImg" class="qr" style="display:none" />
+      <pre id="loginPre"></pre>
+    </div>
+
+    <!-- 2. 基本信息 -->
+    <div class="card">
+      <h2><span class="n">2</span>基本信息管理</h2>
+      <div class="row"><button id="btnInfo">读取我的资料</button></div>
+      <pre id="infoPre"></pre>
+    </div>
+
+    <!-- 3. 商品上下架 -->
+    <div class="card">
+      <h2><span class="n">3</span>商品上下架</h2>
+      <div class="row"><button id="btnProducts">加载我的商品</button></div>
+      <div class="row">
+        <input id="upKw" placeholder="商品标题关键字" />
+        <button id="btnUp">上架</button>
+        <button id="btnDown" class="ghost">下架</button>
+      </div>
+      <pre id="prodPre"></pre>
+    </div>
+
+    <!-- 4. 消息 -->
+    <div class="card">
+      <h2><span class="n">4</span>消息收发</h2>
+      <div class="row"><button id="btnMsg">加载会话</button></div>
+      <div class="row">
+        <input id="conv" placeholder="会话名/买家" />
+        <input id="msgText" placeholder="要发送的内容" />
+        <button id="btnSend">发送</button>
+      </div>
+      <pre id="msgPre"></pre>
+    </div>
+
+    <!-- 5. 自动发货 -->
+    <div class="card">
+      <h2><span class="n">5</span>自动发货</h2>
+      <div class="row"><button id="btnShip">加载待发货</button></div>
+      <div class="row">
+        <input id="shipKw" placeholder="订单关键字" />
+        <input id="shipNo" placeholder="物流单号(可选)" />
+        <button id="btnDoShip">发货</button>
+      </div>
+      <pre id="shipPre"></pre>
+    </div>
+
+    <!-- 6. 收货验收 -->
+    <div class="card">
+      <h2><span class="n">6</span>收货验收</h2>
+      <div class="row"><button id="btnReceipt">加载待收货</button></div>
+      <div class="row">
+        <input id="recvKw" placeholder="订单关键字" />
+        <button id="btnAccept">确认收货/验收</button>
+      </div>
+      <pre id="recvPre"></pre>
+    </div>
+
+  </div>
+
+<script>
+const API = "/api/xianyu/cdp";
+function show(pre, data){ pre.textContent = typeof data==="string" ? data : JSON.stringify(data,null,2); }
+async function call(method, path, params){
+  let url = API+path;
+  const opt = { method, headers:{} };
+  if(method==="POST" && params){
+    url += "?" + new URLSearchParams(params).toString();
+  }
+  const r = await fetch(url, opt);
+  return await r.json();
+}
+function setStatus(t){ document.getElementById("status").textContent = t; }
+
+document.getElementById("btnConnect").onclick = async ()=>{
+  const r = await call("POST","/connect");
+  document.getElementById("endpointBadge").textContent = "CDP: " + (r.data&&r.data.endpoint||"?");
+  setStatus(r.success?"已连接":"连接失败");
+  refreshStatus();
+};
+async function refreshStatus(){
+  const r = await call("GET","/login/status");
+  show(document.getElementById("loginPre"), r.data||r.message);
+  setStatus(r.data&&r.data.loggedIn ? "已登录" : "未登录");
+}
+document.getElementById("btnStatus").onclick = refreshStatus;
+
+document.getElementById("btnQr").onclick = async ()=>{
+  const r = await call("GET","/login/qr");
+  const img = document.getElementById("qrImg");
+  if(r.data && r.data.qr){ img.src="data:image/png;base64,"+r.data.qr; img.style.display="block"; }
+  show(document.getElementById("loginPre"), r.data||r.message);
+};
+document.getElementById("btnLogout").onclick = async ()=>{
+  const r = await call("POST","/logout"); show(document.getElementById("loginPre"), r.data||r.message); refreshStatus();
+};
+
+document.getElementById("btnInfo").onclick = async ()=>{
+  const r = await call("GET","/info"); show(document.getElementById("infoPre"), r.data||r.message);
+};
+
+document.getElementById("btnProducts").onclick = async ()=>{
+  const r = await call("GET","/products"); show(document.getElementById("prodPre"), r.data||r.message);
+};
+document.getElementById("btnUp").onclick = async ()=>{
+  const r = await call("POST","/product/upshelf",{keyword:document.getElementById("upKw").value});
+  show(document.getElementById("prodPre"), r.data||r.message);
+};
+document.getElementById("btnDown").onclick = async ()=>{
+  const r = await call("POST","/product/downshelf",{keyword:document.getElementById("upKw").value});
+  show(document.getElementById("prodPre"), r.data||r.message);
+};
+
+document.getElementById("btnMsg").onclick = async ()=>{
+  const r = await call("GET","/messages"); show(document.getElementById("msgPre"), r.data||r.message);
+};
+document.getElementById("btnSend").onclick = async ()=>{
+  const r = await call("POST","/message/send",{conversation:document.getElementById("conv").value, text:document.getElementById("msgText").value});
+  show(document.getElementById("msgPre"), r.data||r.message);
+};
+
+document.getElementById("btnShip").onclick = async ()=>{
+  const r = await call("GET","/shipments"); show(document.getElementById("shipPre"), r.data||r.message);
+};
+document.getElementById("btnDoShip").onclick = async ()=>{
+  const r = await call("POST","/shipment/ship",{keyword:document.getElementById("shipKw").value, logisticsNo:document.getElementById("shipNo").value});
+  show(document.getElementById("shipPre"), r.data||r.message);
+};
+
+document.getElementById("btnReceipt").onclick = async ()=>{
+  const r = await call("GET","/receipts"); show(document.getElementById("recvPre"), r.data||r.message);
+};
+document.getElementById("btnAccept").onclick = async ()=>{
+  const r = await call("POST","/receipt/accept",{keyword:document.getElementById("recvKw").value});
+  show(document.getElementById("recvPre"), r.data||r.message);
+};
+</script>
+</body>
+</html>
