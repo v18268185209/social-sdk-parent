@@ -1,0 +1,2 @@
+com.socialsdk.starter.config.SocialSdkAutoConfiguration
+com.socialsdk.starter.platform.xianyu.config.XianyuConsoleAutoConfiguration

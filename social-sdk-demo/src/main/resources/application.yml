@@ -1,0 +1,27 @@
+server:
+  port: 18080
+
+spring:
+  application:
+    name: social-sdk-demo
+
+logging:
+  level:
+    com.socialsdk: INFO
+
+social-sdk:
+  chrome:
+    executable-path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    headless: false
+    window-size: "1400,960"
+  xianyu:
+    enabled: true
+    realtime-enabled: true
+    login-timeout-seconds: 180
+    poll-interval-millis: 1500
+  console:
+    xianyu:
+      enabled: true
+      sqlite-path: "/Users/vim/Desktop/codes/social-sdk-parent/social-sdk-demo/data/social-sdk-xianyu.db"
+      auto-init-schema: true
+      auto-open-verification-url: true
