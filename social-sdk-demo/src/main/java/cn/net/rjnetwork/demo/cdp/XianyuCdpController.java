@@ -82,6 +82,20 @@ public class XianyuCdpController {
         }
     }
 
+    /**
+     * 长轮询：展示二维码后由前端调用，阻塞至登录成功或超时。
+     * 用于「页面扫码 → 代码检测登录 → 自动继续业务」闭环。
+     */
+    @GetMapping("/login/wait")
+    public ApiResponse<?> waitLogin(@RequestParam(value = "timeout", defaultValue = "90000") long timeout) {
+        try {
+            timeout = Math.min(Math.max(timeout, 1000), 120000);
+            return ApiResponse.ok(bot().waitForLogin(timeout));
+        } catch (Exception e) {
+            return ApiResponse.fail("等待登录失败: " + e.getMessage());
+        }
+    }
+
     @PostMapping("/logout")
     public ApiResponse<?> logout() {
         try {

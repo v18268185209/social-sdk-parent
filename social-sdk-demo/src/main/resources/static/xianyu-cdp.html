@@ -38,8 +38,7 @@
   <div class="topbar">
     <button id="btnConnect">① 连接浏览器</button>
     <button id="btnStatus" class="ghost">刷新登录态</button>
-    <button id="btnQr" class="ghost">获取登录二维码</button>
-    <span class="hint">连接后若未登录，先扫码登录；登录态下其余功能直接可用。</span>
+    <span class="hint">点「① 连接浏览器」后，在「登录管理」卡片里「扫码登录」：页面会显示二维码，你用手机闲鱼扫码，代码自动检测登录并加载业务。</span>
   </div>
 
   <div class="wrap">
@@ -47,8 +46,11 @@
     <!-- 1. 登录 -->
     <div class="card">
       <h2><span class="n">1</span>登录管理</h2>
-      <div class="row"><button id="btnLogout" class="ghost">退出登录</button></div>
-      <div id="loginOut" class="hint">点击「获取登录二维码」后用手机闲鱼扫码。</div>
+      <div class="row">
+        <button id="btnLoginFlow">扫码登录（自动检测）</button>
+        <button id="btnLogout" class="ghost">退出登录</button>
+      </div>
+      <div id="loginOut" class="hint">点「扫码登录」→ 页面显示二维码 → 手机闲鱼扫码 → 代码自动检测登录并加载下方业务。</div>
       <img id="qrImg" class="qr" style="display:none" />
       <pre id="loginPre"></pre>
     </div>
@@ -136,21 +138,72 @@ async function refreshStatus(){
 }
 document.getElementById("btnStatus").onclick = refreshStatus;
 
-document.getElementById("btnQr").onclick = async ()=>{
-  const r = await call("GET","/login/qr");
-  const img = document.getElementById("qrImg");
-  if(r.data && r.data.present && r.data.qr){
-    // mode=image: base64 PNG; mode=img: 直接是 <img> 可用的 src（http/https 或 data: 前缀）
-    img.src = (r.data.mode==="image") ? ("data:image/png;base64,"+r.data.qr) : r.data.qr;
-    img.style.display="block";
-  } else {
-    img.style.display="none";
-  }
-  show(document.getElementById("loginPre"), r.data||r.message);
-};
+document.getElementById("btnLoginFlow").onclick = startLoginFlow;
 document.getElementById("btnLogout").onclick = async ()=>{
+  stopPolling();
   const r = await call("POST","/logout"); show(document.getElementById("loginPre"), r.data||r.message); refreshStatus();
 };
+
+let loginTimer = null;
+let loginPollCount = 0;
+function stopPolling(){
+  if(loginTimer){ clearInterval(loginTimer); loginTimer=null; }
+  loginPollCount = 0;
+}
+async function startLoginFlow(){
+  stopPolling();
+  const loginOut = document.getElementById("loginOut");
+  const img = document.getElementById("qrImg");
+  const loginPre = document.getElementById("loginPre");
+  loginOut.textContent = "正在连接 / 获取二维码…";
+  img.style.display="none";
+  // 未连接则先连接
+  let st = await call("GET","/login/status");
+  if(!st.success && st.message && st.message.indexOf("会话")>=0){
+    await call("POST","/connect");
+  }
+  const r = await call("GET","/login/qr");
+  if(r.data && r.data.present && r.data.qr){
+    img.src = (r.data.mode==="image") ? ("data:image/png;base64,"+r.data.qr) : r.data.qr;
+    img.style.display="block";
+    loginOut.textContent = "请打开手机闲鱼 App 扫码，代码将自动检测登录…";
+    // 启动轮询：每 2.5s 检测一次登录态
+    loginTimer = setInterval(pollLogin, 2500);
+  } else {
+    img.style.display="none";
+    loginOut.textContent = (r.data && r.data.message) ? r.data.message : "获取二维码失败，请重试。";
+    show(loginPre, r.data||r.message);
+  }
+}
+async function pollLogin(){
+  loginPollCount++;
+  const r = await call("GET","/login/status");
+  if(r.data && r.data.loggedIn){
+    stopPolling();
+    document.getElementById("qrImg").style.display="none";
+    document.getElementById("loginOut").textContent = "✅ 已登录，正在加载业务数据…";
+    setStatus("已登录");
+    show(document.getElementById("loginPre"), r.data);
+    // 登录后自动加载各业务视图（"检测登录后完成后续业务"）
+    loadAllBusiness();
+    return;
+  }
+  if(loginPollCount >= 48){ // ~2 分钟仍未登录
+    stopPolling();
+    document.getElementById("loginOut").textContent = "扫码等待超时，请刷新二维码重试。";
+  }
+}
+async function loadAllBusiness(){
+  // 并行加载商品 / 消息 / 待发货 / 待收货
+  const [p, m, s, rc] = await Promise.all([
+    call("GET","/products"), call("GET","/messages"),
+    call("GET","/shipments"), call("GET","/receipts")
+  ]);
+  show(document.getElementById("prodPre"), p.data||p.message);
+  show(document.getElementById("msgPre"), m.data||m.message);
+  show(document.getElementById("shipPre"), s.data||s.message);
+  show(document.getElementById("recvPre"), rc.data||rc.message);
+}
 
 document.getElementById("btnInfo").onclick = async ()=>{
   const r = await call("GET","/info"); show(document.getElementById("infoPre"), r.data||r.message);
