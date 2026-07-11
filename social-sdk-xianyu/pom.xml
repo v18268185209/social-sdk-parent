@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>com.socialsdk</groupId>
+        <groupId>cn.net.rjnetwork</groupId>
         <artifactId>social-sdk-parent</artifactId>
         <version>1.0.0-SNAPSHOT</version>
     </parent>
@@ -19,12 +19,12 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.socialsdk</groupId>
+            <groupId>cn.net.rjnetwork</groupId>
             <artifactId>social-sdk-core</artifactId>
         </dependency>
 
         <dependency>
-            <groupId>com.socialsdk</groupId>
+            <groupId>cn.net.rjnetwork</groupId>
             <artifactId>social-sdk-chrome</artifactId>
         </dependency>
 

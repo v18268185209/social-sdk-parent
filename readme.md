@@ -26,11 +26,11 @@
 ### 1) Cookies 登录
 
 ```java
-import com.socialsdk.chrome.config.ChromeConfig;
-import com.socialsdk.core.model.SocialSession;
-import com.socialsdk.xianyu.config.XianyuConfig;
-import com.socialsdk.xianyu.model.XianyuCredentials;
-import com.socialsdk.xianyu.service.XianyuProvider;
+import cn.net.rjnetwork.chrome.config.ChromeConfig;
+import cn.net.rjnetwork.core.model.SocialSession;
+import cn.net.rjnetwork.xianyu.config.XianyuConfig;
+import cn.net.rjnetwork.xianyu.model.XianyuCredentials;
+import cn.net.rjnetwork.xianyu.service.XianyuProvider;
 
 XianyuProvider provider = new XianyuProvider(new ChromeConfig(), new XianyuConfig());
 
@@ -56,10 +56,10 @@ SocialSession session = provider.authenticate(cookies);
 ### 2) 二维码登录
 
 ```java
-import com.socialsdk.core.model.SocialSession;
-import com.socialsdk.xianyu.model.XianyuCredentials;
-import com.socialsdk.xianyu.model.XianyuQrLoginSession;
-import com.socialsdk.xianyu.service.XianyuProvider;
+import cn.net.rjnetwork.core.model.SocialSession;
+import cn.net.rjnetwork.xianyu.model.XianyuCredentials;
+import cn.net.rjnetwork.xianyu.model.XianyuQrLoginSession;
+import cn.net.rjnetwork.xianyu.service.XianyuProvider;
 
 XianyuProvider provider = new XianyuProvider();
 
@@ -105,7 +105,7 @@ provider.subscribeMessages(session, message -> {
 ### 4) 发送消息（文本/图片）
 
 ```java
-import com.socialsdk.core.model.SocialContent;
+import cn.net.rjnetwork.core.model.SocialContent;
 
 SocialContent text = new SocialContent();
 text.setText("你好，这里是自动回复");
@@ -155,6 +155,46 @@ mvn -q -f social-sdk-demo/pom.xml -DskipTests spring-boot:run
 - 实时消息接收（启动/停止、SSE 实时流推送、拉取最近消息）
 - 文本/图片消息发送
 - 时间线查询
+
+## 原生 CDP 能力（CdpClient）
+
+`social-sdk-chrome` 原先只通过 Selenium WebDriver 驱动 Chrome，且网络/控制台/指纹等均以「JS 注入」方式实现，没有原始 CDP 通路。现已补充 `cn.net.rjnetwork.chrome.cdp.CdpClient`：基于 JDK `java.net.http.WebSocket` 直接对接任意 CDP 端点（本地或远程，例如 `http://192.168.1.127:9333`），对外暴露 Selenium 难以原生提供的能力：
+
+- `Fetch` 请求拦截 / 改写 / 伪造响应（反爬绕过、MTOP 接口伪造、滑块校验绕过的核心）
+- `Network.setUserAgentOverride` / `setExtraHTTPHeaders`（底层 UA 与反爬头覆盖，比 JS 重写可靠）
+- `Emulation` 地理/时区/触摸/设备模拟
+- `Performance.getMetrics`、`DOMSnapshot.captureSnapshot`、`Storage.clearDataForOrigin`
+
+### 对接已运行的远程 Chrome
+
+```java
+import cn.net.rjnetwork.chrome.cdp.CdpClient;
+
+// 直连远程调试端点（自动从 /json/version 发现 browser WebSocket）
+CdpClient client = CdpClient.attachRemote("http://192.168.1.127:9333");
+String targetId = client.createTarget("about:blank");
+String sessionId = client.attachTarget(targetId);
+client.setSessionId(sessionId);
+
+client.navigate("https://example.com").join();
+client.setUserAgentOverride("social-sdk/1.0");
+client.enableFetchInterception(req -> client.continueRequest(req.get("requestId").asText()), true);
+```
+
+### 复用当前 Chrome 实例的 DevTools
+
+```java
+ChromeInstance instance = ...; // 已 start()
+instance.getCdpClient().ifPresent(cdp -> cdp.setUserAgentOverride("social-sdk/1.0"));
+```
+
+### 能力测试
+
+`cdp-test/cdp_harness.py` 为独立测试工具，逐项验证上述 CDP 能力（默认目标 `http://192.168.1.127:9333`，仅创建隔离测试目标，不改动你已打开的标签页）：
+
+```bash
+CDP_HTTP=http://192.168.1.127:9333 python cdp-test/cdp_harness.py
+```
 
 ## 说明
 

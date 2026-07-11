@@ -1,2 +1,2 @@
-com.socialsdk.starter.config.SocialSdkAutoConfiguration
-com.socialsdk.starter.platform.xianyu.config.XianyuConsoleAutoConfiguration
+cn.net.rjnetwork.starter.config.SocialSdkAutoConfiguration
+cn.net.rjnetwork.starter.platform.xianyu.config.XianyuConsoleAutoConfiguration

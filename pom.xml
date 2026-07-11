@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.socialsdk</groupId>
+    <groupId>cn.net.rjnetwork</groupId>
     <artifactId>social-sdk-parent</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
@@ -53,27 +53,27 @@
 
             <!-- SDK Modules -->
             <dependency>
-                <groupId>com.socialsdk</groupId>
+                <groupId>cn.net.rjnetwork</groupId>
                 <artifactId>social-sdk-core</artifactId>
                 <version>${social-sdk.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.socialsdk</groupId>
+                <groupId>cn.net.rjnetwork</groupId>
                 <artifactId>social-sdk-chrome</artifactId>
                 <version>${social-sdk.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.socialsdk</groupId>
+                <groupId>cn.net.rjnetwork</groupId>
                 <artifactId>social-sdk-xianyu</artifactId>
                 <version>${social-sdk.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.socialsdk</groupId>
+                <groupId>cn.net.rjnetwork</groupId>
                 <artifactId>social-sdk-spring-boot-starter</artifactId>
                 <version>${social-sdk.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.socialsdk</groupId>
+                <groupId>cn.net.rjnetwork</groupId>
                 <artifactId>social-sdk-demo</artifactId>
                 <version>${social-sdk.version}</version>
             </dependency>

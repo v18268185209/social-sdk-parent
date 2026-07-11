@@ -7,7 +7,7 @@ spring:
 
 logging:
   level:
-    com.socialsdk: INFO
+    cn.net.rjnetwork: INFO
 
 social-sdk:
   chrome:

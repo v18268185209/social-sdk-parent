@@ -8,11 +8,11 @@
 
 ## 包结构规划（支持后续扩展 wechat/dingding）
 
-- `com.socialsdk.starter.platform.common`：跨平台通用模型
-- `com.socialsdk.starter.platform.xianyu`：闲鱼平台能力
+- `cn.net.rjnetwork.starter.platform.common`：跨平台通用模型
+- `cn.net.rjnetwork.starter.platform.xianyu`：闲鱼平台能力
 - 未来可新增：
-  - `com.socialsdk.starter.platform.wechat`
-  - `com.socialsdk.starter.platform.dingding`
+  - `cn.net.rjnetwork.starter.platform.wechat`
+  - `cn.net.rjnetwork.starter.platform.dingding`
 
 保持“平台隔离 + 公共抽象下沉”的结构，避免后续平台代码互相耦合。
 
