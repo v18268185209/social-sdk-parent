@@ -139,7 +139,13 @@ document.getElementById("btnStatus").onclick = refreshStatus;
 document.getElementById("btnQr").onclick = async ()=>{
   const r = await call("GET","/login/qr");
   const img = document.getElementById("qrImg");
-  if(r.data && r.data.qr){ img.src="data:image/png;base64,"+r.data.qr; img.style.display="block"; }
+  if(r.data && r.data.present && r.data.qr){
+    // mode=image: base64 PNG; mode=img: 直接是 <img> 可用的 src（http/https 或 data: 前缀）
+    img.src = (r.data.mode==="image") ? ("data:image/png;base64,"+r.data.qr) : r.data.qr;
+    img.style.display="block";
+  } else {
+    img.style.display="none";
+  }
   show(document.getElementById("loginPre"), r.data||r.message);
 };
 document.getElementById("btnLogout").onclick = async ()=>{

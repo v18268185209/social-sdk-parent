@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 基于 CDP 的闲鱼操作机器人。
@@ -105,19 +106,28 @@ public class XianyuCdpBot {
     public boolean clickByText(String text, boolean contains) {
         String expr = "(function(){"
                 + "var txt=" + js(text) + ";"
+                + "var vh = window.innerHeight || document.documentElement.clientHeight;"
                 + "var els=document.querySelectorAll('a,button,[role=button],div,span,li,td');"
-                + "for(var i=els.length-1;i>=0;i--){"
+                + "var best=null, bestScore=1e9, bestEl=null;"
+                + "for(var i=0;i<els.length;i++){"
                 + "  var e=els[i];"
                 + "  if(e.offsetParent===null) continue;"
                 + "  var t=(e.innerText||e.textContent||'').trim();"
                 + "  if(" + (contains ? "t.indexOf(txt)>=0" : "t===txt") + "){"
-                + "    e.scrollIntoView({block:'center'});"
                 + "    var r=e.getBoundingClientRect();"
                 + "    if(r.width===0||r.height===0) continue;"
-                + "    return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2});"
+                + "    var cy=r.top+r.height/2;"
+                + "    var score = (cy>=0 && cy<=vh) ? Math.abs(cy - vh/2) : (1e6 + Math.abs(cy));"
+                + "    if(score<bestScore){bestScore=score;best={x:r.left+r.width/2,y:cy};bestEl=e;}"
                 + "  }"
                 + "}"
-                + "return null;"
+                + "if(!bestEl) return null;"
+                + "if(best.y<0 || best.y>vh){"
+                + "  bestEl.scrollIntoView({block:'center'});"
+                + "  var r2=bestEl.getBoundingClientRect();"
+                + "  best={x:r2.left+r2.width/2,y:r2.top+r2.height/2};"
+                + "}"
+                + "return JSON.stringify(best);"
                 + "})()";
         String res = eval(expr);
         if (res == null || res.equals("null")) {
@@ -195,17 +205,17 @@ public class XianyuCdpBot {
         }
     }
 
-    /** 截图视口，返回 base64 PNG。 */
+    /** 截图视口，返回 base64 PNG（带 8s 上限，避免远端 Chrome 合成卡死导致长时间阻塞）。 */
     public String screenshotViewport() {
         try {
-            JsonNode r = client.captureScreenshot().join();
+            JsonNode r = client.captureScreenshot().get(8, TimeUnit.SECONDS);
             return r.get("data").asText();
         } catch (Exception e) {
             return "";
         }
     }
 
-    /** 截图包含指定文本的元素的包围盒，返回 base64 PNG（用于登录二维码）。 */
+    /** 截图包含指定文本的元素的包围盒，返回 base64 PNG（带 8s 上限）。 */
     public String screenshotElementByText(String text) {
         String rectExpr = "(function(){var txt=" + js(text) + ";"
                 + "var els=document.querySelectorAll('*');"
@@ -233,8 +243,50 @@ public class XianyuCdpBot {
             clip.put("width", n.get("w").asInt());
             clip.put("height", n.get("h").asInt());
             clip.put("scale", 1);
-            JsonNode shot = client.send("Page.captureScreenshot", p).join();
+            JsonNode shot = client.send("Page.captureScreenshot", p).get(8, TimeUnit.SECONDS);
             return shot.get("data").asText();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 直接从 DOM 提取登录二维码来源，优先于合成截图（远端/后台标签页的
+     * Page.captureScreenshot 经常卡死）。返回 {mode:'img'|'image', data:src或base64}，找不到返回 null。
+     */
+    private Map<String, Object> extractQrSource() {
+        String expr = "(function(){"
+                + "function findQr(){"
+                + "  var sel='img[src*=qr],img[src*=login],img[src*=ewm],img[src*=code],"
+                + "img[alt*=二维码],img[alt*=扫码],img[alt*=qrcode]';"
+                + "  var im=document.querySelector(sel); if(im&&im.src) return {mode:'img',data:im.src};"
+                + "  var all=document.querySelectorAll('*');"
+                + "  for(var i=0;i<all.length;i++){var e=all[i];if(e.children.length===0){"
+                + "    var t=(e.innerText||'').trim();"
+                + "    if(t.indexOf('扫码')>=0||t.indexOf('二维码')>=0){"
+                + "      var p=e.parentElement;var c=0;while(p&&c<5){"
+                + "        var imgs=p.getElementsByTagName('img');"
+                + "        if(imgs.length&&imgs[0].src) return {mode:'img',data:imgs[0].src};"
+                + "        var cv=p.getElementsByTagName('canvas');"
+                + "        if(cv.length){try{return {mode:'image',data:cv[0].toDataURL('image/png')};}catch(_){}}"
+                + "        p=p.parentElement;c++;}}}"
+                + "  }"
+                + "  var anyC=document.querySelector('canvas');"
+                + "  if(anyC){try{return {mode:'image',data:anyC.toDataURL('image/png')};}catch(_){}}"
+                + "  return null;"
+                + "}"
+                + "return JSON.stringify(findQr());"
+                + "})()";
+        String res = eval(expr);
+        if (res == null || res.equals("null")) {
+            return null;
+        }
+        try {
+            JsonNode n = mapper.readTree(res);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("mode", n.get("mode").asText());
+            m.put("data", n.get("data").asText());
+            return m;
         } catch (Exception e) {
             return null;
         }
@@ -268,16 +320,24 @@ public class XianyuCdpBot {
         return m;
     }
 
-    /** 打开登录二维码并返回 base64 PNG（优先截取二维码区域）。 */
-    public String getLoginQrBase64() {
+    /** 打开登录二维码。优先从 DOM 直接提取二维码图片/Canvas（避开易卡死的合成截图）。 */
+    public Map<String, Object> getLoginQrBase64() {
+        Map<String, Object> out = new LinkedHashMap<>();
         navigate(xianyuUrl);
-        sleep(500);
-        if (clickByText("登录", true)) {
-            sleep(1500);
+        sleep(600);
+        clickByText("登录", true);
+        sleep(2000);
+        waitForText("扫码", 6000);
+        waitForText("二维码", 4000);
+        Map<String, Object> qr = extractQrSource();
+        if (qr != null && qr.get("data") != null && !qr.get("data").toString().isEmpty()) {
+            out.put("present", true);
+            out.put("mode", qr.get("mode"));
+            out.put("qr", qr.get("data"));
+            out.put("message", "已从页面提取登录二维码（" + qr.get("mode") + "）");
+            return out;
         }
-        waitForText("扫码", 5000);
-        waitForText("二维码", 5000);
-        waitForText("登录", 5000);
+        // 退化：带 8s 上限的合成截图
         String b64 = screenshotElementByText("扫码登录");
         if (b64 == null || b64.isEmpty()) {
             b64 = screenshotElementByText("二维码");
@@ -288,7 +348,16 @@ public class XianyuCdpBot {
         if (b64 == null || b64.isEmpty()) {
             b64 = screenshotViewport();
         }
-        return b64;
+        if (b64 != null && !b64.isEmpty()) {
+            out.put("present", true);
+            out.put("mode", "image");
+            out.put("qr", b64);
+            out.put("message", "已通过截图获取二维码");
+        } else {
+            out.put("present", false);
+            out.put("message", "未检测到二维码（请确认已点击「登录」且登录弹窗已加载）");
+        }
+        return out;
     }
 
     /** 退出登录（点击「退出登录」）。 */

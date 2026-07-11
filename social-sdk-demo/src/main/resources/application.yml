@@ -9,6 +9,10 @@ logging:
   level:
     cn.net.rjnetwork: INFO
 
+cdp:
+  endpoint: "http://192.168.1.127:9333"
+  xianyu-url: "https://www.goofish.com"
+
 social-sdk:
   chrome:
     executable-path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"

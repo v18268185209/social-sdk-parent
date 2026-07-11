@@ -75,11 +75,8 @@ public class XianyuCdpController {
     @GetMapping("/login/qr")
     public ApiResponse<?> loginQr() {
         try {
-            String qr = bot().getLoginQrBase64();
-            Map<String, Object> data = new LinkedHashMap<>();
-            data.put("qr", qr);
-            data.put("present", qr != null && !qr.isEmpty());
-            return ApiResponse.ok(data);
+            Map<String, Object> qr = bot().getLoginQrBase64();
+            return ApiResponse.ok(qr);
         } catch (Exception e) {
             return ApiResponse.fail("获取登录二维码失败: " + e.getMessage());
         }
