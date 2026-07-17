@@ -29,10 +29,10 @@ public class XianyuCdpController {
         this.sessionManager = sessionManager;
     }
 
-    private XianyuCdpBot bot() {
+    private cn.net.rjnetwork.xianyu.service.XianyuCdpBot bot() {
         try {
             CdpClient client = sessionManager.getClient();
-            return new XianyuCdpBot(client, sessionManager.getXianyuUrl());
+            return new cn.net.rjnetwork.xianyu.service.XianyuCdpBot(client, sessionManager.getXianyuUrl());
         } catch (Exception e) {
             throw new IllegalStateException("无法获取 CDP 会话: " + e.getMessage(), e);
         }
@@ -66,7 +66,7 @@ public class XianyuCdpController {
     @GetMapping("/login/status")
     public ApiResponse<?> loginStatus() {
         try {
-            XianyuCdpBot b = bot();
+            cn.net.rjnetwork.xianyu.service.XianyuCdpBot b = bot();
             Map<String, Object> status = b.loginStatus();
             if (!Boolean.TRUE.equals(status.get("pageReady"))) {
                 sessionManager.reconnect();
@@ -120,7 +120,7 @@ public class XianyuCdpController {
             c.setSessionId(sid);
             c.activateTarget(targetId);
 
-            XianyuCdpBot bot = new XianyuCdpBot(c, sessionManager.getXianyuUrl());
+            cn.net.rjnetwork.xianyu.service.XianyuCdpBot bot = new cn.net.rjnetwork.xianyu.service.XianyuCdpBot(c, sessionManager.getXianyuUrl());
             Map<String, Object> qr = bot.getLoginQrBase64();
             return ApiResponse.ok(qr);
         } catch (Exception e) {
