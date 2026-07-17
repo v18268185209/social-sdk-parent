@@ -2,6 +2,8 @@ package cn.net.rjnetwork.demo.cdp;
 
 import cn.net.rjnetwork.chrome.cdp.CdpClient;
 import cn.net.rjnetwork.demo.model.ApiResponse;
+import cn.net.rjnetwork.xianyu.service.XianyuCdpBot;
+import cn.net.rjnetwork.xianyu.service.XianyuCdpSessionManager;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,26 +15,23 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 闲鱼 CDP 能力 REST 接口。所有操作均通过 {@link CdpSessionManager} 拿到远程 Chrome 上的
- * 闲鱼标签页，由 {@link XianyuCdpBot} 以 CDP 驱动完成。
- *
- * <p>未登录时请先调用 {@code GET /login/qr} 获取二维码，手机扫码登录；登录态下其余能力
- * 直接可用。</p>
+ * 闲鱼 CDP 能力 REST 接口（验证壳）。
+ * 所有操作均通过 SDK 层的 {@link XianyuCdpSessionManager} 和 {@link XianyuCdpBot} 完成。
  */
 @RestController
 @RequestMapping("/api/xianyu/cdp")
 public class XianyuCdpController {
 
-    private final CdpSessionManager sessionManager;
+    private final XianyuCdpSessionManager sessionManager;
 
-    public XianyuCdpController(CdpSessionManager sessionManager) {
+    public XianyuCdpController(XianyuCdpSessionManager sessionManager) {
         this.sessionManager = sessionManager;
     }
 
-    private cn.net.rjnetwork.xianyu.service.XianyuCdpBot bot() {
+    private XianyuCdpBot bot() {
         try {
             CdpClient client = sessionManager.getClient();
-            return new cn.net.rjnetwork.xianyu.service.XianyuCdpBot(client, sessionManager.getXianyuUrl());
+            return new XianyuCdpBot(client, sessionManager.getXianyuUrl());
         } catch (Exception e) {
             throw new IllegalStateException("无法获取 CDP 会话: " + e.getMessage(), e);
         }
@@ -82,45 +81,8 @@ public class XianyuCdpController {
     public ApiResponse<?> loginQr() {
         CdpClient c = null;
         try {
-            c = CdpClient.attachRemote(sessionManager.getEndpoint());
-
-            // 发现已有 goofish/taobao/alibaba tab
-            java.net.http.HttpClient http = java.net.http.HttpClient.newBuilder()
-                    .proxy(java.net.ProxySelector.of(null)).build();
-            String listUrl = sessionManager.getEndpoint().replaceAll("/$", "") + "/json/list";
-            String listResp = http.send(
-                    java.net.http.HttpRequest.newBuilder(java.net.URI.create(listUrl)).GET()
-                            .timeout(java.time.Duration.ofSeconds(5)).build(),
-                    java.net.http.HttpResponse.BodyHandlers.ofString()).body();
-
-            com.fasterxml.jackson.databind.JsonNode list = new com.fasterxml.jackson.databind.ObjectMapper().readTree(listResp);
-            String targetId = null;
-            String fallbackTargetId = null;
-            for (com.fasterxml.jackson.databind.JsonNode t : list) {
-                if (!"page".equals(t.get("type").asText())) continue;
-                String url = t.path("url").asText("");
-                if (url.startsWith("chrome://") || url.isEmpty()) {
-                    continue;
-                }
-                if (fallbackTargetId == null) {
-                    fallbackTargetId = t.get("id").asText();
-                }
-                if (url.contains("goofish.com") || url.contains("passport.goofish.com")
-                        || url.contains("taobao.com") || url.contains("alibaba.com")) {
-                    targetId = t.get("id").asText();
-                    break;
-                }
-            }
-
-            if (targetId == null) {
-                targetId = c.createTarget(sessionManager.getXianyuUrl());
-            }
-
-            String sid = c.attachTarget(targetId);
-            c.setSessionId(sid);
-            c.activateTarget(targetId);
-
-            cn.net.rjnetwork.xianyu.service.XianyuCdpBot bot = new cn.net.rjnetwork.xianyu.service.XianyuCdpBot(c, sessionManager.getXianyuUrl());
+            c = sessionManager.acquireLoginTarget();
+            XianyuCdpBot bot = new XianyuCdpBot(c, sessionManager.getXianyuUrl());
             Map<String, Object> qr = bot.getLoginQrBase64();
             return ApiResponse.ok(qr);
         } catch (Exception e) {
