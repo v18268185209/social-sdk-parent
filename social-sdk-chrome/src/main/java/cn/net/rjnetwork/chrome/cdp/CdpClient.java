@@ -428,6 +428,7 @@ public class CdpClient implements AutoCloseable {
         @Override
         public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
             buf.append(data);
+            webSocket.request(1);
             if (last) {
                 String text = buf.toString();
                 buf.setLength(0);
@@ -458,7 +459,6 @@ public class CdpClient implements AutoCloseable {
                     }
                 } catch (Exception ignored) {
                 }
-                webSocket.request(1);
             }
             return CompletableFuture.completedFuture(null);
         }

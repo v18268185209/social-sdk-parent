@@ -66,7 +66,13 @@ public class XianyuCdpController {
     @GetMapping("/login/status")
     public ApiResponse<?> loginStatus() {
         try {
-            return ApiResponse.ok(bot().loginStatus());
+            XianyuCdpBot b = bot();
+            Map<String, Object> status = b.loginStatus();
+            if (!Boolean.TRUE.equals(status.get("pageReady"))) {
+                sessionManager.reconnect();
+                status = bot().loginStatus();
+            }
+            return ApiResponse.ok(status);
         } catch (Exception e) {
             return ApiResponse.fail("读取登录态失败: " + e.getMessage());
         }
@@ -89,11 +95,18 @@ public class XianyuCdpController {
 
             com.fasterxml.jackson.databind.JsonNode list = new com.fasterxml.jackson.databind.ObjectMapper().readTree(listResp);
             String targetId = null;
+            String fallbackTargetId = null;
             for (com.fasterxml.jackson.databind.JsonNode t : list) {
                 if (!"page".equals(t.get("type").asText())) continue;
-                String url = t.get("url").asText();
-                String title = t.has("title") ? t.get("title").asText() : "";
-                if (!url.startsWith("chrome://") && !url.isEmpty()) {
+                String url = t.path("url").asText("");
+                if (url.startsWith("chrome://") || url.isEmpty()) {
+                    continue;
+                }
+                if (fallbackTargetId == null) {
+                    fallbackTargetId = t.get("id").asText();
+                }
+                if (url.contains("goofish.com") || url.contains("passport.goofish.com")
+                        || url.contains("taobao.com") || url.contains("alibaba.com")) {
                     targetId = t.get("id").asText();
                     break;
                 }

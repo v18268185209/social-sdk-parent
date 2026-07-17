@@ -133,12 +133,20 @@ public class XianyuCdpBot {
                 + "  var e=els[i];"
                 + "  if(e.offsetParent===null) continue;"
                 + "  var t=(e.innerText||e.textContent||'').trim();"
-                + "  if(" + (contains ? "t.indexOf(txt)>=0" : "t===txt") + "){"
+                + "  if(!t) continue;"
+                + "  var matched=" + (contains ? "t.indexOf(txt)>=0" : "t===txt") + ";"
+                + "  if(matched){"
                 + "    var r=e.getBoundingClientRect();"
                 + "    if(r.width===0||r.height===0) continue;"
+                + "    var exact=t===txt;"
+                + "    var leaf=e.children.length===0;"
+                + "    var textPenalty=exact?0:Math.min(5000,t.length);"
+                + "    var areaPenalty=Math.min(5000,(r.width*r.height)/100);"
+                + "    var leafPenalty=leaf?0:1000;"
                 + "    var cy=r.top+r.height/2;"
-                + "    var score = (cy>=0 && cy<=vh) ? Math.abs(cy - vh/2) : (1e6 + Math.abs(cy));"
-                + "    if(score<bestScore){bestScore=score;best={x:r.left+r.width/2,y:cy};bestEl=e;}"
+                + "    var posPenalty=(cy>=0 && cy<=vh) ? Math.abs(cy - vh/2) : (1e6 + Math.abs(cy));"
+                + "    var score=textPenalty*10 + areaPenalty + leafPenalty + posPenalty/100;"
+                + "    if(score<bestScore){bestScore=score;best={x:r.left+r.width/2,y:cy,text:t,score:score};bestEl=e;}"
                 + "  }"
                 + "}"
                 + "if(!bestEl) return null;"
@@ -228,6 +236,7 @@ public class XianyuCdpBot {
     /** 截图视口，返回 base64 PNG（15s 上限，兼容大图网络传输）。 */
     public String screenshotViewport() {
         try {
+            client.send("Page.enable").get(5, TimeUnit.SECONDS);
             JsonNode r = client.captureScreenshot().get(15, TimeUnit.SECONDS);
             return r.get("data").asText();
         } catch (Exception e) {
@@ -341,15 +350,24 @@ public class XianyuCdpBot {
     /** 读取当前登录态。 */
     public Map<String, Object> loginStatus() {
         Map<String, Object> m = new LinkedHashMap<>();
+        String url = getUrl();
+        String title = eval("document.title");
         String body = getBodyText();
-        boolean hasLoginButton = body.contains("登录");
-        boolean loggedIn = !hasLoginButton
-                && (body.contains("我发布的") || body.contains("退出登录") || body.contains("个人主页")
-                || body.contains("我的闲鱼"));
+        String cookie = eval("document.cookie");
+        boolean hasLoginButton = body.contains("登录") || body.contains("立即登录");
+        boolean hasLoginCookie = cookie.contains("tracknick=") || cookie.contains("unb=")
+                || cookie.contains("cookie2=") || cookie.contains("_nk_=");
+        boolean hasLoggedInText = body.contains("我发布的") || body.contains("退出登录")
+                || body.contains("个人主页") || body.contains("我的闲鱼") || body.contains("发闲置")
+                || body.contains("消息") || body.contains("订单");
+        boolean pageReady = url != null && !url.isBlank() && body != null && !body.isBlank();
+        boolean loggedIn = pageReady && (hasLoginCookie || (!hasLoginButton && hasLoggedInText));
         m.put("loggedIn", loggedIn);
         m.put("hasLoginButton", hasLoginButton);
-        m.put("url", getUrl());
-        m.put("title", eval("document.title"));
+        m.put("hasLoginCookie", hasLoginCookie);
+        m.put("pageReady", pageReady);
+        m.put("url", url);
+        m.put("title", title);
         return m;
     }
 
