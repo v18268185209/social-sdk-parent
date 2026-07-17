@@ -7,9 +7,11 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -526,26 +528,101 @@ public class XianyuCdpBot {
 
     public Map<String, Object> getBasicInfo() {
         Map<String, Object> m = new LinkedHashMap<>();
-        clickByText("我的", true);
-        sleep(1500);
+        // 1. 确认当前在 goofish，不在则导航过去
+        String url = getUrl();
+        if (url == null || url.isBlank() || !url.contains("goofish.com")) {
+            navigate(xianyuUrl);
+        }
+        // 2. cookie 取 tracknick（闲鱼登录后最可靠的昵称来源）
+        String cookie = eval("document.cookie");
+        String nickFromCookie = "";
+        if (cookie != null) {
+            for (String kv : cookie.split(";\\s*")) {
+                if (kv.startsWith("tracknick=")) {
+                    nickFromCookie = kv.substring("tracknick=".length()).trim();
+                    try {
+                        nickFromCookie = java.net.URLDecoder.decode(nickFromCookie, "UTF-8");
+                    } catch (Exception ignore) {
+                    }
+                    break;
+                }
+            }
+        }
+        // 3. DOM 取昵称
         String nick = eval("(function(){var e=document.querySelector("
-                + "[class*='nick'],[class*='Name'],[class*='user'],[class*='profile']);"
+                + "[class*='nick'],[class*='Nick'],[class*='userName'],[class*='Username'],"
+                + "[class*='user-name'],[class*='profile'],[class*='name']);"
                 + "return e?(e.innerText||e.textContent||'').trim():'';})()");
+        if (nick.isEmpty()) {
+            nick = nickFromCookie;
+        }
         m.put("nickname", nick);
-        String body = getBodyText().replaceAll("\\s+", " ").trim();
-        m.put("excerpt", body.length() > 800 ? body.substring(0, 800) : body);
-        m.put("loggedIn", !body.contains("登录"));
+        m.put("nickFromCookie", nickFromCookie);
+        m.put("url", getUrl());
+        // 4. 导航到个人主页提取详细资料字段
+        navigate(personalProfileUrl());
+        sleep(2500);
+        String profileJson = eval("(function(){"
+                + "var out={};"
+                + "var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);"
+                + "var textNodes=[];var n;"
+                + "while((n=walker.nextNode())&&textNodes.length<400){"
+                + "  var t=(n.textContent||'').trim();"
+                + "  if(t)textNodes.push(t);"
+                + "}"
+                + "var joined=textNodes.join(' ');"
+                + "var nums=joined.match(/(\\d+(?:[,.]\\d+)*(?:[千万Kk]*))(?:\\s*(?:发布|商品|粉丝|关注|信用|好评|我想要|超赞|被浏览量|被想要))/g);"
+                + "out.numbers=nums||[];"
+                + "var brief=textNodes.filter(function(t){return t.length>1&&t.length<60&&!/[¥￥€£]/.test(t)&&!/[0-9]{5,}/.test(t)}).slice(0,30);"
+                + "out.texts=brief;"
+                + "out.title=document.title;"
+                + "out.url=location.href;"
+                + "return JSON.stringify(out);"
+                + "})()");
+        m.put("profileUrl", getUrl());
+        m.put("excerpt", profileJson);
+        m.put("loggedIn", nick != null && !nick.isEmpty());
         return m;
+    }
+
+    /** 构造个人主页 URL（基于登录 cookie 的 user id）。 */
+    private String personalProfileUrl() {
+        // 闲鱼个人主页路径；如无法解析则回退到首页
+        String cookie = eval("document.cookie");
+        if (cookie != null) {
+            for (String kv : cookie.split(";\\s*")) {
+                if (kv.startsWith("unb=")) {
+                    String uid = kv.substring("unb=".length()).trim();
+                    if (!uid.isEmpty() && uid.matches("\\d+")) {
+                        return "https://www.goofish.com/personal?id=" + uid;
+                    }
+                }
+            }
+        }
+        return "https://www.goofish.com/personal";
     }
 
     // ============================ 3. 商品上下架 ============================
 
     /** 进入「我发布的」并提取商品卡片（标题/价格/状态）。 */
     public List<Map<String, Object>> listProducts() {
-        clickByText("我的", true);
-        sleep(800);
-        clickByText("我发布的", true);
-        sleep(1500);
+        // 直接导航到个人主页，避免 SPA 侧边栏点击跳转失败
+        navigate(personalProfileUrl());
+        sleep(2500);
+        // 在个人主页里直接执行 JS click 找「我发布的」标签（比坐标模拟更稳）
+        String clickExpr = "(function(){"
+                + "var els=document.querySelectorAll('a,button,div,span,li,td');"
+                + "for(var i=0;i<els.length;i++){"
+                + "  var t=(els[i].innerText||'').trim();"
+                + "  if(t==='我发布的'&&els[i].offsetParent!==null){"
+                + "    els[i].click();"
+                + "    return 'clicked';"
+                + "  }"
+                + "}"
+                + "return 'not found';"
+                + "})()";
+        eval(clickExpr);
+        sleep(2500);
         return extractCards();
     }
 
@@ -720,37 +797,105 @@ public class XianyuCdpBot {
 
     // ============================ 通用提取 ============================
 
-    /** 从当前页面抽取「卡片」：含 ¥ 的叶子文本视为商品/订单价格锚点。 */
     private List<Map<String, Object>> extractCards() {
-        String expr = "(function(){"
-                + "var out=[];"
-                + "var els=document.querySelectorAll('*');"
-                + "for(var i=0;i<els.length;i++){"
-                + "  var e=els[i];"
-                + "  if(e.children.length===0){"
-                + "    var t=(e.innerText||'').trim();"
-                + "    if((t.indexOf('¥')>=0||t.indexOf('￥')>=0)&&t.length<60){"
-                + "      out.push(t);"
-                + "    }"
-                + "  }"
-                + "}"
-                + "return JSON.stringify(out.slice(0,60));"
-                + "})()";
-        JsonNode arr = evalJson(expr);
-        List<Map<String, Object>> result = new ArrayList<>();
-        if (arr.isArray()) {
-            for (JsonNode n : arr) {
-                Map<String, Object> item = new LinkedHashMap<>();
-                item.put("price", n.asText());
-                result.add(item);
-            }
+        // 闲鱼「我发布的」页面 bodyText 里，卖家名在每个商品块末尾重复出现。
+        // 1. 从页面 header 提取卖家名（"Preview<卖家名>浙江省..."）
+        // 2. 按卖家名拆分 bodyText 为商品块
+        // 3. 每块提取价格、标题、状态
+        String body = getBodyText();
+        String seller = detectSellerNameFromHeader(body);
+        List<Map<String, Object>> cards = new ArrayList<>();
+        java.util.regex.Pattern pricePattern = java.util.regex.Pattern.compile("[¥￥]\\s*[\\d,]+(?:\\.\\d+)?");
+
+        String[] blocks;
+        if (!seller.isEmpty() && body.contains(seller)) {
+            blocks = body.split(java.util.regex.Pattern.quote(seller));
+        } else {
+            // 退化：按 ¥价格 拆分
+            blocks = body.split("(?=[¥￥]\\s*\\d)");
         }
-        if (result.isEmpty()) {
-            // 退化：返回页面文本片段，便于人工核对
-            Map<String, Object> fallback = new LinkedHashMap<>();
-            String body = getBodyText().replaceAll("\\s+", " ").trim();
-            fallback.put("rawText", body.length() > 1000 ? body.substring(0, 1000) : body);
-            result.add(fallback);
+
+        for (String block : blocks) {
+            if (block == null || block.trim().isEmpty()) continue;
+            // 提取所有价格
+            java.util.regex.Matcher pm = pricePattern.matcher(block);
+            List<String> prices = new ArrayList<>();
+            while (pm.find()) {
+                String p = pm.group().replaceAll("\\s+", "");
+                if (!prices.contains(p)) prices.add(p);
+            }
+            if (prices.isEmpty()) continue;
+
+            // 状态判断
+            String status = "";
+            if (block.contains("在售")) status = "在售";
+            else if (block.contains("下架")) status = "下架";
+            else if (block.contains("已售") || block.contains("售出")) status = "已售出";
+
+            // 标题：去掉价格、卖家名、状态词、常见噪声后的最长中文串
+            String cleaned = block;
+            for (String p : prices) {
+                cleaned = cleaned.replace(p, "");
+            }
+            cleaned = cleaned
+                    .replaceAll("[\\s　]+", " ")
+                    .trim();
+
+            // 取最长的中文串作为标题
+            java.util.regex.Matcher cnMatcher = java.util.regex.Pattern.compile("[\\u4e00-\\u9fffA-Za-z0-9，,。.、：:；;！!？?\\s]{4,50}").matcher(cleaned);
+            String title = "";
+            while (cnMatcher.find()) {
+                String t = cnMatcher.group().trim();
+                if (t.length() > title.length()) {
+                    title = t;
+                }
+            }
+
+            // 取主要价格（如果有两个价格，第二个是现售价）
+            String mainPrice = prices.get(prices.size() > 1 ? 1 : 0);
+            String origPrice = prices.size() > 1 ? prices.get(0) : "";
+            String priceDisplay = origPrice.isEmpty() ? mainPrice : mainPrice + "（原价 " + origPrice + "）";
+
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("title", title);
+            item.put("price", priceDisplay);
+            item.put("status", status);
+            cards.add(item);
+        }
+
+        if (cards.isEmpty()) {
+            Map<String, Object> fb = new LinkedHashMap<>();
+            fb.put("rawText", body);
+            cards.add(fb);
+        }
+        return cards;
+    }
+
+    /** 从页面 header 提取卖家用户名（"Preview<卖家名>省份..."）。 */
+    private String detectSellerNameFromHeader(String body) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("Preview([\\u4e00-\\u9fff\\w]{2,15})").matcher(body);
+        if (m.find()) {
+            return m.group(1);
+        }
+        return "";
+    }
+
+    /** 解析 JS 返回的卡片 JSON 字符串（直接 eval 返回的字符串更可靠）。 */
+    private List<Map<String, Object>> parseCardJson(String json) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (json == null || json.isBlank()) return result;
+        try {
+            JsonNode arr = mapper.readTree(json);
+            if (arr.isArray()) {
+                for (JsonNode n : arr) {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("title", n.path("title").asText(""));
+                    item.put("price", n.path("price").asText(""));
+                    item.put("status", n.path("status").asText(""));
+                    result.add(item);
+                }
+            }
+        } catch (Exception ignore) {
         }
         return result;
     }

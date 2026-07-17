@@ -64,6 +64,29 @@ public class CdpSessionManager {
         if (!connected || client == null) {
             return connect();
         }
+        // 检测旧 target 是否还存活（远端标签被关/刷新后 session 即失效）
+        try {
+            java.net.http.HttpClient http = java.net.http.HttpClient.newBuilder()
+                    .proxy(java.net.ProxySelector.of(null)).build();
+            String url = endpoint.replaceAll("/$", "") + "/json/list";
+            java.net.http.HttpRequest req = java.net.http.HttpRequest.newBuilder(
+                    java.net.URI.create(url)).GET()
+                    .timeout(java.time.Duration.ofSeconds(5)).build();
+            String body = http.send(req, java.net.http.HttpResponse.BodyHandlers.ofString()).body();
+            com.fasterxml.jackson.databind.JsonNode list = new com.fasterxml.jackson.databind.ObjectMapper().readTree(body);
+            boolean alive = false;
+            for (com.fasterxml.jackson.databind.JsonNode t : list) {
+                if (targetId != null && targetId.equals(t.path("id").asText(""))) {
+                    alive = true;
+                    break;
+                }
+            }
+            if (!alive) {
+                reconnect();
+            }
+        } catch (Exception ignore) {
+            // 检测失败不阻塞，留给后续 evaluate 报错时再重试
+        }
         return client;
     }
 
