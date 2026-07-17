@@ -37,7 +37,7 @@ public class XianyuCdpBot {
     // ============================ 基础工具 ============================
 
     /** 将 Java 字符串安全转义为 JS 字符串字面量（带引号）。 */
-    private String js(String s) {
+    String js(String s) {
         try {
             return mapper.writeValueAsString(s == null ? "" : s);
         } catch (Exception e) {
@@ -45,7 +45,7 @@ public class XianyuCdpBot {
         }
     }
 
-    private String eval(String expression) {
+    String eval(String expression) {
         try {
             return client.evaluateString(expression);
         } catch (Exception e) {
@@ -64,7 +64,7 @@ public class XianyuCdpBot {
         return mapper.createArrayNode();
     }
 
-    private void sleep(long ms) {
+    void sleep(long ms) {
         try {
             Thread.sleep(ms);
         } catch (InterruptedException ignore) {
@@ -797,7 +797,7 @@ public class XianyuCdpBot {
 
     // ============================ 通用提取 ============================
 
-    private List<Map<String, Object>> extractCards() {
+    List<Map<String, Object>> extractCards() {
         List<Map<String, Object>> domCards = extractProductCardsFromDom();
         if (!domCards.isEmpty()) {
             return domCards;

@@ -2,10 +2,14 @@ package cn.net.rjnetwork.demo.cdp;
 
 import cn.net.rjnetwork.chrome.cdp.CdpClient;
 import cn.net.rjnetwork.demo.model.ApiResponse;
+import cn.net.rjnetwork.xianyu.model.PublishItem;
 import cn.net.rjnetwork.xianyu.service.XianyuCdpBot;
 import cn.net.rjnetwork.xianyu.service.XianyuCdpSessionManager;
+import cn.net.rjnetwork.xianyu.service.XianyuPublishBot;
+import cn.net.rjnetwork.xianyu.service.XianyuTradeBot;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -219,7 +223,150 @@ public class XianyuCdpController {
         }
     }
 
+    // ---------------- 7. 商品发布（草稿/正式） ----------------
+
+    private XianyuPublishBot publishBot() {
+        try {
+            CdpClient client = sessionManager.getClient();
+            return new XianyuPublishBot(client, sessionManager.getXianyuUrl(), bot());
+        } catch (Exception e) {
+            throw new IllegalStateException("无法获取 CDP 会话: " + e.getMessage(), e);
+        }
+    }
+
+    @PostMapping("/publish/draft")
+    public ApiResponse<?> saveDraft(@RequestBody PublishItem item) {
+        try {
+            return ApiResponse.ok(publishBot().saveDraft(item));
+        } catch (Exception e) {
+            return ApiResponse.fail("草稿保存失败: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/publish/submit")
+    public ApiResponse<?> publish(@RequestBody PublishItem item) {
+        try {
+            item.setPublish(true);
+            return ApiResponse.ok(publishBot().fillAndPublish(item));
+        } catch (Exception e) {
+            return ApiResponse.fail("发布失败: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/publish/form")
+    public ApiResponse<?> inPublishForm() {
+        try {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("inForm", publishBot().isInPublishForm());
+            data.put("screenshot", bot().screenshotViewport());
+            return ApiResponse.ok(data);
+        } catch (Exception e) {
+            return ApiResponse.fail("检测发布表单失败: " + e.getMessage());
+        }
+    }
+
+    // ---------------- 8. 交易闭环 ----------------
+
+    private XianyuTradeBot tradeBot() {
+        try {
+            CdpClient client = sessionManager.getClient();
+            return new XianyuTradeBot(client, bot());
+        } catch (Exception e) {
+            throw new IllegalStateException("无法获取 CDP 会话: " + e.getMessage(), e);
+        }
+    }
+
+    @GetMapping("/trade/sold")
+    public ApiResponse<?> soldOrders() {
+        try {
+            return ApiResponse.ok(tradeBot().monitorSoldOrders());
+        } catch (Exception e) {
+            return ApiResponse.fail("加载待发货订单失败: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/trade/ship/batch")
+    public ApiResponse<?> batchShip(@RequestParam("keyword") String keyword,
+                                    @RequestParam(value = "logisticsNo", required = false) String logisticsNo) {
+        try {
+            return ApiResponse.ok(tradeBot().batchShip(keyword, logisticsNo));
+        } catch (Exception e) {
+            return ApiResponse.fail("批量发货失败: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/trade/order/detail")
+    public ApiResponse<?> orderDetail(@RequestParam("keyword") String keyword) {
+        try {
+            return ApiResponse.ok(tradeBot().orderDetail(keyword));
+        } catch (Exception e) {
+            return ApiResponse.fail("查询订单详情失败: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/trade/review")
+    public ApiResponse<?> review(@RequestParam("keyword") String keyword,
+                                 @RequestParam(value = "comment", required = false) String comment,
+                                 @RequestParam(value = "stars", defaultValue = "5") int stars) {
+        try {
+            return ApiResponse.ok(tradeBot().review(keyword, comment, stars));
+        } catch (Exception e) {
+            return ApiResponse.fail("提交评价失败: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/trade/message/auto-reply")
+    public ApiResponse<?> autoReply(@RequestParam(value = "filter", required = false) String filter,
+                                    @RequestParam("reply") String reply) {
+        try {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("replied", tradeBot().autoReply(filter, reply));
+            return ApiResponse.ok(data);
+        } catch (Exception e) {
+            return ApiResponse.fail("自动回复失败: " + e.getMessage());
+        }
+    }
+
     // ---------------- 工具 ----------------
+
+    @PostMapping("/navigate")
+    public ApiResponse<?> navigate(@RequestParam("url") String url) {
+        try {
+            bot().navigate(url);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("url", url);
+            data.put("currentUrl", bot().getUrl());
+            data.put("title", evalTitle());
+            return ApiResponse.ok(data);
+        } catch (Exception e) {
+            return ApiResponse.fail("导航失败: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/eval")
+    public ApiResponse<?> eval(@RequestBody Map<String, Object> body) {
+        try {
+            String expression = (String) body.get("expression");
+            if (expression == null || expression.isBlank()) {
+                return ApiResponse.fail("expression 不能为空");
+            }
+            String result = bot().evalExpression(expression);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("result", result);
+            return ApiResponse.ok(data);
+        } catch (Exception e) {
+            return ApiResponse.fail("执行失败: " + e.getMessage());
+        }
+    }
+
+    private String evalTitle() {
+        try {
+            String t = bot().evalExpression("document.title");
+            return t != null ? t.replace("\"", "") : "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
 
     @GetMapping("/screenshot")
     public ApiResponse<?> screenshot() {
