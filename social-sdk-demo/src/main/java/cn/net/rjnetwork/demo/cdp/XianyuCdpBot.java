@@ -798,68 +798,66 @@ public class XianyuCdpBot {
     // ============================ 通用提取 ============================
 
     private List<Map<String, Object>> extractCards() {
-        // 闲鱼「我发布的」页面 bodyText 里，卖家名在每个商品块末尾重复出现。
-        // 1. 从页面 header 提取卖家名（"Preview<卖家名>浙江省..."）
-        // 2. 按卖家名拆分 bodyText 为商品块
-        // 3. 每块提取价格、标题、状态
-        String body = getBodyText();
-        String seller = detectSellerNameFromHeader(body);
-        List<Map<String, Object>> cards = new ArrayList<>();
-        java.util.regex.Pattern pricePattern = java.util.regex.Pattern.compile("[¥￥]\\s*[\\d,]+(?:\\.\\d+)?");
-
-        String[] blocks;
-        if (!seller.isEmpty() && body.contains(seller)) {
-            blocks = body.split(java.util.regex.Pattern.quote(seller));
-        } else {
-            // 退化：按 ¥价格 拆分
-            blocks = body.split("(?=[¥￥]\\s*\\d)");
+        List<Map<String, Object>> domCards = extractProductCardsFromDom();
+        if (!domCards.isEmpty()) {
+            return domCards;
         }
 
-        for (String block : blocks) {
-            if (block == null || block.trim().isEmpty()) continue;
-            // 提取所有价格
-            java.util.regex.Matcher pm = pricePattern.matcher(block);
+        String body = getBodyText();
+        List<Map<String, Object>> cards = new ArrayList<>();
+
+        java.util.regex.Matcher sellerMatcher = java.util.regex.Pattern
+                .compile("Preview(.+?)(?:浙江省|江苏省|广东省|福建省|山东省|河南省|河北省|湖南省|湖北省|四川省|安徽省|江西省|辽宁省|吉林省|黑龙江省|陕西省|山西省|云南省|贵州省|广西|内蒙古|新疆|西藏|宁夏|北京|上海|天津|重庆|\\d+粉丝)")
+                .matcher(body);
+        if (!sellerMatcher.find()) {
+            Map<String, Object> fb = new LinkedHashMap<>();
+            fb.put("rawText", body);
+            cards.add(fb);
+            return cards;
+        }
+
+        String seller = sellerMatcher.group(1).trim();
+        String[] segments = body.split(java.util.regex.Pattern.quote(seller));
+        java.util.regex.Pattern pricePattern = java.util.regex.Pattern.compile("[¥￥]\\s*[\\d,]+(?:\\.\\d+)?");
+        Set<String> seen = new HashSet<>();
+        String status = body.contains("宝贝管理") && body.contains("在售") ? "在售" : "";
+
+        for (int i = 1; i < segments.length; i++) {
+            String segment = segments[i].replaceAll("[\\s　]+", "").trim();
+            java.util.regex.Matcher pm = pricePattern.matcher(segment);
             List<String> prices = new ArrayList<>();
+            int firstPriceStart = -1;
             while (pm.find()) {
+                if (firstPriceStart < 0) firstPriceStart = pm.start();
                 String p = pm.group().replaceAll("\\s+", "");
                 if (!prices.contains(p)) prices.add(p);
             }
-            if (prices.isEmpty()) continue;
+            if (prices.isEmpty() || firstPriceStart <= 0) continue;
 
-            // 状态判断
-            String status = "";
-            if (block.contains("在售")) status = "在售";
-            else if (block.contains("下架")) status = "下架";
-            else if (block.contains("已售") || block.contains("售出")) status = "已售出";
+            String title = segment.substring(0, firstPriceStart);
+            title = title.replaceAll("^.*(?:综合|在售\\d*|已售出\\d*|筛选)", "").trim();
+            title = title.replaceAll("(发闲置|消息|闲鱼号|APP反馈|客服|回顶部).*$", "").trim();
+            if (title.length() < 2 || title.length() > 120) continue;
+            if (title.contains("我的闲鱼") || title.contains("账户设置") || title.contains("信用及评价")) continue;
 
-            // 标题：去掉价格、卖家名、状态词、常见噪声后的最长中文串
-            String cleaned = block;
-            for (String p : prices) {
-                cleaned = cleaned.replace(p, "");
+            String key = title + prices;
+            if (!seen.add(key)) continue;
+
+            String priceDisplay;
+            if (prices.size() >= 2) {
+                priceDisplay = prices.get(1) + "（原价 " + prices.get(0) + "）";
+            } else {
+                priceDisplay = prices.get(0);
             }
-            cleaned = cleaned
-                    .replaceAll("[\\s　]+", " ")
-                    .trim();
-
-            // 取最长的中文串作为标题
-            java.util.regex.Matcher cnMatcher = java.util.regex.Pattern.compile("[\\u4e00-\\u9fffA-Za-z0-9，,。.、：:；;！!？?\\s]{4,50}").matcher(cleaned);
-            String title = "";
-            while (cnMatcher.find()) {
-                String t = cnMatcher.group().trim();
-                if (t.length() > title.length()) {
-                    title = t;
-                }
-            }
-
-            // 取主要价格（如果有两个价格，第二个是现售价）
-            String mainPrice = prices.get(prices.size() > 1 ? 1 : 0);
-            String origPrice = prices.size() > 1 ? prices.get(0) : "";
-            String priceDisplay = origPrice.isEmpty() ? mainPrice : mainPrice + "（原价 " + origPrice + "）";
 
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("title", title);
             item.put("price", priceDisplay);
             item.put("status", status);
+            item.put("url", "");
+            item.put("detail", title);
+            item.put("image", "");
+            item.put("images", List.of());
             cards.add(item);
         }
 
@@ -871,13 +869,62 @@ public class XianyuCdpBot {
         return cards;
     }
 
-    /** 从页面 header 提取卖家用户名（"Preview<卖家名>省份..."）。 */
-    private String detectSellerNameFromHeader(String body) {
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("Preview([\\u4e00-\\u9fff\\w]{2,15})").matcher(body);
-        if (m.find()) {
-            return m.group(1);
+    /** 从当前「我发布的」页面 DOM 提取商品详情、链接和图片；失败时由 bodyText 解析兜底。 */
+    private List<Map<String, Object>> extractProductCardsFromDom() {
+        String expr = "(function(){"
+                + "function clean(s){return (s||'').replace(/\\s+/g,' ').trim();}"
+                + "function abs(u){try{return u?new URL(u,location.href).href:'';}catch(e){return u||'';}}"
+                + "function uniq(a){var m={},r=[];for(var i=0;i<a.length;i++){var v=a[i];if(v&&!m[v]){m[v]=1;r.push(v);}}return r;}"
+                + "function bad(t){return /我的闲鱼|账户设置|信用及评价|Goofish\\.com|阿里巴巴|统一社会信用|隐私政策|用户服务协议|发闲置0消息/.test(t);}"
+                + "var nodes=[].slice.call(document.querySelectorAll('a[href*=\\\"/item\\\"],a[href*=\\\"item?id=\\\"]'));"
+                + "var out=[],seen={};"
+                + "for(var i=0;i<nodes.length;i++){"
+                + "  var a=nodes[i];"
+                + "  var txt=clean(a.innerText||a.textContent||'');"
+                + "  if(!/[¥￥]\\s*\\d/.test(txt)||txt.length<8||txt.length>220||bad(txt))continue;"
+                + "  var prices=txt.match(/[¥￥]\\s*[\\d,.]+/g)||[];"
+                + "  if(!prices.length)continue;"
+                + "  var first=txt.search(/[¥￥]\\s*\\d/);"
+                + "  var title=clean(txt.slice(0,first));"
+                + "  title=title.replace(/^.*(?:综合|在售\\d*|已售出\\d*|筛选)/,'');"
+                + "  title=title.replace(/(发闲置|消息|闲鱼号|APP反馈|客服|回顶部).*$/,'');"
+                + "  title=clean(title);"
+                + "  if(title.length<2||title.length>120||bad(title))continue;"
+                + "  var imgs=[].slice.call(a.querySelectorAll('img')).map(function(img){return abs(img.currentSrc||img.src||img.getAttribute('src')||'');});"
+                + "  imgs=uniq(imgs).filter(function(u){return u&&!/^data:image\\/svg/i.test(u)&&!/TB1LFGeKV|tps-84-60|tps-546-546/.test(u);});"
+                + "  var price=prices.length>=2?prices[1].replace(/\\s/g,'')+'（原价 '+prices[0].replace(/\\s/g,'')+'）':prices[0].replace(/\\s/g,'');"
+                + "  var url=abs(a.href);"
+                + "  var id=(url.match(/[?&]id=([^&]+)/)||[])[1]||'';"
+                + "  var key=id||title+'|'+price; if(seen[key])continue; seen[key]=1;"
+                + "  out.push({id:id,title:title,price:price,status:/下架/.test(txt)?'下架':(/已售|售出/.test(txt)?'已售出':'在售'),url:url,detail:txt,image:imgs[0]||'',images:imgs});"
+                + "}"
+                + "return JSON.stringify(out);"
+                + "})()";
+        String json = eval(expr);
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (json == null || json.isBlank()) return result;
+        try {
+            JsonNode arr = mapper.readTree(json);
+            if (!arr.isArray()) return result;
+            for (JsonNode n : arr) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("title", n.path("title").asText(""));
+                item.put("price", n.path("price").asText(""));
+                item.put("status", n.path("status").asText(""));
+                item.put("url", n.path("url").asText(""));
+                item.put("detail", n.path("detail").asText(""));
+                item.put("image", n.path("image").asText(""));
+                List<String> images = new ArrayList<>();
+                JsonNode imgArr = n.path("images");
+                if (imgArr.isArray()) {
+                    for (JsonNode img : imgArr) images.add(img.asText(""));
+                }
+                item.put("images", images);
+                result.add(item);
+            }
+        } catch (Exception ignore) {
         }
-        return "";
+        return result;
     }
 
     /** 解析 JS 返回的卡片 JSON 字符串（直接 eval 返回的字符串更可靠）。 */
