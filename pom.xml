@@ -50,10 +50,8 @@
 
     <modules>
         <module>social-sdk-core</module>
-        <module>social-sdk-chrome</module>
         <module>social-sdk-xianyu</module>
         <module>social-sdk-spring-boot-starter</module>
-        <module>social-sdk-demo</module>
     </modules>
 
     <properties>
@@ -95,22 +93,12 @@
             </dependency>
             <dependency>
                 <groupId>cn.net.rjnetwork</groupId>
-                <artifactId>social-sdk-chrome</artifactId>
-                <version>${social-sdk.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>cn.net.rjnetwork</groupId>
                 <artifactId>social-sdk-xianyu</artifactId>
                 <version>${social-sdk.version}</version>
             </dependency>
             <dependency>
                 <groupId>cn.net.rjnetwork</groupId>
                 <artifactId>social-sdk-spring-boot-starter</artifactId>
-                <version>${social-sdk.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>cn.net.rjnetwork</groupId>
-                <artifactId>social-sdk-demo</artifactId>
                 <version>${social-sdk.version}</version>
             </dependency>
 

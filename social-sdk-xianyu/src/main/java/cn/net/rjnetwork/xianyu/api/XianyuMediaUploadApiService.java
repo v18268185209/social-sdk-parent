@@ -1,7 +1,6 @@
 package cn.net.rjnetwork.xianyu.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -149,52 +148,6 @@ public class XianyuMediaUploadApiService {
             UploadResult result = new UploadResult();
             result.success = false;
             result.message = "Base64 解码失败: " + e.getMessage();
-            return result;
-        }
-    }
-
-    // ==================== 方式三：通过 CDP DOM 操作上传（兜底方案）====================
-
-    /**
-     * 通过 CDP 的 DOM.setFileInputFiles 方法上传图片到闲鱼发布页
-     *
-     * <p>这是 bb-browser 项目中验证有效的方案，当 MTOP 接口不可用时使用。</p>
-     *
-     * @param cdpClient CDP 客户端
-     * @param tabId Tab ID
-     * @param imagePath 本地图片路径
-     * @return 上传结果
-     */
-    public UploadResult uploadViaCdp(cn.net.rjnetwork.chrome.cdp.CdpClient cdpClient, String tabId, Path imagePath) {
-        try {
-            // 1. 导航到发布页
-            String absolutePath = imagePath.toAbsolutePath().normalize().toString();
-            // 注意：CDP.setFileInputFiles 需要的是本地文件路径数组
-            // 这里通过 Runtime.evaluate 执行 JS 来模拟文件选择
-
-            String js = String.format(
-                "(function() { " +
-                "  var input = document.querySelector('input[type=\"file\"]'); " +
-                "  if (!input) return JSON.stringify({error: 'no file input'}); " +
-                "  // 创建 DataTransfer 来模拟文件选择 " +
-                "  var dt = new DataTransfer(); " +
-                "  // 由于浏览器安全限制，不能直接设置本地文件 " +
-                "  // 需要使用 CDP DOM.setFileInputFiles " +
-                "  return JSON.stringify({status: 'use_cdp_dom_api'}); " +
-                "})();"
-            );
-
-            // 实际上传需要通过 CDP 的 DOM.setFileInputFiles
-            // 这需要 CdpClient 支持该方法，当前 CdpClient 可能不支持
-            UploadResult result = new UploadResult();
-            result.success = false;
-            result.message = "CDP 文件上传需要 CdpClient 支持 DOM.setFileInputFiles 方法，请使用 MTOP 接口方式";
-            return result;
-
-        } catch (Exception e) {
-            UploadResult result = new UploadResult();
-            result.success = false;
-            result.message = "CDP 上传失败: " + e.getMessage();
             return result;
         }
     }

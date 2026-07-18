@@ -15,7 +15,7 @@
     <packaging>jar</packaging>
 
     <name>Social SDK Xianyu</name>
-    <description>Social SDK Xianyu Implementation - Xianyu/Goofish messaging integration</description>
+    <description>Social SDK Xianyu Implementation - Pure HTTP/MTOP API, no CDP dependency</description>
 
     <dependencies>
         <dependency>
@@ -23,20 +23,11 @@
             <artifactId>social-sdk-core</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>cn.net.rjnetwork</groupId>
-            <artifactId>social-sdk-chrome</artifactId>
-        </dependency>
+        <!-- social-sdk-chrome removed: CDP/browser no longer needed -->
 
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.msgpack</groupId>
-            <artifactId>msgpack-core</artifactId>
-            <version>0.9.8</version>
         </dependency>
 
         <dependency>
