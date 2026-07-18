@@ -332,10 +332,25 @@ public class XianyuApiFacade {
 
     public JsonNode getSessionList() { return messageApiService.getSessionList(); }
     public JsonNode sendMessage(String sessionId, String content, String receiverId) {
-        return messageApiService.sendMessage(sessionId, content, receiverId);
+        try {
+            return messageApiService.sendMessage(sessionId, content, receiverId);
+        } catch (Exception e) {
+            System.err.println("[Facade sendMessage] " + e.getMessage());
+            return null;
+        }
     }
     public JsonNode getMessageHistory(String sessionId, String page) {
-        return messageApiService.getMessageHistory(sessionId, page);
+        // 兼容旧 facade 调用：page 字符串转 Integer size，传 null 用默认 20
+        Integer size = null;
+        if (page != null && !page.isBlank()) {
+            try { size = Integer.parseInt(page.trim()); } catch (NumberFormatException ignored) {}
+        }
+        try {
+            return messageApiService.getMessageHistory(sessionId, size);
+        } catch (Exception e) {
+            System.err.println("[Facade getMessageHistory] " + e.getMessage());
+            return null;
+        }
     }
 
     // ======================== 8. 订单管理 ========================

@@ -29,6 +29,12 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
+        <!-- Netty — accs IM 长连接客户端（NIO + IdleStateHandler 心跳 + 自动重连） -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>com.google.zxing</groupId>
             <artifactId>core</artifactId>
@@ -45,6 +51,13 @@
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <!-- Netty (IM accs 长连接) -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>4.1.111.Final</version>
         </dependency>
     </dependencies>
 

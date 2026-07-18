@@ -180,7 +180,7 @@ public class XianyuSdk {
     /**
      * 发送消息
      */
-    public JsonNode sendMessage(String sessionId, String content, String receiverId) {
+    public JsonNode sendMessage(String sessionId, String content, String receiverId) throws Exception {
         return account(DEFAULT_ACCOUNT).api().sendMessage(sessionId, content, receiverId);
     }
 

@@ -35,7 +35,7 @@
         <el-card>
           <template #header>系统信息</template>
           <el-descriptions :column="1" border>
-            <el-descriptions-item label="应用名称">闲鱼多账号管理平台</el-descriptions-item>
+            <el-descriptions-item label="应用名称">AI鱼多宝</el-descriptions-item>
             <el-descriptions-item label="版本">1.0.0</el-descriptions-item>
             <el-descriptions-item label="数据库">SQLite3</el-descriptions-item>
             <el-descriptions-item label="缓存">Caffeine In-Memory</el-descriptions-item>

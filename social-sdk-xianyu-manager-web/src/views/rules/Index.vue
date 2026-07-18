@@ -4,21 +4,38 @@
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span>规则管理</span>
-          <el-button type="primary" @click="showCreateDialog = true">
-            <el-icon><Plus /></el-icon> 创建规则
-          </el-button>
+          <div style="display: flex; gap: 12px; align-items: center;">
+            <el-select
+              v-model="selectedAccountId"
+              @change="onAccountChange"
+              placeholder="选择账号"
+              style="width: 200px"
+              :loading="accountsLoading"
+              clearable
+            >
+              <el-option
+                v-for="a in accounts"
+                :key="a.id"
+                :label="a.displayName || a.accountName"
+                :value="a.id"
+              />
+            </el-select>
+            <el-button type="primary" @click="openCreateDialog('KEYWORD')" :disabled="!selectedAccountId">
+              <el-icon><Plus /></el-icon> 创建规则
+            </el-button>
+          </div>
         </div>
       </template>
 
-      <el-form inline style="margin-bottom: 16px;">
-        <el-form-item label="账号">
-          <el-select v-model="selectedAccountId" @change="loadRules" placeholder="选择账号" style="width: 200px;">
-            <el-option v-for="a in accounts" :key="a.id" :label="a.accountName" :value="a.id" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+      <!-- 三层 Tab -->
+      <el-tabs v-model="activeTab" @tab-change="onTabChange">
+        <el-tab-pane label="关键字词回复" name="KEYWORD" />
+        <el-tab-pane label="AI 接管回复" name="AI" />
+        <el-tab-pane label="自动回复" name="AUTO" />
+      </el-tabs>
 
-      <el-table :data="rules" stripe>
+      <!-- ===== 关键字词回复列表 ===== -->
+      <el-table v-if="activeTab === 'KEYWORD'" :data="keywordRules" stripe v-loading="loading">
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="ruleName" label="规则名称" width="150" />
         <el-table-column prop="keyword" label="关键词" width="150" />
@@ -43,15 +60,93 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- ===== AI 接管配置 ===== -->
+      <div v-else-if="activeTab === 'AI'" style="max-width: 600px;">
+        <el-form :model="aiConfig" label-width="120px">
+          <el-form-item label="启用 AI">
+            <el-switch v-model="aiConfig.aiEnabled" />
+          </el-form-item>
+          <el-form-item label="AI 供应商">
+            <el-select v-model="aiConfig.aiProvider" style="width: 100%;">
+              <el-option label="OpenAI" value="OPENAI" />
+              <el-option label="Claude" value="CLAUDE" />
+              <el-option label="自定义 API" value="CUSTOM" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="API Key">
+            <el-input v-model="aiConfig.aiApiKey" type="password" show-password placeholder="sk-..." />
+          </el-form-item>
+          <el-form-item label="API 地址">
+            <el-input v-model="aiConfig.aiApiUrl" placeholder="https://api.openai.com/v1" />
+          </el-form-item>
+          <el-form-item label="模型">
+            <el-input v-model="aiConfig.aiModel" placeholder="gpt-4o-mini" />
+          </el-form-item>
+          <el-form-item label="Temperature">
+            <el-slider v-model="aiConfig.aiTemperature" :min="0" :max="2" :step="0.1" show-input />
+          </el-form-item>
+          <el-form-item label="系统提示词">
+            <el-input v-model="aiConfig.aiSystemPrompt" type="textarea" :rows="4" placeholder="你是一个友好的闲鱼卖家客服..." />
+          </el-form-item>
+          <el-form-item label="包含上下文">
+            <el-switch v-model="aiConfig.includeChatHistory" />
+            <span style="margin-left: 8px; color: #999; font-size: 12px;">带上历史对话，回复更精准</span>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="saveAiConfig" :loading="saving">保存配置</el-button>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- ===== 自动回复配置 ===== -->
+      <div v-else-if="activeTab === 'AUTO'" style="max-width: 600px;">
+        <el-form :model="autoConfig" label-width="120px">
+          <el-form-item label="启用兜底回复">
+            <el-switch v-model="autoConfig.autoReplyEnabled" />
+          </el-form-item>
+          <el-form-item label="兜底回复话术">
+            <el-input v-model="autoConfig.fallbackReply" type="textarea" :rows="2" placeholder="亲，我现在不在，稍后回复您~" />
+          </el-form-item>
+          <el-divider />
+          <el-form-item label="欢迎语">
+            <el-input v-model="autoConfig.welcomeMessage" type="textarea" :rows="2" placeholder="您好，欢迎光临~" />
+            <div style="color: #999; font-size: 12px;">首次对话时自动发送</div>
+          </el-form-item>
+          <el-divider />
+          <el-form-item label="超时回复">
+            <el-input-number v-model="autoConfig.idleTimeoutMinutes" :min="1" :max="1440" />
+            <span style="margin-left: 8px;">分钟未回复触发</span>
+          </el-form-item>
+          <el-form-item label="超时话术">
+            <el-input v-model="autoConfig.idleReply" type="textarea" :rows="2" placeholder="亲，我现在忙，稍后回复您~" />
+          </el-form-item>
+          <el-divider />
+          <el-form-item label="离线回复">
+            <el-switch v-model="autoConfig.offlineReplyEnabled" />
+          </el-form-item>
+          <el-form-item label="离线话术">
+            <el-input v-model="autoConfig.offlineReply" type="textarea" :rows="2" placeholder="亲，我现在离线，请留言~" />
+          </el-form-item>
+          <el-divider />
+          <el-form-item label="新消息通知">
+            <el-switch v-model="autoConfig.notifyOnNewMessage" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="saveAutoConfig" :loading="saving">保存配置</el-button>
+          </el-form-item>
+        </el-form>
+      </div>
     </el-card>
 
-    <el-dialog v-model="showCreateDialog" title="创建规则" width="500px">
+    <!-- 创建规则对话框 -->
+    <el-dialog v-model="showCreateDialog" :title="createTitle" width="500px">
       <el-form :model="form" label-width="80px">
         <el-form-item label="规则名称">
-          <el-input v-model="form.ruleName" />
+          <el-input v-model="form.ruleName" placeholder="如：在吗回复" />
         </el-form-item>
         <el-form-item label="关键词">
-          <el-input v-model="form.keyword" />
+          <el-input v-model="form.keyword" placeholder="如：在吗" />
         </el-form-item>
         <el-form-item label="匹配方式">
           <el-select v-model="form.matchType" style="width: 100%;">
@@ -61,10 +156,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="回复内容">
-          <el-input v-model="form.replyText" type="textarea" :rows="3" />
+          <el-input v-model="form.replyText" type="textarea" :rows="3" placeholder="亲，在的，有什么可以帮您？" />
         </el-form-item>
         <el-form-item label="优先级">
-          <el-input-number v-model="form.priority" :min="1" />
+          <el-input-number v-model="form.priority" :min="1" :max="999" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -76,29 +171,109 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
 import api from '@/api/request'
 
+// ===== 账号选择 =====
 const accounts = ref([])
-const rules = ref([])
+const accountsLoading = ref(false)
 const selectedAccountId = ref(null)
+
+// ===== Tab =====
+const activeTab = ref('KEYWORD')
+
+// ===== 关键字规则列表 =====
+const keywordRules = ref([])
+const loading = ref(false)
+
+// ===== AI 配置 =====
+const aiConfig = reactive({
+  aiEnabled: false,
+  aiProvider: 'OPENAI',
+  aiApiKey: '',
+  aiApiUrl: '',
+  aiModel: '',
+  aiSystemPrompt: '',
+  aiTemperature: 0.7,
+  includeChatHistory: true
+})
+
+// ===== 自动回复配置 =====
+const autoConfig = reactive({
+  autoReplyEnabled: false,
+  fallbackReply: '',
+  welcomeMessage: '',
+  idleTimeoutMinutes: 30,
+  idleReply: '',
+  offlineReplyEnabled: false,
+  offlineReply: '',
+  notifyOnNewMessage: true
+})
+
+// ===== 创建规则对话框 =====
 const showCreateDialog = ref(false)
 const form = ref({ ruleName: '', keyword: '', matchType: 'CONTAINS', replyText: '', priority: 100 })
+const saving = ref(false)
+
+const createTitle = computed(() => {
+  return '创建关键字规则'
+})
+
+// ===== 方法 =====
 
 async function loadAccounts() {
+  accountsLoading.value = true
   try {
     const res = await api.get('/accounts')
-    if (res.success) accounts.value = res.data
+    if (res.success) {
+      const list = Array.isArray(res.data) ? res.data : (res.data?.records || [])
+      accounts.value = list
+      if (list.length > 0 && !selectedAccountId.value) {
+        selectedAccountId.value = list[0].id
+        await loadTabData()
+      }
+    }
   } catch (e) {}
+  finally { accountsLoading.value = false }
 }
 
-async function loadRules() {
+async function onAccountChange() {
+  await loadTabData()
+}
+
+async function onTabChange() {
+  await loadTabData()
+}
+
+async function loadTabData() {
   if (!selectedAccountId.value) return
+  if (activeTab.value === 'KEYWORD') {
+    await loadKeywordRules()
+  } else if (activeTab.value === 'AI') {
+    await loadAiConfig()
+  } else if (activeTab.value === 'AUTO') {
+    await loadAutoConfig()
+  }
+}
+
+// === 关键字规则 ===
+async function loadKeywordRules() {
+  if (!selectedAccountId.value) return
+  loading.value = true
   try {
-    const res = await api.get('/rules', { params: { accountId: selectedAccountId.value } })
-    if (res.success) rules.value = res.data
+    const res = await api.get('/rules', { params: { accountId: selectedAccountId.value, replyType: 'KEYWORD' } })
+    if (res.success) {
+      keywordRules.value = Array.isArray(res.data) ? res.data : (res.data?.records || [])
+    }
   } catch (e) {}
+  finally { loading.value = false }
+}
+
+function openCreateDialog(type) {
+  form.value = { ruleName: '', keyword: '', matchType: 'CONTAINS', replyText: '', priority: 100 }
+  showCreateDialog.value = true
 }
 
 async function handleCreate() {
@@ -107,13 +282,13 @@ async function handleCreate() {
     return
   }
   form.value.accountId = selectedAccountId.value
+  form.value.replyType = 'KEYWORD'
   try {
     const res = await api.post('/rules', form.value)
     if (res.success) {
       ElMessage.success('规则创建成功')
       showCreateDialog.value = false
-      form.value = { ruleName: '', keyword: '', matchType: 'CONTAINS', replyText: '', priority: 100 }
-      await loadRules()
+      await loadKeywordRules()
     }
   } catch (e) {}
 }
@@ -142,7 +317,53 @@ async function testRule(row) {
 
 async function deleteRule(id) {
   await ElMessageBox.confirm('确认删除该规则？', '提示', { type: 'warning' })
-  try { await api.delete(`/rules/${id}`); ElMessage.success('已删除'); await loadRules() } catch (e) {}
+  try { await api.delete(`/rules/${id}`); ElMessage.success('已删除'); await loadKeywordRules() } catch (e) {}
+}
+
+// === AI 配置 ===
+async function loadAiConfig() {
+  if (!selectedAccountId.value) return
+  try {
+    const res = await api.get(`/rules/config/${selectedAccountId.value}`)
+    if (res.success && res.data) {
+      Object.assign(aiConfig, res.data)
+    }
+  } catch (e) {}
+}
+
+async function saveAiConfig() {
+  if (!selectedAccountId.value) return
+  saving.value = true
+  try {
+    const res = await api.post(`/rules/config/${selectedAccountId.value}`, aiConfig)
+    if (res.success) {
+      ElMessage.success('AI 配置保存成功')
+    }
+  } catch (e) {}
+  finally { saving.value = false }
+}
+
+// === 自动回复配置 ===
+async function loadAutoConfig() {
+  if (!selectedAccountId.value) return
+  try {
+    const res = await api.get(`/rules/config/${selectedAccountId.value}`)
+    if (res.success && res.data) {
+      Object.assign(autoConfig, res.data)
+    }
+  } catch (e) {}
+}
+
+async function saveAutoConfig() {
+  if (!selectedAccountId.value) return
+  saving.value = true
+  try {
+    const res = await api.post(`/rules/config/${selectedAccountId.value}`, autoConfig)
+    if (res.success) {
+      ElMessage.success('自动回复配置保存成功')
+    }
+  } catch (e) {}
+  finally { saving.value = false }
 }
 
 onMounted(() => { loadAccounts() })

@@ -38,6 +38,16 @@ jwt:
 crypto:
   secret: ${XIANYU_CRYPTO_SECRET:defaultCryptoSecretKeyForDevelopmentOnly}
 
+# 闲钱钱包 MTOP 接口名（运行时可覆盖，无需重新编译）
+# 当前为占位候选；拿到真实接口名（DevTools Network 抓取 或 CDP 抓包）后改这里即可。
+# 可用 POST /api/wallet/{accountId}/probe?api=候选名 在线验证，GET /api/wallet/api-names 查看当前生效值。
+xianyu:
+  wallet:
+    balance-api: mtop.idle.web.wallet.balance.get
+    bill-api: mtop.idle.web.wallet.bill.list
+    bankcard-api: mtop.idle.web.wallet.bankcard.list
+    withdraw-api: mtop.idle.web.wallet.withdraw
+
 logging:
   level:
     cn.net.rjnetwork.xianyu.manager: DEBUG

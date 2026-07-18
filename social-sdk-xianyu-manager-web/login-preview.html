@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI鱼多宝 · 登录预览</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', Arial, sans-serif;
+  }
+  .login-page {
+    position: relative;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: #070b1e;
+  }
+  .bg-layer { position: absolute; inset: 0; pointer-events: none; }
+  .bg-aurora {
+    background:
+      radial-gradient(55% 50% at 18% 22%, rgba(124,108,255,.45), transparent 60%),
+      radial-gradient(50% 50% at 84% 78%, rgba(34,211,238,.35), transparent 60%),
+      radial-gradient(42% 42% at 72% 16%, rgba(251,191,36,.16), transparent 60%),
+      linear-gradient(160deg, #070b1e 0%, #0d1230 50%, #070b1e 100%);
+    animation: auroraShift 18s ease-in-out infinite alternate;
+  }
+  @keyframes auroraShift {
+    0% { transform: scale(1) translate(0,0); }
+    100% { transform: scale(1.12) translate(-2%,-2%); }
+  }
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
+    background-size: 46px 46px;
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 25%, transparent 78%);
+    mask-image: radial-gradient(ellipse at center, #000 25%, transparent 78%);
+  }
+  .orb { position: absolute; border-radius: 50%; filter: blur(50px); opacity: .5; pointer-events: none; }
+  .orb-1 { width:240px; height:240px; background: radial-gradient(circle,#7c6cff,transparent 70%); top:8%; left:6%; animation: float1 15s ease-in-out infinite; }
+  .orb-2 { width:200px; height:200px; background: radial-gradient(circle,#22d3ee,transparent 70%); bottom:10%; right:10%; animation: float2 19s ease-in-out infinite; }
+  .orb-3 { width:160px; height:160px; background: radial-gradient(circle,#fbbf24,transparent 70%); top:55%; left:42%; opacity:.3; animation: float3 22s ease-in-out infinite; }
+  @keyframes float1 { 0%,100%{transform:translate(0,0);} 50%{transform:translate(30px,40px);} }
+  @keyframes float2 { 0%,100%{transform:translate(0,0);} 50%{transform:translate(-36px,-28px);} }
+  @keyframes float3 { 0%,100%{transform:translate(0,0);} 50%{transform:translate(24px,-30px);} }
+
+  .login-split {
+    position: relative; z-index: 2; width: 94%; max-width: 1040px; display: flex;
+    border-radius: 26px; overflow: hidden; background: rgba(13,18,48,.55);
+    backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+    border: 1px solid rgba(255,255,255,.08); box-shadow: 0 30px 90px rgba(0,0,0,.55);
+    animation: splitIn .7s cubic-bezier(.22,1,.36,1) both;
+  }
+  @keyframes splitIn { from{opacity:0; transform:translateY(26px) scale(.985);} to{opacity:1; transform:none;} }
+
+  .brand-panel {
+    flex: 1.15; padding: 54px 48px; display: flex; flex-direction: column; justify-content: space-between;
+    background: linear-gradient(160deg, rgba(124,108,255,.2), rgba(34,211,238,.08));
+    animation: fadeRight .8s ease both .1s;
+  }
+  @keyframes fadeRight { from{opacity:0; transform:translateX(-26px);} to{opacity:1; transform:none;} }
+  .brand-logo { display: flex; align-items: center; gap: 14px; }
+  .brand-mark { filter: drop-shadow(0 6px 16px rgba(124,108,255,.5)); }
+  .brand-name {
+    font-size: 26px; font-weight: 800; letter-spacing: 1px;
+    background: linear-gradient(135deg,#b3a4ff,#5ce0f0);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .brand-title { font-size: 30px; font-weight: 700; color: #fff; line-height: 1.35; margin-top: 30px; }
+  .brand-sub { color: rgba(226,232,240,.72); margin-top: 16px; line-height: 1.75; font-size: 15px; }
+  .feature-list { list-style: none; display: flex; flex-direction: column; gap: 18px; margin: 34px 0; }
+  .feature-list li { display: flex; gap: 14px; align-items: flex-start; }
+  .feature-icon { color:#5ce0f0; width:42px; height:42px; display:flex; align-items:center; justify-content:center; background: rgba(34,211,238,.12); border-radius:12px; flex-shrink:0; }
+  .feature-title { color:#fff; font-weight:600; font-size:15px; }
+  .feature-desc { color: rgba(226,232,240,.6); font-size:13px; margin-top:3px; }
+  .brand-footer { color: rgba(255,255,255,.4); font-size:12px; }
+
+  .form-panel {
+    flex: .85; padding: 54px 44px; display: flex; align-items: center; justify-content: center;
+    background: rgba(7,11,30,.55); animation: fadeLeft .8s ease both .1s;
+  }
+  @keyframes fadeLeft { from{opacity:0; transform:translateX(26px);} to{opacity:1; transform:none;} }
+  .login-card { width:100%; max-width:360px; }
+  .form-header h2 { color:#fff; font-size:24px; font-weight:700; }
+  .form-header p { color: rgba(226,232,240,.6); margin-top:8px; font-size:14px; margin-bottom:28px; }
+  .field { margin-bottom: 20px; }
+  .field input {
+    width:100%; height:46px; padding: 0 14px 0 44px; color:#e2e8f0; font-size:15px;
+    background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); border-radius:12px; outline:none;
+    transition: border-color .25s, box-shadow .25s;
+  }
+  .field input::placeholder { color: rgba(226,232,240,.4); }
+  .field input:focus { border-color:#22d3ee; box-shadow: 0 0 0 3px rgba(34,211,238,.16); }
+  .field { position: relative; }
+  .field .ico { position:absolute; left:14px; top:50%; transform:translateY(-50%); color: rgba(226,232,240,.5); }
+  .login-btn {
+    width:100%; height:48px; font-size:16px; font-weight:600; letter-spacing:4px; color:#fff; border:none; border-radius:12px; cursor:pointer;
+    background: linear-gradient(135deg,#7c6cff,#22d3ee); box-shadow: 0 12px 30px rgba(124,108,255,.42);
+    transition: transform .2s, box-shadow .2s; margin-top: 4px;
+  }
+  .login-btn:hover { transform: translateY(-2px); box-shadow: 0 16px 42px rgba(34,211,238,.45); }
+  .form-footer { text-align:center; color: rgba(226,232,240,.4); font-size:12px; margin-top:18px; }
+
+  @media (max-width: 900px) {
+    .brand-panel { display:none; }
+    .login-split { width:92%; max-width:420px; border-radius:22px; }
+    .form-panel { flex:1; padding:48px 32px; }
+  }
+</style>
+</head>
+<body>
+  <div class="login-page">
+    <div class="bg-layer bg-aurora"></div>
+    <div class="bg-layer bg-grid"></div>
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+
+    <div class="login-split">
+      <section class="brand-panel">
+        <div class="brand-top">
+          <div class="brand-logo">
+            <svg class="brand-mark" viewBox="0 0 64 64" width="52" height="52" aria-hidden="true">
+              <defs>
+                <linearGradient id="markGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#7c6cff" />
+                  <stop offset="1" stop-color="#22d3ee" />
+                </linearGradient>
+              </defs>
+              <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#markGrad)" />
+              <g fill="#ffffff">
+                <ellipse cx="25" cy="34" rx="15" ry="9" />
+                <path d="M40 34 L54 23 L54 45 Z" />
+                <circle cx="19" cy="31" r="2.4" fill="#11163a" />
+                <path d="M44 13 l2 5.5 5.5 2 -5.5 2 -2 5.5 -2 -5.5 -5.5 -2 5.5 -2 z" fill="#fbbf24" />
+              </g>
+            </svg>
+            <span class="brand-name">AI鱼多宝</span>
+          </div>
+          <h1 class="brand-title">AI 驱动的<br />闲鱼经营智能平台</h1>
+          <p class="brand-sub">
+            统一管理多账号、AI 自动客服与实时数据看板，<br />
+            让闲置交易更高效、更省心。
+          </p>
+        </div>
+
+        <ul class="feature-list">
+          <li>
+            <div class="feature-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>
+            </div>
+            <div>
+              <div class="feature-title">AI 智能客服</div>
+              <div class="feature-desc">自动回复买家咨询，7×24 小时不间断</div>
+            </div>
+          </li>
+          <li>
+            <div class="feature-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+            </div>
+            <div>
+              <div class="feature-title">多账号统一管控</div>
+              <div class="feature-desc">一站式管理所有闲鱼店铺与风控状态</div>
+            </div>
+          </li>
+          <li>
+            <div class="feature-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
+            </div>
+            <div>
+              <div class="feature-title">实时数据看板</div>
+              <div class="feature-desc">经营、消息、订单动态尽在掌握</div>
+            </div>
+          </li>
+        </ul>
+
+        <div class="brand-footer">© 2026 AI鱼多宝 · 让每一笔交易更省心</div>
+      </section>
+
+      <section class="form-panel">
+        <div class="login-card">
+          <div class="form-header">
+            <h2>欢迎回来</h2>
+            <p>请输入账号信息登录管理系统</p>
+          </div>
+          <div class="field">
+            <span class="ico">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </span>
+            <input type="text" placeholder="用户名 / 手机号" />
+          </div>
+          <div class="field">
+            <span class="ico">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </span>
+            <input type="password" placeholder="密码" value="••••••••" />
+          </div>
+          <button class="login-btn">登 录</button>
+          <div class="form-footer">登录即代表同意《服务协议》与《隐私政策》</div>
+        </div>
+      </section>
+    </div>
+  </div>
+</body>
+</html>

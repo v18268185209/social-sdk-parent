@@ -1,7 +1,7 @@
 <template>
   <el-container class="layout">
     <el-aside width="220px" class="sidebar">
-      <div class="logo">闲鱼管家</div>
+      <div class="logo">AI鱼多宝</div>
       <el-menu
         :default-active="route.path"
         router

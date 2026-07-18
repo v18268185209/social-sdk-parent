@@ -3,6 +3,7 @@ package cn.net.rjnetwork.xianyu.manager.rule.controller;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import cn.net.rjnetwork.xianyu.manager.rule.dto.RuleCreateRequest;
 import cn.net.rjnetwork.xianyu.manager.rule.dto.RuleTestRequest;
+import cn.net.rjnetwork.xianyu.manager.rule.model.XianyuAutoReplyConfig;
 import cn.net.rjnetwork.xianyu.manager.rule.model.XianyuKeywordRule;
 import cn.net.rjnetwork.xianyu.manager.rule.service.RuleService;
 import org.springframework.web.bind.annotation.*;
@@ -21,8 +22,15 @@ public class RuleController {
     }
 
     @GetMapping
-    public ApiResponse<List<XianyuKeywordRule>> list(@RequestParam Long accountId) {
-        return ApiResponse.ok(ruleService.listRules(accountId));
+    public ApiResponse<List<XianyuKeywordRule>> list(
+            @RequestParam Long accountId,
+            @RequestParam(required = false) String replyType) {
+        List<XianyuKeywordRule> rules = ruleService.listRules(accountId);
+        // 按 replyType 过滤
+        if (replyType != null && !replyType.isEmpty()) {
+            rules.removeIf(r -> !replyType.equals(r.getReplyType()));
+        }
+        return ApiResponse.ok(rules);
     }
 
     @PostMapping
@@ -59,5 +67,23 @@ public class RuleController {
             return ApiResponse.ok(Map.of("matched", true, "reply", reply));
         }
         return ApiResponse.ok(Map.of("matched", false));
+    }
+
+    /**
+     * 获取账号的 AI/自动回复配置
+     */
+    @GetMapping("/config/{accountId}")
+    public ApiResponse<XianyuAutoReplyConfig> getConfig(@PathVariable Long accountId) {
+        return ApiResponse.ok(ruleService.getAutoReplyConfig(accountId));
+    }
+
+    /**
+     * 保存账号的 AI/自动回复配置
+     */
+    @PostMapping("/config/{accountId}")
+    public ApiResponse<XianyuAutoReplyConfig> saveConfig(
+            @PathVariable Long accountId,
+            @RequestBody XianyuAutoReplyConfig config) {
+        return ApiResponse.ok(ruleService.saveAutoReplyConfig(accountId, config));
     }
 }

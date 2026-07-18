@@ -20,6 +20,8 @@ public class XianyuMessageApiService {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final XianyuMtopApiClient apiClient;
+    /** accs IM 长连接客户端（懒初始化，首次发消息/拉历史时建立） */
+    private XianyuImAccsClient accsClient;
 
     public XianyuMessageApiService(XianyuMtopApiClient apiClient) {
         this.apiClient = apiClient;
