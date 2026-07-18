@@ -49,7 +49,9 @@ public class SecurityConfig {
                 .requestMatchers("/api/system/info").permitAll()
                 .requestMatchers("/api/system/health").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                .anyRequest().authenticated()
+                // 仅 /api/** 需要 JWT；其余（SPA 页面、静态资源、/ws 握手）全部放行
+                .requestMatchers("/api/**").authenticated()
+                .anyRequest().permitAll()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();

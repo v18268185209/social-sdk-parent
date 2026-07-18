@@ -22,6 +22,10 @@
         <jjwt.version>0.12.5</jjwt.version>
         <sqlite-jdbc.version>3.46.1.3</sqlite-jdbc.version>
         <caffeine.version>3.1.8</caffeine.version>
+        <!-- 打包时是否构建并内嵌前端；mvn package -Dskip.frontend=true 可跳过（仅后端迭代时） -->
+        <skip.frontend>false</skip.frontend>
+        <frontend.node.version>v20.18.0</frontend.node.version>
+        <frontend.npm.registry>https://registry.npmmirror.com</frontend.npm.registry>
     </properties>
 
     <dependencies>
@@ -143,6 +147,68 @@
                         </exclude>
                     </excludes>
                 </configuration>
+            </plugin>
+
+            <!-- 前端构建：在 generate-resources 阶段于兄弟目录构建 Vue，再把 dist 拷进 classpath:/static -->
+            <plugin>
+                <groupId>com.github.eirslett</groupId>
+                <artifactId>frontend-maven-plugin</artifactId>
+                <version>1.15.1</version>
+                <configuration>
+                    <workingDirectory>../social-sdk-xianyu-manager-web</workingDirectory>
+                    <nodeVersion>${frontend.node.version}</nodeVersion>
+                    <nodeDownloadRoot>https://npmmirror.com/mirrors/node/</nodeDownloadRoot>
+                    <npmRegistryURL>${frontend.npm.registry}</npmRegistryURL>
+                    <skip>${skip.frontend}</skip>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>npm-install</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>npm</goal>
+                        </goals>
+                        <configuration>
+                            <arguments>install --registry=${frontend.npm.registry}</arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>npm-build</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>npm</goal>
+                        </goals>
+                        <configuration>
+                            <arguments>run build</arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- 把前端构建产物复制进 target/classes/static，随 jar 一起打包 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>copy-frontend-dist</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>../social-sdk-xianyu-manager-web/dist</directory>
+                                    <filtering>false</filtering>
+                                </resource>
+                            </resources>
+                            <skip>${skip.frontend}</skip>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

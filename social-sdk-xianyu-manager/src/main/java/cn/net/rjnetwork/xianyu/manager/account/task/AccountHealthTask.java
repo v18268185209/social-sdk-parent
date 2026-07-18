@@ -1,5 +1,6 @@
 package cn.net.rjnetwork.xianyu.manager.account.task;
 
+import cn.net.rjnetwork.xianyu.api.XianyuLoginApiService;
 import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import cn.net.rjnetwork.xianyu.manager.notify.NotifyEvent;
@@ -40,21 +41,75 @@ public class AccountHealthTask {
         );
 
         for (XianyuAccount account : accounts) {
+            String cookie = account.getCookieHeader();
+            // 未配置 Cookie：账号无法连接，视为离线
+            if (cookie == null || cookie.isBlank()) {
+                if (!"OFFLINE".equals(account.getStatus())) {
+                    account.setStatus("OFFLINE");
+                    account.setLastError("未配置 Cookie，无法连接");
+                    accountMapper.updateById(account);
+                    publishOffline(account);
+                }
+                continue;
+            }
+
             try {
-                // TODO: 调用 XianyuSdk 检测 Cookie 有效性
-                // 这里简化处理，实际应通过 SDK 调用 API 验证
-                account.setLastLoginAt(LocalDateTime.now());
-                accountMapper.updateById(account);
+                // 通过 SDK 真实校验登录态，区分 Cookie 失效与连接失败
+                XianyuLoginApiService loginApi = new XianyuLoginApiService(cookie);
+                XianyuLoginApiService.LoginStatusResult r = loginApi.checkLoginStatus(cookie);
+
+                if (r != null && r.loggedIn) {
+                    // 健康：恢复在线
+                    account.setStatus("ACTIVE");
+                    account.setLastLoginAt(LocalDateTime.now());
+                    account.setLastError(null);
+                    accountMapper.updateById(account);
+                    continue;
+                }
+
+                // 校验未通过：根据 message 区分鉴权失效与连接失败
+                String msg = r == null ? "" : (r.message == null ? "" : r.message);
+                boolean loginExpired = msg.toLowerCase().contains("login")
+                        || msg.toLowerCase().contains("token")
+                        || msg.toLowerCase().contains("empty cookie");
+
+                if (loginExpired) {
+                    if (!"COOKIE_EXPIRED".equals(account.getStatus())) {
+                        account.setStatus("COOKIE_EXPIRED");
+                        account.setLastError(msg);
+                        accountMapper.updateById(account);
+                        publishCookieExpired(account);
+                    }
+                } else {
+                    // 连接/网络失败 -> 离线
+                    if (!"OFFLINE".equals(account.getStatus())) {
+                        account.setStatus("OFFLINE");
+                        account.setLastError(msg);
+                        accountMapper.updateById(account);
+                        publishOffline(account);
+                    }
+                }
             } catch (Exception e) {
                 logger.error("Account health check failed for {}: {}", account.getAccountName(), e.getMessage());
-                account.setLastError(e.getMessage());
-                account.setStatus("COOKIE_EXPIRED");
-                accountMapper.updateById(account);
-                // 发布 Cookie 过期通知
-                eventPublisher.publishEvent(new NotifyEvent("ACCOUNT_COOKIE_EXPIRED", account.getId(),
-                        account.getDisplayName() != null ? account.getDisplayName() : account.getAccountName(),
-                        Map.of("accountName", account.getDisplayName() != null ? account.getDisplayName() : account.getAccountName())));
+                if (!"OFFLINE".equals(account.getStatus())) {
+                    account.setStatus("OFFLINE");
+                    account.setLastError(e.getMessage());
+                    accountMapper.updateById(account);
+                    publishOffline(account);
+                }
             }
         }
+    }
+
+    private void publishCookieExpired(XianyuAccount account) {
+        String name = account.getDisplayName() != null ? account.getDisplayName() : account.getAccountName();
+        eventPublisher.publishEvent(new NotifyEvent("ACCOUNT_COOKIE_EXPIRED", account.getId(), name,
+                Map.of("accountName", name)));
+    }
+
+    private void publishOffline(XianyuAccount account) {
+        String name = account.getDisplayName() != null ? account.getDisplayName() : account.getAccountName();
+        eventPublisher.publishEvent(new NotifyEvent("ACCOUNT_OFFLINE", account.getId(), name,
+                Map.of("accountName", name)));
     }
 }

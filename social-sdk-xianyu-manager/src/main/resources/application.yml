@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: xianyu-manager
+  mvc:
+    # 让未匹配的导航请求抛出 NoHandlerFoundException，交给 SpaFallbackAdvice 转发到 index.html
+    # （已存在的静态资源仍由 ResourceHttpRequestHandler 正常返回，不受影响）
+    throw-exception-if-no-handler-found: true
   datasource:
     url: jdbc:sqlite:./data/xianyu-manager.db
     driver-class-name: org.sqlite.JDBC
