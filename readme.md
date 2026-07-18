@@ -18,3 +18,6 @@
 
 
 ### QQ交流群
+<div style="width:200px;height:auto;">
+<img src="https://raw.githubusercontent.com/v18268185209/social-sdk-parent/refs/heads/main/docs/qqqunliao.jpg">
+</div>

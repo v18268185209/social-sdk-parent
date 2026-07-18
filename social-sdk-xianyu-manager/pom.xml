@@ -35,6 +35,12 @@
             <artifactId>social-sdk-xianyu</artifactId>
         </dependency>
 
+        <!-- Core (AI client/model 等基础能力，供 ai / cs 模块使用) -->
+        <dependency>
+            <groupId>cn.net.rjnetwork</groupId>
+            <artifactId>social-sdk-core</artifactId>
+        </dependency>
+
         <!-- Spring Boot Starters -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

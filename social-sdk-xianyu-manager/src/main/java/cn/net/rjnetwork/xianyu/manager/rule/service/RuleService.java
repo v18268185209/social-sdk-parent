@@ -1,6 +1,7 @@
 package cn.net.rjnetwork.xianyu.manager.rule.service;
 
 import cn.net.rjnetwork.xianyu.manager.ai.service.AiChatService;
+import cn.net.rjnetwork.xianyu.manager.reply.service.AutoReplyLogService;
 import cn.net.rjnetwork.xianyu.manager.rule.dto.RuleCreateRequest;
 import cn.net.rjnetwork.xianyu.manager.rule.dto.RuleTestRequest;
 import cn.net.rjnetwork.xianyu.manager.rule.engine.KeywordRuleEngine;
@@ -27,14 +28,16 @@ public class RuleService {
     private final RuleMapper ruleMapper;
     private final AutoReplyConfigMapper autoReplyConfigMapper;
     private final AiChatService aiChatService;
+    private final AutoReplyLogService logService;
     // 内存缓存：accountId -> list of rules
     private final Map<Long, List<XianyuKeywordRule>> ruleCache = new ConcurrentHashMap<>();
     private static final Logger log = LoggerFactory.getLogger(RuleService.class);
 
-    public RuleService(RuleMapper ruleMapper, AutoReplyConfigMapper autoReplyConfigMapper, AiChatService aiChatService) {
+    public RuleService(RuleMapper ruleMapper, AutoReplyConfigMapper autoReplyConfigMapper, AiChatService aiChatService, AutoReplyLogService logService) {
         this.ruleMapper = ruleMapper;
         this.autoReplyConfigMapper = autoReplyConfigMapper;
         this.aiChatService = aiChatService;
+        this.logService = logService;
     }
 
     public List<XianyuKeywordRule> listRules(Long accountId) {
@@ -122,6 +125,7 @@ public class RuleService {
         for (XianyuKeywordRule rule : rules) {
             if (!"KEYWORD".equals(rule.getReplyType())) continue;
             if (KeywordRuleEngine.testRule(rule.getMatchType(), rule.getKeyword(), message)) {
+                logService.log(accountId, rule.getId(), rule.getRuleName(), "KEYWORD", rule.getKeyword(), message, rule.getReplyText(), true);
                 return rule.getReplyText();
             }
         }
@@ -131,15 +135,20 @@ public class RuleService {
         if (config != null && Boolean.TRUE.equals(config.getAiEnabled())) {
             String aiReply = callAiReply(config, message);
             if (aiReply != null && !aiReply.isEmpty()) {
+                logService.log(accountId, null, "AI_REPLY", "AI", null, message, aiReply, true);
                 return aiReply;
             }
         }
 
         // 3. 兜底自动回复（最低优先级）
-        if (config != null && Boolean.TRUE.equals(config.getAutoReplyEnabled())) {
+        if (config != null && Boolean.TRUE.equals(config.getAutoReplyEnabled())
+                && config.getFallbackReply() != null && !config.getFallbackReply().isEmpty()) {
+            logService.log(accountId, null, "AUTO_FALLBACK", "AUTO", null, message, config.getFallbackReply(), true);
             return config.getFallbackReply();
         }
 
+        // 记录未匹配
+        logService.log(accountId, null, null, null, null, message, null, false);
         return null;
     }
 
