@@ -3,6 +3,7 @@ package cn.net.rjnetwork.xianyu.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -76,22 +77,89 @@ public class XianyuMessageApiService {
     }
 
     /**
-     * 发送消息 — TODO 需 accs 长连接
-     * <p>闲鱼 IM 发消息走 accs 长连接协议（不是简单 MTOP），超出纯 HTTP 范围。
-     * 后续如需自动回复，要另起 accs 客户端模块。</p>
+     * 发送消息 — accs 长连接协议（真实抓包验证 2026-07-19 CDP）。
+     * <p>真实帧：</p>
+     * <ul>
+     *   <li>wss://wss-goofish.dingtalk.com/ POST JSON</li>
+     *   <li>{"lwp":"/r/MessageSend/sendByReceiverScope","headers":{"mid":"..."},"body":[
+     *       {"uuid":"...","cid":"60985230429@goofish","conversationType":1,
+     *        "content":{"contentType":101,"custom":{"type":1,"data":"<base64 内容>"}},
+     *        "redPointPolicy":0,"extension":{"extJson":"{}"},
+     *        "ctx":{"appVersion":"1.0","platform":"web"},"mtags":{},"msgReadStatusSetting":1},
+     *       {"actualReceivers":["2215024781926@goofish","2215280568736@goofish"]}]}</li>
+     *   <li>content.custom.data 是 base64 编码的 JSON {"contentType":1,"text":{"text":"消息内容"}}</li>
+     * </ul>
+     *
+     * @param cid        会话 id，形如 "60985230429@goofish"
+     * @param content    消息明文内容
+     * @param receiverIds 接收者 id 列表，每个形如 "2215024781926@goofish"（至少 1 个）
      */
-    public JsonNode sendMessage(String sessionId, String content, String receiverId) {
-        throw new UnsupportedOperationException(
-                "Sending IM messages requires accs long connection, not supported in pure HTTP MTOP SDK");
+    public JsonNode sendMessage(String cid, String content, String... receiverIds) throws Exception {
+        ensureAccs();
+
+        // 1. 构造 content.custom.data = base64({"contentType":1,"text":{"text":"内容"}})
+        String plainJson = MAPPER.writeValueAsString(Map.of(
+                "contentType", 1,
+                "text", Map.of("text", content != null ? content : "")
+        ));
+        String base64Data = java.util.Base64.getEncoder().encodeToString(plainJson.getBytes(StandardCharsets.UTF_8));
+
+        // 2. 构造 body 数组（第 0 项是消息体，第 1 项是 actualReceivers）
+        Map<String, Object> msg = new LinkedHashMap<>();
+        msg.put("uuid", "-" + System.currentTimeMillis());
+        msg.put("cid", cid != null ? cid : "");
+        msg.put("conversationType", 1);
+        msg.put("content", Map.of(
+                "contentType", 101,
+                "custom", Map.of("type", 1, "data", base64Data)
+        ));
+        msg.put("redPointPolicy", 0);
+        msg.put("extension", Map.of("extJson", "{}"));
+        msg.put("ctx", Map.of("appVersion", "1.0", "platform", "web"));
+        msg.put("mtags", Map.of());
+        msg.put("msgReadStatusSetting", 1);
+
+        // actualReceivers 至少含一个；调用方没传则用 cid 兜底
+        String[] receivers = (receiverIds == null || receiverIds.length == 0)
+                ? new String[]{cid} : receiverIds;
+        Map<String, Object> recv = new LinkedHashMap<>();
+        recv.put("actualReceivers", receivers);
+
+        return accsClient.sendFrame("/r/MessageSend/sendByReceiverScope", new Object[]{msg, recv});
     }
 
     /**
-     * 获取消息历史 — TODO 需 accs 长连接
-     * <p>同 sendMessage，消息历史走 accs 长连接协议。</p>
+     * 获取消息历史 — accs 长连接协议（真实抓包验证 2026-07-19 CDP）。
+     * <p>真实帧：</p>
+     * <ul>
+     *   <li>wss://wss-goofish.dingtalk.com/ POST JSON</li>
+     *   <li>{"lwp":"/r/MessageManager/listUserMessages","headers":{"mid":"..."},
+     *       "body":["63620203412@goofish",false,9007199254740991,20,false]}</li>
+     *   <li>body[0]=cid, [1]=fromLatest(false=从最新拉), [2]=startMsgId(向后拉用 9007199254740991),
+     *       [3]=size(20), [4]=false</li>
+     * </ul>
+     *
+     * @param cid    会话 id，形如 "63620203412@goofish"
+     * @param size   拉取条数，默认 20
      */
-    public JsonNode getMessageHistory(String sessionId, String page) {
-        throw new UnsupportedOperationException(
-                "IM history requires accs long connection, not supported in pure HTTP MTOP SDK");
+    public JsonNode getMessageHistory(String cid, Integer size) throws Exception {
+        ensureAccs();
+        // body=[cid, false, 9007199254740991, size, false]
+        Object[] body = new Object[]{
+                cid != null ? cid : "",
+                false,
+                9007199254740991L,  // 真实抓包值，表示从最新向后拉
+                size != null && size > 0 ? size : 20,
+                false
+        };
+        return accsClient.sendFrame("/r/MessageManager/listUserMessages", body);
+    }
+
+    private void ensureAccs() throws Exception {
+        if (accsClient == null) {
+            accsClient = new XianyuImAccsClient(apiClient);
+        }
+        accsClient.connect();
     }
 
     private static String toJson(Map<String, ?> map) {

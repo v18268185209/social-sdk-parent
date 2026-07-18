@@ -12,8 +12,9 @@ public class XianyuKeywordRule extends BaseEntity {
 
     private Long accountId;
     private String ruleName;
+    private String replyType = "KEYWORD"; // KEYWORD, AI, AUTO
     private String keyword;
-    private String matchType; // CONTAINS, EXACT, STARTS_WITH
+    private String matchType; // CONTAINS, EXACT, STARTS_WITH (仅 KEYWORD 类型使用)
     private String replyText;
     private Boolean enabled;
     private Integer priority;

@@ -102,16 +102,45 @@ CREATE TABLE IF NOT EXISTS xianyu_order (
     deleted INTEGER DEFAULT 0
 );
 
--- 关键词规则表
+-- 关键词/自动回复规则表
 CREATE TABLE IF NOT EXISTS xianyu_keyword_rule (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER,
     rule_name VARCHAR(128),
+    reply_type VARCHAR(16) DEFAULT 'KEYWORD', -- KEYWORD, AI, AUTO
     keyword VARCHAR(256),
     match_type VARCHAR(16) DEFAULT 'CONTAINS',
     reply_text TEXT,
     enabled BOOLEAN DEFAULT TRUE,
     priority INTEGER DEFAULT 100,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0
+);
+
+-- 自动回复全局配置表（按账号）
+CREATE TABLE IF NOT EXISTS xianyu_auto_reply_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL UNIQUE,
+    -- AI 配置
+    ai_enabled BOOLEAN DEFAULT FALSE,
+    ai_provider VARCHAR(32),
+    ai_api_key VARCHAR(512),
+    api_url VARCHAR(512),
+    ai_model VARCHAR(64),
+    ai_system_prompt TEXT,
+    ai_temperature REAL DEFAULT 0.7,
+    -- 兜底自动回复
+    auto_reply_enabled BOOLEAN DEFAULT FALSE,
+    welcome_message TEXT,
+    fallback_reply TEXT,
+    idle_timeout_minutes INTEGER DEFAULT 30,
+    idle_reply TEXT,
+    offline_reply_enabled BOOLEAN DEFAULT FALSE,
+    offline_reply TEXT,
+    -- 全局配置
+    notify_on_new_message BOOLEAN DEFAULT TRUE,
+    include_chat_history BOOLEAN DEFAULT TRUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted INTEGER DEFAULT 0
