@@ -71,4 +71,22 @@ public class ProductController {
     public ApiResponse<XianyuProduct> updateStock(@PathVariable Long id, @RequestParam int stock) {
         return ApiResponse.ok(productService.updateStock(id, stock));
     }
+
+    /**
+     * 从闲鱼同步指定账号的在线商品到本地。
+     * 需要账号已扫码登录且 cookie 有效。
+     */
+    @PostMapping("/sync")
+    public ApiResponse<ProductService.SyncResult> syncFromXianyu(@RequestParam Long accountId) {
+        try {
+            ProductService.SyncResult result = productService.syncFromXianyu(accountId);
+            return ApiResponse.ok(result);
+        } catch (IllegalArgumentException e) {
+            return ApiResponse.fail("INVALID_ARGUMENT", e.getMessage());
+        } catch (IllegalStateException e) {
+            return ApiResponse.fail("COOKIE_EXPIRED", e.getMessage());
+        } catch (Exception e) {
+            return ApiResponse.fail("SYNC_FAILED", "Sync failed: " + e.getMessage());
+        }
+    }
 }

@@ -19,27 +19,47 @@ public class XianyuOrderApiService {
         this.apiClient = apiClient;
     }
 
-    /** 获取订单列表 — mtop.taobao.idletrade.list.get */
-    public JsonNode getOrderList(String tab, String page) {
+    /**
+     * 获取我买到的订单列表 — 真实接口 mtop.idle.web.trade.bought.list
+     * <p>真实抓包验证（2026-07-18 CDP 导航到 https://www.goofish.com/bought）：</p>
+     * <ul>
+     *   <li>POST https://h5api.m.goofish.com/h5/mtop.idle.web.trade.bought.list/1.0/</li>
+     *   <li>data: {} （无业务参数，按 cookie 解身份）</li>
+     *   <li>返回 data.items[] → 每项含 commonData.orderId/itemId/peerUserId/seller/tradeStatusEnum/orderDetailUrl</li>
+     *   <li>  content.data.detailInfo.{auctionTitle,auctionPic} / content.data.priceInfo.{price,buyAmount}</li>
+     *   <li>  head.data.{createTime,statusViewMsg,userInfo.userNick,userIcon,userId}</li>
+     * </ul>
+     *
+     * @param pageNumber 页码（从 1 开始），可选
+     * @param pageSize 每页条数，可选
+     */
+    public JsonNode getOrderList(String pageNumber, String pageSize) {
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("tab", tab != null ? tab : "sold");
-        data.put("page", page != null ? page : "1");
-        return apiClient.callMtop("mtop.taobao.idletrade.list.get", toJson(data));
+        if (pageNumber != null && !pageNumber.isBlank()) data.put("pageNumber", pageNumber);
+        if (pageSize != null && !pageSize.isBlank()) data.put("pageSize", pageSize);
+        return apiClient.callMtop("mtop.idle.web.trade.bought.list", toJson(data));
     }
 
-    /** 获取订单详情 — mtop.taobao.idletrade.order.detail.get */
+    /**
+     * 获取订单详情 — 推测接口 mtop.idle.web.trade.order.detail
+     * <p>订单详情页 SPA 路由为 fleamarket://order_detail?id={orderId}，
+     * PC 端真实接口名未直接抓到，用 close-trade 命名规律的候选。</p>
+     */
     public JsonNode getOrderDetail(String orderId) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("orderId", orderId != null ? orderId : "");
-        return apiClient.callMtop("mtop.taobao.idletrade.order.detail.get", toJson(data));
+        return apiClient.callMtop("mtop.idle.web.trade.order.detail", toJson(data));
     }
 
-    /** 自动发货 — mtop.taobao.idletrade.delivery */
+    /**
+     * 自动发货 — 推测接口 mtop.idle.web.trade.delivery.send
+     * <p>真实接口名未直接抓到，按闲鱼命名规律候选。</p>
+     */
     public JsonNode delivery(String orderId, String trackingNo) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("orderId", orderId != null ? orderId : "");
         data.put("trackingNo", trackingNo != null ? trackingNo : "");
-        return apiClient.callMtop("mtop.taobao.idletrade.delivery", toJson(data));
+        return apiClient.callMtop("mtop.idle.web.trade.delivery.send", toJson(data));
     }
 
     private static String toJson(Map<String, ?> map) {

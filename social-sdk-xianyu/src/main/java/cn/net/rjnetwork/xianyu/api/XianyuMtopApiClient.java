@@ -74,11 +74,26 @@ public class XianyuMtopApiClient {
      * @return 响应 JSON
      */
     public JsonNode callMtop(String api, String dataJson) {
+        return callMtop(api, "1.0", dataJson);
+    }
+
+    /**
+     * 调用 MTOP 接口（可指定版本号）。
+     * 部分接口要求特定 v，如上下架 mtop.taobao.idle.item.downshelf 要 v="2.0"。
+     *
+     * @param api      接口名
+     * @param version  接口版本号，如 "1.0" / "2.0"；传 null 或空则用默认 "1.0"
+     * @param dataJson 业务数据 JSON 字符串
+     * @return 响应 JSON
+     */
+    public JsonNode callMtop(String api, String version, String dataJson) {
         primeTokenIfNeeded();
+        String v = (version != null && !version.isBlank()) ? version : "1.0";
 
         try {
             XianyuMtopRequestBuilder builder = new XianyuMtopRequestBuilder(api)
                     .setCookie(cookie)
+                    .setVersion(v)
                     .setDataJson(dataJson != null ? dataJson : "{}");
 
             String url = builder.buildUrl();
@@ -92,6 +107,7 @@ public class XianyuMtopApiClient {
                 primeTokenIfNeeded();
                 XianyuMtopRequestBuilder retry = new XianyuMtopRequestBuilder(api)
                         .setCookie(cookie)
+                        .setVersion(v)
                         .setDataJson(dataJson != null ? dataJson : "{}");
                 return send(retry.buildUrl(), "POST", retry.buildPostBody());
             }

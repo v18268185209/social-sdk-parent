@@ -21,9 +21,14 @@
           </template>
         </el-table-column>
         <el-table-column prop="remark" label="备注" />
-        <el-table-column prop="lastLoginAt" label="最后登录" width="180" />
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="最后登录" width="180">
           <template #default="{ row }">
+            <span>{{ formatTime(row.lastLoginAt) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="260" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" @click="viewDetail(row)">详情</el-button>
             <el-button size="small" @click="editStatus(row)">切换状态</el-button>
             <el-button size="small" type="danger" @click="deleteAccount(row.id)">删除</el-button>
           </template>
@@ -144,6 +149,64 @@
         <el-button type="primary" @click="handleStatusUpdate">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 账号详情抽屉 -->
+    <el-drawer v-model="showDetailDrawer" :title="`账号详情 — ${detailForm.accountName || ''}`" size="540px">
+      <div v-loading="detailLoading" style="padding: 0 20px 20px;">
+        <!-- 头像和基本信息 -->
+        <div style="text-align: center; margin-bottom: 24px;">
+          <el-avatar :size="80" :src="detailForm.avatar" style="font-size: 28px;">
+            {{ detailForm.displayName ? detailForm.displayName.charAt(0) : '?' }}
+          </el-avatar>
+          <h3 style="margin: 12px 0 4px;">{{ detailForm.displayName || '—' }}</h3>
+          <p style="color: #909399; margin: 0;">{{ detailForm.accountName }}</p>
+          <el-tag :type="statusType(detailForm.status)" style="margin-top: 8px;">{{ detailForm.status }}</el-tag>
+        </div>
+
+        <!-- 统计信息 -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px;">
+          <div style="text-align: center; padding: 12px; background: #f5f7fa; border-radius: 8px;">
+            <div style="font-size: 22px; font-weight: bold; color: #409EFF;">{{ detailForm.followers || 0 }}</div>
+            <div style="font-size: 12px; color: #909399; margin-top: 4px;">粉丝</div>
+          </div>
+          <div style="text-align: center; padding: 12px; background: #f5f7fa; border-radius: 8px;">
+            <div style="font-size: 22px; font-weight: bold; color: #67C23A;">{{ detailForm.following || 0 }}</div>
+            <div style="font-size: 12px; color: #909399; margin-top: 4px;">关注</div>
+          </div>
+          <div style="text-align: center; padding: 12px; background: #f5f7fa; border-radius: 8px;">
+            <div style="font-size: 22px; font-weight: bold; color: #E6A23C;">{{ detailForm.soldCount || 0 }}</div>
+            <div style="font-size: 12px; color: #909399; margin-top: 4px;">卖出</div>
+          </div>
+          <div style="text-align: center; padding: 12px; background: #f5f7fa; border-radius: 8px;">
+            <div style="font-size: 22px; font-weight: bold; color: #F56C6C;">{{ detailForm.purchaseCount || 0 }}</div>
+            <div style="font-size: 12px; color: #909399; margin-top: 4px;">买过</div>
+          </div>
+        </div>
+
+        <!-- 详细资料 -->
+        <el-descriptions :column="1" border size="default">
+          <el-descriptions-item label="用户ID">{{ detailForm.userId || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="IP 属地">{{ detailForm.ipLocation || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="个人简介">{{ detailForm.introduction || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="在售宝贝">{{ detailForm.onSaleCount || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="收藏数">{{ detailForm.collectionCount || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="店铺等级">{{ detailForm.shopLevel || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="信用分">{{ detailForm.creditScore || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="评价数">{{ detailForm.reviewNum || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="备注">{{ detailForm.remark || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="最后登录">{{ formatTime(detailForm.lastLoginAt) }}</el-descriptions-item>
+          <el-descriptions-item label="上次同步">{{ formatTime(detailForm.profileSyncedAt) }}</el-descriptions-item>
+        </el-descriptions>
+
+        <!-- 操作按钮 -->
+        <div style="margin-top: 24px; display: flex; gap: 12px;">
+          <el-button type="primary" :loading="detailSyncing" @click="syncProfile" style="flex: 1;">
+            <el-icon><Refresh /></el-icon> 刷新实时数据
+          </el-button>
+          <el-button @click="copyCookie" style="flex: 1;">复制 Cookie</el-button>
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -151,6 +214,12 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/request'
+
+// 时间格式化
+function formatTime(t) {
+  if (!t) return ''
+  return t.replace('T', ' ').substring(0, 19)
+}
 
 // ===== 列表 =====
 const accounts = ref([])
@@ -357,6 +426,124 @@ async function cancelQrLogin() {
   qrState.value.status = 'CANCELLED'
   ElMessage.info('已取消登录')
   closeDialog()
+}
+
+// ===== 详情抽屉 =====
+const showDetailDrawer = ref(false)
+const detailLoading = ref(false)
+const detailSyncing = ref(false)
+const detailForm = ref({
+  id: null,
+  accountName: '',
+  displayName: '',
+  userId: '',
+  avatar: '',
+  status: '',
+  remark: '',
+  introduction: '',
+  ipLocation: '',
+  followers: 0,
+  following: 0,
+  soldCount: 0,
+  purchaseCount: 0,
+  collectionCount: 0,
+  onSaleCount: 0,
+  shopLevel: '',
+  creditScore: 0,
+  reviewNum: 0,
+  lastLoginAt: '',
+  profileSyncedAt: '',
+  cookieHeader: ''
+})
+
+async function viewDetail(row) {
+  // 先展示抽屉，显示数据库已有数据
+  detailForm.value = { ...row }
+  showDetailDrawer.value = true
+  detailLoading.value = true
+
+  // 实时获取最新 profile
+  try {
+    const res = await api.get(`/accounts/${row.id}/profile`)
+    if (res.success && res.data) {
+      const data = res.data
+      detailForm.value = {
+        ...detailForm.value,
+        displayName: data.displayName || detailForm.value.displayName,
+        avatar: data.avatar || detailForm.value.avatar,
+        introduction: data.introduction || '',
+        ipLocation: data.ipLocation || '',
+        followers: data.followers || 0,
+        following: data.following || 0,
+        soldCount: data.soldCount || 0,
+        purchaseCount: data.purchaseCount || 0,
+        collectionCount: data.collectionCount || 0,
+        onSaleCount: data.onSaleCount || 0,
+        shopLevel: data.shopLevel || '',
+        creditScore: data.creditScore || 0,
+        reviewNum: data.reviewNum || 0,
+      }
+    }
+  } catch (e) {
+    // 获取失败，保留数据库已有数据
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+async function syncProfile() {
+  if (!detailForm.value.id) return
+  detailSyncing.value = true
+  try {
+    const res = await api.post(`/accounts/${detailForm.value.id}/profile/sync`)
+    if (res.success && res.data) {
+      const data = res.data
+      detailForm.value = {
+        ...detailForm.value,
+        displayName: data.displayName || detailForm.value.displayName,
+        avatar: data.avatar || detailForm.value.avatar,
+        introduction: data.introduction || '',
+        ipLocation: data.ipLocation || '',
+        followers: data.followers || 0,
+        following: data.following || 0,
+        soldCount: data.soldCount || 0,
+        purchaseCount: data.purchaseCount || 0,
+        collectionCount: data.collectionCount || 0,
+        onSaleCount: data.onSaleCount || 0,
+        shopLevel: data.shopLevel || '',
+        creditScore: data.creditScore || 0,
+        reviewNum: data.reviewNum || 0,
+        profileSyncedAt: data.syncedAt || '',
+      }
+      ElMessage.success('数据已同步到数据库')
+      // 刷新列表
+      await loadAccounts()
+    }
+  } catch (e) {
+    ElMessage.error('同步失败')
+  } finally {
+    detailSyncing.value = false
+  }
+}
+
+async function copyCookie() {
+  if (!detailForm.value.cookieHeader) {
+    ElMessage.warning('该账号暂无 Cookie')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(detailForm.value.cookieHeader)
+    ElMessage.success('Cookie 已复制到剪贴板')
+  } catch (e) {
+    // 降级方案
+    const textarea = document.createElement('textarea')
+    textarea.value = detailForm.value.cookieHeader
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+    ElMessage.success('Cookie 已复制到剪贴板')
+  }
 }
 
 // ===== 生命周期 =====

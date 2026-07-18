@@ -36,9 +36,36 @@ public class XianyuProfileApiService {
         return apiClient.callMtop("mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get", toJson(data));
     }
 
-    /** 获取用户页面导航信息 — mtop.idle.web.user.page.nav */
+    /**
+     * 获取用户页面导航（轻量元数据）— 真实接口 mtop.idle.web.user.page.nav
+     * <p>真实抓包验证（2026-07-18 CDP）：</p>
+     * <ul>
+     *   <li>data.module.base.purchaseCount / soldCount / followers / following / collectionCount / displayName / avatar</li>
+     *   <li>data.needDecryptKeys 含 baseInfo.encryptedUserId（服务器端解密字段，HTTP 客户端不可见明文）</li>
+     * </ul>
+     */
     public JsonNode getUserPageNav() {
         return apiClient.callMtop("mtop.idle.web.user.page.nav", "{}");
+    }
+
+    /**
+     * 获取用户主页详细数据 — 真实接口 mtop.idle.web.user.page.head
+     * <p>真实抓包验证（2026-07-18 CDP）：</p>
+     * <ul>
+     *   <li>data: {"self":true}（self=true 拉自己主页，false 拉他人主页需带 userId）</li>
+     *   <li>data.baseInfo.{encryptedUserId,kcUserId,self,tags,userType}（kcUserId 是数字 uid，可明文）</li>
+     *   <li>data.module.shop.{level,score,reviewNum,businessQuality,nextLevelNeedScore,itemToppingLimit,superShow}</li>
+     *   <li>data.module.social.{followStatus,followers,following}</li>
+     *   <li>data.module.tabs.{item.number(在售宝贝数),rate.number(信用及评价数)}</li>
+     *   <li>data.module.base.{displayName,avatar,ipLocation,introduction,ylzTags[]}</li>
+     * </ul>
+     *
+     * @param self true 拉自己主页，false 拉他人主页（后者需在 data 里带 userId）
+     */
+    public JsonNode getUserPageHead(boolean self) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("self", self);
+        return apiClient.callMtop("mtop.idle.web.user.page.head", toJson(data));
     }
 
     /** 获取用户信用分 — mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get (带 credit 参数) */

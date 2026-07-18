@@ -166,13 +166,17 @@ public class ProductService {
 
         JsonNode resp = productApi.getMyProducts("1", "20");
 
-        // 闲鱼 MTOP 返回结构：data.mygoodsList 或 data.list 为商品数组，兼容多种字段名
+        // 真实返回结构（CDP 抓包验证 2026-07-18）：
+        //   data.cardList[] → 每项 .cardData 含 id/itemId/title/soldPrice/priceInfo.price
+        //   /categoryId/itemStatus/picInfo.picUrl/detailParams.picUrl/detailUrl/auctionType
         JsonNode listNode = resolveProductList(resp);
 
         int inserted = 0;
         int updated = 0;
         if (listNode != null && listNode.isArray()) {
-            for (JsonNode item : listNode) {
+            for (JsonNode card : listNode) {
+                // card.cardData 才是真正的商品节点
+                JsonNode item = card.has("cardData") ? card.get("cardData") : card;
                 String itemId = pickString(item, "id", "itemId", "item_id");
                 if (itemId == null || itemId.isBlank()) continue;
 
@@ -191,13 +195,14 @@ public class ProductService {
                     p.setFavoriteCount(0);
                 }
                 p.setTitle(pickString(item, "title", "name", "itemTitle"));
-                BigDecimal price = pickBigDecimal(item, "price", "soldPrice", "itemPrice");
+                // 真实结构：priceInfo.price 嵌套 / detailParams.soldPrice 嵌套 / detailParams.picUrl 嵌套；itemStatus 是数字 0=在售
+                BigDecimal price = pickBigDecimal(item, "priceInfo.price", "detailParams.soldPrice", "soldPrice", "price", "itemPrice");
                 if (price != null) p.setPrice(price);
                 BigDecimal orig = pickBigDecimal(item, "originalPrice", "oriPrice", "marketPrice");
                 if (orig != null) p.setOriginalPrice(orig);
                 Integer stock = pickInt(item, "stock", "quantity", "remainQuantity");
                 if (stock != null) p.setStock(stock);
-                String status = mapStatus(pickString(item, "status", "soldStatus", "itemStatus"));
+                String status = mapStatus(pickString(item, "itemStatus", "status", "soldStatus"));
                 if (status != null) p.setStatus(status);
                 String images = pickImages(item);
                 if (images != null) p.setImages(images);
@@ -209,6 +214,9 @@ public class ProductService {
                 if (view != null) p.setViewCount(view);
                 Integer fav = pickInt(item, "favoriteCount", "wishCount", "collectCount");
                 if (fav != null) p.setFavoriteCount(fav);
+                // 分类 id 真实结构在 categoryId 顶层
+                String cid = pickString(item, "categoryId", "cid");
+                if (cid != null) p.setCategoryId(cid);
                 p.setUpdatedAt(LocalDateTime.now());
 
                 if (existing == null) {
@@ -223,12 +231,12 @@ public class ProductService {
         return new SyncResult(inserted + updated, inserted, updated);
     }
 
-    /** 闲鱼返回结构多变，按优先级探若干路径名 */
+    /** 闲鱼返回结构多变，按优先级探若干路径名。真实结构为 data.cardList[] */
     private JsonNode resolveProductList(JsonNode resp) {
         if (resp == null) return null;
         // resp 本身可能就是 data 节点，也可能要进 data
         JsonNode data = resp.has("data") ? resp.get("data") : resp;
-        String[] candidates = {"mygoodsList", "list", "items", "itemList", "result"};
+        String[] candidates = {"cardList", "mygoodsList", "list", "items", "itemList", "result"};
         for (String key : candidates) {
             JsonNode n = data != null ? data.get(key) : null;
             if (n != null && n.isArray()) return n;
@@ -244,10 +252,21 @@ public class ProductService {
     private String pickString(JsonNode node, String... keys) {
         if (node == null) return null;
         for (String k : keys) {
-            JsonNode n = node.get(k);
+            JsonNode n = navigate(node, k);
             if (n != null && !n.isNull() && !n.asText("").isBlank()) return n.asText();
         }
         return null;
+    }
+
+    /** 按点分路径（如 priceInfo.price）向下导航到目标节点 */
+    private JsonNode navigate(JsonNode root, String path) {
+        if (root == null || path == null) return null;
+        JsonNode cur = root;
+        for (String seg : path.split("\\.")) {
+            if (cur == null || !cur.isObject()) return null;
+            cur = cur.get(seg);
+        }
+        return cur;
     }
 
     private BigDecimal pickBigDecimal(JsonNode node, String... keys) {
@@ -288,13 +307,19 @@ public class ProductService {
         return null;
     }
 
-    /** 闲鱼商品状态映射到本地枚举 */
+    /** 闲鱼商品状态映射到本地枚举。真实 itemStatus 是数字：0=在售，1=下架，2=草稿 */
     private String mapStatus(String raw) {
         if (raw == null) return null;
-        String s = raw.toLowerCase();
-        if (s.contains("onsale") || s.contains("on_sale") || s.contains("selling")) return "ON_SALE";
-        if (s.contains("offsale") || s.contains("off_sale") || s.contains("soldout") || s.contains("off")) return "OFF_SALE";
-        if (s.contains("draft") || s.contains("wait")) return "DRAFT";
+        String s = raw.trim();
+        // 数字形式
+        if ("0".equals(s)) return "ON_SALE";
+        if ("1".equals(s)) return "OFF_SALE";
+        if ("2".equals(s)) return "DRAFT";
+        // 字符串形式兜底
+        String sl = s.toLowerCase();
+        if (sl.contains("onsale") || sl.contains("on_sale") || sl.contains("selling")) return "ON_SALE";
+        if (sl.contains("offsale") || sl.contains("off_sale") || sl.contains("soldout") || sl.contains("off")) return "OFF_SALE";
+        if (sl.contains("draft") || sl.contains("wait")) return "DRAFT";
         return "ON_SALE"; // 默认按在售处理
     }
 

@@ -29,6 +29,16 @@
         <el-form-item>
           <el-button type="primary" @click="loadProducts">搜索</el-button>
         </el-form-item>
+        <el-form-item>
+          <el-button
+            type="success"
+            :disabled="!filters.accountId"
+            :loading="syncing"
+            @click="handleSyncFromXianyu"
+          >
+            <el-icon><Refresh /></el-icon> 同步闲鱼商品
+          </el-button>
+        </el-form-item>
       </el-form>
 
       <el-table :data="products" stripe v-loading="loading">
@@ -101,12 +111,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Refresh } from '@element-plus/icons-vue'
 import api from '@/api/request'
 
 const products = ref([])
 const accounts = ref([])
 const loading = ref(false)
 const submitting = ref(false)
+const syncing = ref(false)
 const showCreateDialog = ref(false)
 const filters = ref({ accountId: null, keyword: '', status: '' })
 const pagination = ref({ page: 1, size: 20, total: 0 })
@@ -135,6 +147,28 @@ async function loadProducts() {
     }
   } catch (e) { /* ignore */ }
   finally { loading.value = false }
+}
+
+async function handleSyncFromXianyu() {
+  if (!filters.value.accountId) {
+    ElMessage.warning('请先选择账号')
+    return
+  }
+  syncing.value = true
+  try {
+    const res = await api.post('/products/sync', null, { params: { accountId: filters.value.accountId } })
+    if (res.success) {
+      const r = res.data || {}
+      ElMessage.success(`同步完成：新增 ${r.inserted || 0}，更新 ${r.updated || 0}，合计 ${r.synced || 0}`)
+      await loadProducts()
+    } else if (res.code === 'COOKIE_EXPIRED') {
+      ElMessage.error('Cookie 已过期，请重新扫码登录该账号')
+    } else {
+      ElMessage.error(res.message || '同步失败')
+    }
+  } catch (e) {
+    ElMessage.error('同步请求失败')
+  } finally { syncing.value = false }
 }
 
 async function handleCreate() {

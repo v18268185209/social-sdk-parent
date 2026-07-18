@@ -1,14 +1,16 @@
 package cn.net.rjnetwork.xianyu.manager.account.service;
 
 import cn.net.rjnetwork.xianyu.api.XianyuLoginApiService;
+import cn.net.rjnetwork.xianyu.api.XianyuMtopApiClient;
+import cn.net.rjnetwork.xianyu.api.XianyuProfileApiService;
 import cn.net.rjnetwork.xianyu.manager.account.dto.AccountLoginRequest;
 import cn.net.rjnetwork.xianyu.manager.account.dto.AccountStatusUpdateRequest;
 import cn.net.rjnetwork.xianyu.manager.account.dto.QrLoginRequest;
 import cn.net.rjnetwork.xianyu.manager.account.dto.QrLoginResponse;
 import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
-import cn.net.rjnetwork.xianyu.model.XianyuCredentials;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -158,8 +160,87 @@ public class AccountService {
         account.setCreatedAt(LocalDateTime.now());
         account.setUpdatedAt(LocalDateTime.now());
 
+        // 获取更详细的个人信息
+        try {
+            XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(cookieHeader);
+            XianyuProfileApiService profileApi = new XianyuProfileApiService(mtopClient);
+
+            JsonNode navData = profileApi.getUserPageNav();
+            if (navData != null && navData.has("data")) {
+                JsonNode data = navData.get("data");
+                if (data.has("module")) {
+                    JsonNode module = data.get("module");
+                    if (module.has("base")) {
+                        JsonNode base = module.get("base");
+                        if (account.getDisplayName() == null) {
+                            account.setDisplayName(getText(base, "displayName"));
+                        }
+                        account.setAvatar(getText(base, "avatar"));
+                        account.setPurchaseCount(getInt(base, "purchaseCount"));
+                        account.setSoldCount(getInt(base, "soldCount"));
+                        account.setFollowers(getInt(base, "followers"));
+                        account.setFollowing(getInt(base, "following"));
+                        account.setCollectionCount(getInt(base, "collectionCount"));
+                    }
+                }
+            }
+
+            JsonNode headData = profileApi.getUserPageHead(true);
+            if (headData != null && headData.has("data")) {
+                JsonNode data = headData.get("data");
+                if (data.has("module")) {
+                    JsonNode module = data.get("module");
+                    if (module.has("base")) {
+                        JsonNode base = module.get("base");
+                        account.setIntroduction(getText(base, "introduction"));
+                        account.setIpLocation(getText(base, "ipLocation"));
+                    }
+                    if (module.has("shop")) {
+                        JsonNode shop = module.get("shop");
+                        account.setShopLevel(getText(shop, "level"));
+                        account.setCreditScore(getInt(shop, "score"));
+                        account.setReviewNum(getInt(shop, "reviewNum"));
+                    }
+                    if (module.has("tabs")) {
+                        JsonNode tabs = module.get("tabs");
+                        if (tabs.has("item")) {
+                            account.setOnSaleCount(getInt(tabs.get("item"), "number"));
+                        }
+                    }
+                    if (module.has("social")) {
+                        JsonNode social = module.get("social");
+                        if (account.getFollowers() == null) {
+                            account.setFollowers(getInt(social, "followers"));
+                        }
+                        if (account.getFollowing() == null) {
+                            account.setFollowing(getInt(social, "following"));
+                        }
+                    }
+                }
+            }
+
+            account.setProfileSyncedAt(LocalDateTime.now());
+        } catch (Exception e) {
+            // 获取 profile 失败不影响登录，仅记录错误
+            System.err.println("[ACCOUNT-SERVICE] Failed to fetch profile after login: " + e.getMessage());
+        }
+
         accountMapper.insert(account);
         return account;
+    }
+
+    private String getText(JsonNode node, String field) {
+        if (node == null || !node.has(field)) return null;
+        JsonNode value = node.get(field);
+        if (value.isNull()) return null;
+        return value.asText();
+    }
+
+    private Integer getInt(JsonNode node, String field) {
+        if (node == null || !node.has(field)) return null;
+        JsonNode value = node.get(field);
+        if (value.isNull()) return null;
+        return value.asInt();
     }
 
     private QrLoginResponse.AccountInfo convertToAccountInfo(XianyuAccount account) {

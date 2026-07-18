@@ -44,6 +44,8 @@ public class XianyuMtopRequestBuilder {
     /** 由外部显式传入的 token；不传则从 cookie 提取 */
     private String token;
     private String cookie;
+    /** 接口版本号，默认 "1.0"，部分接口（如上下架）要 "2.0" */
+    private String version = V;
 
     public XianyuMtopRequestBuilder(String api) {
         this.api = api;
@@ -60,6 +62,12 @@ public class XianyuMtopRequestBuilder {
     /** 设置业务数据 JSON（会作为 POST body 的 data 字段） */
     public XianyuMtopRequestBuilder setDataJson(String dataJson) {
         this.dataJson = dataJson != null ? dataJson : "{}";
+        return this;
+    }
+
+    /** 显式设置接口版本号（如上下架接口要 "2.0"），不传默认 "1.0" */
+    public XianyuMtopRequestBuilder setVersion(String version) {
+        this.version = (version != null && !version.isBlank()) ? version : V;
         return this;
     }
 
@@ -99,14 +107,14 @@ public class XianyuMtopRequestBuilder {
 
         StringBuilder url = new StringBuilder();
         url.append("https://").append(API_HOST).append(API_BASE_PATH)
-                .append(api).append("/").append(V).append("/");
+                .append(api).append("/").append(version).append("/");
 
         Map<String, String> qs = new LinkedHashMap<>();
         qs.put("jsv", JSV);
         qs.put("appKey", APP_KEY);
         qs.put("t", String.valueOf(t));
         qs.put("sign", sign);
-        qs.put("v", V);
+        qs.put("v", version);
         qs.put("type", TYPE);
         qs.put("accountSite", ACCOUNT_SITE);
         qs.put("dataType", DATA_TYPE);
@@ -129,7 +137,7 @@ public class XianyuMtopRequestBuilder {
         body.put("t", String.valueOf(t));
         body.put("sign", sign);
         body.put("api", api);
-        body.put("v", V);
+        body.put("v", version);
         body.put("type", TYPE);
         body.put("dataType", DATA_TYPE);
         body.put("timeout", TIMEOUT);
