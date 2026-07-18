@@ -3,15 +3,9 @@ package cn.net.rjnetwork.starter.platform.xianyu.dto;
 public class MessageSendRequest {
 
     private Long accountId;
-    private String toUserId;
-    private String itemId;
-    private String cid;
-    private String text;
-    private String imageUrl;
-    private String imagePath;
-    private Integer imageWidth;
-    private Integer imageHeight;
-    private Boolean useRealtime;
+    private String sessionId;
+    private String content;
+    private String receiverId;
 
     public Long getAccountId() {
         return accountId;
@@ -21,75 +15,27 @@ public class MessageSendRequest {
         this.accountId = accountId;
     }
 
-    public String getToUserId() {
-        return toUserId;
+    public String getSessionId() {
+        return sessionId;
     }
 
-    public void setToUserId(String toUserId) {
-        this.toUserId = toUserId;
+    public void setSessionId(String sessionId) {
+        this.sessionId = sessionId;
     }
 
-    public String getItemId() {
-        return itemId;
+    public String getContent() {
+        return content;
     }
 
-    public void setItemId(String itemId) {
-        this.itemId = itemId;
+    public void setContent(String content) {
+        this.content = content;
     }
 
-    public String getCid() {
-        return cid;
+    public String getReceiverId() {
+        return receiverId;
     }
 
-    public void setCid(String cid) {
-        this.cid = cid;
-    }
-
-    public String getText() {
-        return text;
-    }
-
-    public void setText(String text) {
-        this.text = text;
-    }
-
-    public String getImageUrl() {
-        return imageUrl;
-    }
-
-    public void setImageUrl(String imageUrl) {
-        this.imageUrl = imageUrl;
-    }
-
-    public String getImagePath() {
-        return imagePath;
-    }
-
-    public void setImagePath(String imagePath) {
-        this.imagePath = imagePath;
-    }
-
-    public Integer getImageWidth() {
-        return imageWidth;
-    }
-
-    public void setImageWidth(Integer imageWidth) {
-        this.imageWidth = imageWidth;
-    }
-
-    public Integer getImageHeight() {
-        return imageHeight;
-    }
-
-    public void setImageHeight(Integer imageHeight) {
-        this.imageHeight = imageHeight;
-    }
-
-    public Boolean getUseRealtime() {
-        return useRealtime;
-    }
-
-    public void setUseRealtime(Boolean useRealtime) {
-        this.useRealtime = useRealtime;
+    public void setReceiverId(String receiverId) {
+        this.receiverId = receiverId;
     }
 }

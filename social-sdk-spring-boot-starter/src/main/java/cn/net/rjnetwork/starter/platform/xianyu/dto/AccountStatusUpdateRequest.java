@@ -3,7 +3,7 @@ package cn.net.rjnetwork.starter.platform.xianyu.dto;
 public class AccountStatusUpdateRequest {
 
     private String status;
-    private String lastError;
+    private String remark;
 
     public String getStatus() {
         return status;
@@ -13,11 +13,11 @@ public class AccountStatusUpdateRequest {
         this.status = status;
     }
 
-    public String getLastError() {
-        return lastError;
+    public String getRemark() {
+        return remark;
     }
 
-    public void setLastError(String lastError) {
-        this.lastError = lastError;
+    public void setRemark(String remark) {
+        this.remark = remark;
     }
 }

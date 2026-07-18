@@ -5,8 +5,6 @@ import cn.net.rjnetwork.starter.platform.common.exception.StarterApiException;
 import cn.net.rjnetwork.starter.platform.xianyu.dto.AccountCookieLoginRequest;
 import cn.net.rjnetwork.starter.platform.xianyu.dto.AccountCookieUpdateRequest;
 import cn.net.rjnetwork.starter.platform.xianyu.dto.AccountStatusUpdateRequest;
-import cn.net.rjnetwork.starter.platform.xianyu.dto.ChatTakeoverRequest;
-import cn.net.rjnetwork.starter.platform.xianyu.dto.HeadlessQrLoginCreateRequest;
 import cn.net.rjnetwork.starter.platform.xianyu.dto.KeywordRuleUpsertRequest;
 import cn.net.rjnetwork.starter.platform.xianyu.dto.MessageSendRequest;
 import cn.net.rjnetwork.starter.platform.xianyu.dto.ProductUpsertRequest;
@@ -22,7 +20,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -60,34 +57,8 @@ public class XianyuConsoleController {
         try {
             return StarterApiResponse.ok(service.loginWithCookies(request));
         } catch (Exception e) {
-            Map<String, Object> verification = service.extractVerificationHint(e.getMessage());
-            if (Boolean.TRUE.equals(verification.get("risk")) && verification.get("verificationUrl") != null) {
-                Map<String, Object> payload = new LinkedHashMap<>();
-                payload.put("error", e.getMessage());
-                payload.putAll(verification);
-                throw new StarterApiException("VERIFICATION_REQUIRED", e.getMessage(), payload, e);
-            }
             throw new StarterApiException("LOGIN_FAILED", e.getMessage(), e);
         }
-    }
-
-    @PostMapping("/accounts/login/headless-qr/create")
-    public StarterApiResponse<?> createHeadlessQrLoginSession(
-            @RequestBody(required = false) HeadlessQrLoginCreateRequest request) {
-        return execute("HEADLESS_QR_CREATE_FAILED", () -> service.createHeadlessQrLoginSession(request));
-    }
-
-    @GetMapping("/accounts/login/headless-qr/status/{sessionId}")
-    public StarterApiResponse<?> getHeadlessQrLoginSessionStatus(@PathVariable("sessionId") String sessionId) {
-        return execute("HEADLESS_QR_STATUS_FAILED", () -> service.getHeadlessQrLoginSessionStatus(sessionId));
-    }
-
-    @DeleteMapping("/accounts/login/headless-qr/{sessionId}")
-    public StarterApiResponse<?> invalidateHeadlessQrLoginSession(@PathVariable("sessionId") String sessionId) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("sessionId", sessionId);
-        payload.put("invalidated", service.invalidateHeadlessQrLoginSession(sessionId));
-        return StarterApiResponse.ok(payload);
     }
 
     @PutMapping("/accounts/{id}/cookies")
@@ -127,32 +98,6 @@ public class XianyuConsoleController {
             @PathVariable("accountId") long accountId,
             @RequestParam(name = "limit", defaultValue = "20") int limit) {
         return execute("TIMELINE_FAILED", () -> service.getTimeline(accountId, limit));
-    }
-
-    @PostMapping("/chats/takeover/start")
-    public StarterApiResponse<?> startChatTakeover(@RequestBody ChatTakeoverRequest request) {
-        return execute("CHAT_TAKEOVER_START_FAILED", () -> service.startChatTakeover(request));
-    }
-
-    @PostMapping("/chats/takeover/stop/{accountId}")
-    public StarterApiResponse<?> stopChatTakeover(@PathVariable("accountId") long accountId) {
-        return StarterApiResponse.ok(service.stopChatTakeover(accountId));
-    }
-
-    @GetMapping("/chats/takeover/status")
-    public StarterApiResponse<?> chatTakeoverStatus(
-            @RequestParam(value = "accountId", required = false) Long accountId) {
-        return StarterApiResponse.ok(service.getChatTakeoverStatus(accountId));
-    }
-
-    @GetMapping("/chats/events/{accountId}")
-    public StarterApiResponse<?> chatEvents(@PathVariable("accountId") long accountId) {
-        return StarterApiResponse.ok(service.listChatEvents(accountId));
-    }
-
-    @GetMapping("/chats/stream/{accountId}")
-    public SseEmitter chatStream(@PathVariable("accountId") long accountId) {
-        return service.openChatStream(accountId);
     }
 
     @GetMapping("/products")

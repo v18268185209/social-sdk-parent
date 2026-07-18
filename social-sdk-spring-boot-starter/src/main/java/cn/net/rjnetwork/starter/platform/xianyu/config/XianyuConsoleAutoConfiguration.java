@@ -1,15 +1,13 @@
 package cn.net.rjnetwork.starter.platform.xianyu.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import cn.net.rjnetwork.starter.config.SocialSdkAutoConfiguration;
 import cn.net.rjnetwork.starter.platform.common.web.StarterGlobalExceptionHandler;
 import cn.net.rjnetwork.starter.platform.xianyu.controller.XianyuConsoleController;
 import cn.net.rjnetwork.starter.platform.xianyu.repository.XianyuAccountRepository;
 import cn.net.rjnetwork.starter.platform.xianyu.repository.XianyuKeywordRuleRepository;
-import cn.net.rjnetwork.starter.platform.xianyu.repository.XianyuLoginSnapshotRepository;
 import cn.net.rjnetwork.starter.platform.xianyu.repository.XianyuProductRepository;
 import cn.net.rjnetwork.starter.platform.xianyu.service.XianyuConsoleService;
-import cn.net.rjnetwork.xianyu.service.XianyuProvider;
+import cn.net.rjnetwork.xianyu.service.XianyuSdk;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -31,7 +29,7 @@ import java.nio.file.Paths;
 import java.util.List;
 
 @Configuration
-@ConditionalOnClass({XianyuProvider.class, JdbcTemplate.class, SQLiteDataSource.class})
+@ConditionalOnClass({XianyuSdk.class, JdbcTemplate.class, SQLiteDataSource.class})
 @ConditionalOnProperty(prefix = "social-sdk.console.xianyu", name = "enabled", havingValue = "true")
 @EnableConfigurationProperties(XianyuConsoleProperties.class)
 public class XianyuConsoleAutoConfiguration {
@@ -80,9 +78,8 @@ public class XianyuConsoleAutoConfiguration {
     }
 
     @Bean
-    public XianyuLoginSnapshotRepository xianyuLoginSnapshotRepository(
-            @Qualifier("xianyuConsoleJdbcTemplate") JdbcTemplate jdbcTemplate) {
-        return new XianyuLoginSnapshotRepository(jdbcTemplate);
+    public XianyuSdk xianyuSdk(ObjectProvider<ObjectMapper> objectMapperProvider) {
+        return new XianyuSdk();
     }
 
     @Bean
@@ -91,9 +88,8 @@ public class XianyuConsoleAutoConfiguration {
             XianyuAccountRepository accountRepository,
             XianyuProductRepository productRepository,
             XianyuKeywordRuleRepository keywordRuleRepository,
-            XianyuLoginSnapshotRepository loginSnapshotRepository,
-            ObjectProvider<ObjectMapper> objectMapperProvider,
-            ObjectProvider<SocialSdkAutoConfiguration.SocialProviderManager> providerManagerProvider) {
+            XianyuSdk xianyuSdk,
+            ObjectProvider<ObjectMapper> objectMapperProvider) {
         ObjectMapper objectMapper = objectMapperProvider.getIfAvailable(ObjectMapper::new);
         return new XianyuConsoleService(
                 properties,
@@ -101,8 +97,7 @@ public class XianyuConsoleAutoConfiguration {
                 accountRepository,
                 productRepository,
                 keywordRuleRepository,
-                loginSnapshotRepository,
-                providerManagerProvider.getIfAvailable());
+                xianyuSdk);
     }
 
     @Bean
@@ -156,11 +151,9 @@ public class XianyuConsoleAutoConfiguration {
                             + "display_name TEXT,"
                             + "cookie_header TEXT,"
                             + "cookies_json TEXT,"
-                            + "session_raw_data TEXT,"
                             + "status TEXT NOT NULL DEFAULT 'ACTIVE',"
                             + "remark TEXT,"
                             + "last_error TEXT,"
-                            + "last_login_at TEXT,"
                             + "created_at TEXT NOT NULL,"
                             + "updated_at TEXT NOT NULL"
                             + ")",
@@ -192,26 +185,7 @@ public class XianyuConsoleAutoConfiguration {
                             + "updated_at TEXT NOT NULL"
                             + ")",
                     "CREATE INDEX IF NOT EXISTS idx_xianyu_rules_account_id ON xianyu_keyword_rules(account_id)",
-                    "CREATE INDEX IF NOT EXISTS idx_xianyu_rules_priority ON xianyu_keyword_rules(priority)",
-                    "CREATE TABLE IF NOT EXISTS xianyu_login_snapshots ("
-                            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                            + "account_id INTEGER,"
-                            + "session_id TEXT,"
-                            + "login_mode TEXT NOT NULL,"
-                            + "user_id TEXT,"
-                            + "cookie_header TEXT,"
-                            + "cookies_json TEXT,"
-                            + "local_storage_json TEXT,"
-                            + "session_storage_json TEXT,"
-                            + "indexeddb_json TEXT,"
-                            + "cache_storage_json TEXT,"
-                            + "current_url TEXT,"
-                            + "user_agent TEXT,"
-                            + "captured_at TEXT NOT NULL,"
-                            + "created_at TEXT NOT NULL"
-                            + ")",
-                    "CREATE INDEX IF NOT EXISTS idx_xianyu_snapshots_account_id ON xianyu_login_snapshots(account_id)",
-                    "CREATE INDEX IF NOT EXISTS idx_xianyu_snapshots_session_id ON xianyu_login_snapshots(session_id)"
+                    "CREATE INDEX IF NOT EXISTS idx_xianyu_rules_priority ON xianyu_keyword_rules(priority)"
             );
 
             ddlList.forEach(jdbcTemplate::execute);

@@ -1,20 +1,16 @@
 package cn.net.rjnetwork.starter.config;
 
-import cn.net.rjnetwork.chrome.service.ChromeProvider;
 import cn.net.rjnetwork.core.config.SocialConfig;
 import cn.net.rjnetwork.core.provider.SocialProvider;
 import cn.net.rjnetwork.starter.properties.SocialSdkProperties;
-import cn.net.rjnetwork.xianyu.service.XianyuProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Lazy;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -58,40 +54,6 @@ public class SocialSdkAutoConfiguration {
 
         logger.info("Social SDK configuration initialized: {}", config);
         return config;
-    }
-
-    /**
-     * 创建ChromeProvider Bean
-     */
-    @Bean
-    @ConditionalOnClass(ChromeProvider.class)
-    @ConditionalOnProperty(prefix = "social-sdk.chrome", name = "enabled", havingValue = "true")
-    @Lazy
-    public SocialProvider chromeProvider(SocialConfig socialConfig) {
-        logger.info("Creating ChromeProvider bean");
-        ChromeProvider provider = new ChromeProvider(properties.getChrome().toChromeConfig());
-        logger.info("ChromeProvider bean created successfully");
-        return provider;
-    }
-
-    /**
-     * 创建XianyuProvider Bean
-     */
-    @Bean
-    @ConditionalOnClass(XianyuProvider.class)
-    @ConditionalOnProperty(prefix = "social-sdk.xianyu", name = "enabled", havingValue = "true")
-    @Lazy
-    public SocialProvider xianyuProvider(SocialConfig socialConfig) {
-        logger.info("Creating XianyuProvider bean");
-        String driverPath = properties.getChrome().getDriverPath();
-        if (driverPath != null && !driverPath.trim().isEmpty()) {
-            System.setProperty("webdriver.chrome.driver", driverPath.trim());
-        }
-        XianyuProvider provider = new XianyuProvider(
-                properties.getChrome().toChromeConfig(),
-                properties.getXianyu().toXianyuConfig());
-        logger.info("XianyuProvider bean created successfully");
-        return provider;
     }
 
     /**

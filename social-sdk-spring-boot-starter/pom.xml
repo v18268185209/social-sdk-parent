@@ -24,13 +24,6 @@
             <artifactId>social-sdk-core</artifactId>
         </dependency>
 
-        <!-- SDK Chrome (Optional) -->
-        <dependency>
-            <groupId>cn.net.rjnetwork</groupId>
-            <artifactId>social-sdk-chrome</artifactId>
-            <optional>true</optional>
-        </dependency>
-
         <!-- SDK Xianyu (Optional) -->
         <dependency>
             <groupId>cn.net.rjnetwork</groupId>
@@ -74,6 +67,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+
+        <!-- Jackson (for API facade) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
         </dependency>
 
         <!-- Test Dependencies -->
