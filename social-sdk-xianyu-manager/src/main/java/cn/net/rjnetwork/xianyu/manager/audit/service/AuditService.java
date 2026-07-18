@@ -2,7 +2,7 @@ package cn.net.rjnetwork.xianyu.manager.audit.service;
 
 import cn.net.rjnetwork.xianyu.manager.audit.mapper.AuditLogMapper;
 import cn.net.rjnetwork.xianyu.manager.audit.model.AuditLog;
-import org.springframework.stereotype.Service;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 
 import java.util.List;
 
@@ -20,6 +20,15 @@ public class AuditService {
     }
 
     public List<AuditLog> listLogs(int pageNum, int pageSize, String action, String resourceType) {
-        return auditLogMapper.selectList(null);
+        LambdaQueryWrapper<AuditLog> wrapper = new LambdaQueryWrapper<>();
+        if (action != null && !action.isBlank()) {
+            wrapper.like(AuditLog::getAction, action);
+        }
+        if (resourceType != null && !resourceType.isBlank()) {
+            wrapper.eq(AuditLog::getResourceType, resourceType);
+        }
+        wrapper.orderByDesc(AuditLog::getActionTime);
+        wrapper.last("LIMIT " + pageSize + " OFFSET " + Math.max(0, (pageNum - 1) * pageSize));
+        return auditLogMapper.selectList(wrapper);
     }
 }

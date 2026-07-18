@@ -116,6 +116,47 @@ CREATE TABLE IF NOT EXISTS audit_log (
     deleted INTEGER DEFAULT 0
 );
 
+-- 钱包表
+CREATE TABLE IF NOT EXISTS xianyu_wallet (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL UNIQUE,
+    balance REAL DEFAULT 0,
+    frozen_amount REAL DEFAULT 0,
+    alipay_account VARCHAR(128),
+    bank_card VARCHAR(64),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0
+);
+
+-- 钱包交易记录表
+CREATE TABLE IF NOT EXISTS xianyu_wallet_transaction (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    transaction_id VARCHAR(64),
+    type VARCHAR(16) DEFAULT 'EXPENSE',
+    amount REAL,
+    balance_after REAL,
+    description TEXT,
+    transaction_time DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0
+);
+
+-- 收藏关注表
+CREATE TABLE IF NOT EXISTS xianyu_collect (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    target_type VARCHAR(16) DEFAULT 'ITEM',
+    target_id VARCHAR(64),
+    target_name VARCHAR(256),
+    collected_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0
+);
+
 -- 创建索引
 CREATE INDEX IF NOT EXISTS idx_xianyu_product_account ON xianyu_product(account_id);
 CREATE INDEX IF NOT EXISTS idx_xianyu_product_status ON xianyu_product(status);
@@ -123,3 +164,6 @@ CREATE INDEX IF NOT EXISTS idx_xianyu_message_session ON xianyu_message(account_
 CREATE INDEX IF NOT EXISTS idx_xianyu_order_account ON xianyu_order(account_id);
 CREATE INDEX IF NOT EXISTS idx_xianyu_keyword_rule_account ON xianyu_keyword_rule(account_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_xianyu_wallet_account ON xianyu_wallet(account_id);
+CREATE INDEX IF NOT EXISTS idx_xianyu_wallet_transaction_account ON xianyu_wallet_transaction(account_id);
+CREATE INDEX IF NOT EXISTS idx_xianyu_collect_account ON xianyu_collect(account_id);

@@ -1,5 +1,6 @@
 package cn.net.rjnetwork.xianyu.manager.audit.aspect;
 
+import cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit;
 import cn.net.rjnetwork.xianyu.manager.audit.model.AuditLog;
 import cn.net.rjnetwork.xianyu.manager.audit.service.AuditService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,16 +23,21 @@ public class AuditLogAspect {
         this.auditService = auditService;
     }
 
-    @Around("@annotation(cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit)")
-    public Object around(ProceedingJoinPoint joinPoint) throws Throwable {
+    @Around("@annotation(audit)")
+    public Object around(ProceedingJoinPoint joinPoint, Audit audit) throws Throwable {
         HttpServletRequest request = getRequest();
         String ip = request != null ? request.getRemoteAddr() : "unknown";
 
         AuditLog log = new AuditLog();
-        log.setAction(joinPoint.getSignature().toShortString());
+        String methodName = joinPoint.getSignature().toShortString();
+        log.setAction(methodName);
         log.setDetail(extractArgs(joinPoint));
         log.setIpAddress(ip);
         log.setActionTime(LocalDateTime.now());
+
+        if (audit != null && !audit.value().isEmpty()) {
+            log.setAction(audit.value());
+        }
 
         try {
             Object result = joinPoint.proceed();
