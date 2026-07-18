@@ -389,4 +389,8 @@ public class VirtualShipService {
         wrapper.orderByDesc(VirtualCardPool::getCreatedAt);
         return cardPoolMapper.selectList(wrapper);
     }
+
+    public int deleteCard(Long id) {
+        return cardPoolMapper.deleteById(id);
+    }
 }

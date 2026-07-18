@@ -20,24 +20,22 @@ public class XianyuOrderApiService {
     }
 
     /**
-     * 获取我卖出的订单列表 — 真实接口 mtop.idle.web.trade.sold.list
-     * <p>真实抓包验证（2026-07-18 CDP 导航到 https://www.goofish.com/sold）：</p>
-     * <ul>
-     *   <li>POST https://h5api.m.goofish.com/h5/mtop.idle.web.trade.sold.list/1.0/</li>
-     *   <li>data: {} （无业务参数，按 cookie 解身份）</li>
-     *   <li>返回 data.items[] → 每项含 commonData.orderId/itemId/peerUserId/buyer/tradeStatusEnum/orderDetailUrl</li>
-     *   <li>  content.data.detailInfo.{auctionTitle,auctionPic} / content.data.priceInfo.{price,buyAmount}</li>
-     *   <li>  head.data.{createTime,statusViewMsg,userInfo.userNick,userIcon,userId}</li>
-     * </ul>
+     * 获取我卖出的订单列表 — 真实接口 mtop.taobao.idle.trade.merchant.sold.get v1.0
+     * <p>真实抓包验证（参考项目 xianyu-auto-reply order_service 已真验通）：
+     * 闲鱼卖家订单列表走 mtop.taobao.idle.trade.merchant.sold.get 域，
+     * data 含 pageNo/pageSize/valueType=string，返回结构化订单列表。
+     * 之前 SDK 写的 mtop.idle.web.trade.sold.list 是 H5 端姊妹接口（也存在），
+     * 这里改用参考项目真验通的 PC 域接口名，spm_cnt=a21ybx.personal.0.0。</p>
      *
-     * @param pageNumber 页码（从 1 开始），可选
+     * @param pageNo 页码（从 1 开始），可选
      * @param pageSize 每页条数，可选
      */
-    public JsonNode getSoldOrderList(String pageNumber, String pageSize) {
+    public JsonNode getSoldOrderList(String pageNo, String pageSize) {
         Map<String, Object> data = new LinkedHashMap<>();
-        if (pageNumber != null && !pageNumber.isBlank()) data.put("pageNumber", pageNumber);
+        if (pageNo != null && !pageNo.isBlank()) data.put("pageNo", pageNo);
         if (pageSize != null && !pageSize.isBlank()) data.put("pageSize", pageSize);
-        return apiClient.callMtop("mtop.idle.web.trade.sold.list", toJson(data));
+        data.put("valueType", "string");
+        return apiClient.callMtop("mtop.taobao.idle.trade.merchant.sold.get", "1.0", toJson(data));
     }
 
     /**

@@ -247,6 +247,11 @@ public class ProductService {
                 if (status != null) p.setStatus(status);
                 String images = pickImages(item);
                 if (images != null) p.setImages(images);
+                // 同步主图 URL（闲鱼 API 多为 picUrl / mainPic / imageUrl 字段）
+                if (p.getImageUrl() == null) {
+                    String imageUrl = pickString(item, "picUrl", "mainPic", "imageUrl", "cover");
+                    if (imageUrl != null) p.setImageUrl(imageUrl);
+                }
                 String desc = pickString(item, "desc", "description", "detail");
                 if (desc != null) p.setDescription(desc);
                 String detailUrl = pickString(item, "detailUrl", "url", "itemUrl");

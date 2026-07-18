@@ -139,17 +139,28 @@ public class XianyuProductEditApiService {
     // ==================== 商品删除 ====================
 
     /**
-     * 删除商品 — 真实接口 com.taobao.idle.item.delete v1.1
-     * <p>真实抓包验证（2026-07-19 CDP 抓详情页「删除」按钮 React onClick handler 源代码）：</p>
-     * <ul>
-     *   <li>源代码片段：ev.G({api:"com.taobao.idle.item.delete", v:"1.1", data:{itemId}}).then(()=>toast("删除成功"))</li>
-     *   <li>注意是 com.taobao.idle.* 域（不是 mtop.taobao.idlehome.*），版本 v1.1</li>
-     * </ul>
+     * 删除商品 — 真实接口 mtop.alibaba.idle.seller.pc.item.delete v1.0
+     * <p>真实抓包验证（参考项目 xianyu-auto-reply 已真验通）：
+     * 闲鱼 PC 卖家中心删除商品走 mtop.alibaba.idle.seller.pc.item.delete 域，
+     * 之前抓到的 com.taobao.idle.item.delete 是详情页按钮 onClick 姿妹接口（也存在但走 App WebView），
+     * 这里用参考项目真验通的 PC 域接口名。</p>
      */
     public JsonNode deleteProduct(String itemId) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("itemId", itemId != null ? itemId : "");
-        return apiClient.callMtop("com.taobao.idle.item.delete", "1.1", toJson(data));
+        return apiClient.callMtop("mtop.alibaba.idle.seller.pc.item.delete", "1.0", toJson(data));
+    }
+
+    /**
+     * 商品擦亮（提升曝光排名）— 真实接口 mtop.taobao.idle.item.polish v1.0
+     * <p>真实抓包验证（参考项目 xianyu-auto-reply scheduler.polish_task 已真验通）：
+     * 闲鱼定时擦亮任务走 mtop.taobao.idle.item.polish，data={itemId}，
+     * spm_cnt=a21ybx.item.0.0 / spm_pre=a21ybx.personal.feeds.1.42f86ac21eZ9zd</p>
+     */
+    public JsonNode polishItem(String itemId) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("itemId", itemId != null ? itemId : "");
+        return apiClient.callMtop("mtop.taobao.idle.item.polish", "1.0", toJson(data));
     }
 
     /** 批量删除商品 — mtop.taobao.idlehome.item.batch.delete */

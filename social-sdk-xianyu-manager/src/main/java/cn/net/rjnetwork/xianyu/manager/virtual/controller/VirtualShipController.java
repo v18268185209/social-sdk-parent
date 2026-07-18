@@ -10,6 +10,8 @@ import cn.net.rjnetwork.xianyu.manager.virtual.model.VirtualShipConfig;
 import cn.net.rjnetwork.xianyu.manager.virtual.model.VirtualShipTask;
 import cn.net.rjnetwork.xianyu.manager.virtual.service.VirtualShipService;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 import java.util.List;
 import java.util.Map;
@@ -52,6 +54,39 @@ public class VirtualShipController {
             @RequestParam(required = false) Long productId,
             @RequestParam(required = false) String status) {
         return ApiResponse.ok(shipService.listCards(productId, status));
+    }
+
+    /**
+     * 删除单条卡密
+     * DELETE /api/virtual-ship/cards/{id}
+     */
+    @DeleteMapping("/cards/{id}")
+    public ApiResponse<Void> deleteCard(@PathVariable Long id) {
+        int deleted = shipService.deleteCard(id);
+        if (deleted == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Card not found: " + id);
+        }
+        return ApiResponse.ok(null);
+    }
+
+    /**
+     * 批量操作卡密（批量删除）
+     * POST /api/virtual-ship/cards/batch
+     * { "cardIds": [1,2,3] }
+     */
+    @PostMapping("/cards/batch")
+    public ApiResponse<Map<String, Object>> batchDeleteCards(@RequestBody java.util.Map<String, Object> body) {
+        Object idsObj = body != null ? body.get("cardIds") : null;
+        int deleted = 0;
+        if (idsObj instanceof java.util.List<?> ids) {
+            for (Object id : ids) {
+                try {
+                    Long cardId = Long.valueOf(String.valueOf(id));
+                    deleted += shipService.deleteCard(cardId);
+                } catch (IllegalArgumentException ignored) {}
+            }
+        }
+        return ApiResponse.ok(Map.of("deleted", deleted));
     }
 
     // ==================== 发货任务 ====================
