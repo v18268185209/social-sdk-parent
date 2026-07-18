@@ -8,6 +8,8 @@ import cn.net.rjnetwork.xianyu.manager.notify.TemplateRenderer;
 import cn.net.rjnetwork.xianyu.manager.notify.adapter.ChannelAdapter;
 import cn.net.rjnetwork.xianyu.manager.notify.model.*;
 import cn.net.rjnetwork.xianyu.manager.notify.mapper.*;
+import cn.net.rjnetwork.xianyu.manager.notify.service.SendRateLimiter;
+import cn.net.rjnetwork.xianyu.manager.notify.service.RetryService;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -41,6 +43,11 @@ public class NotificationService {
     private final CryptoUtil cryptoUtil;
     private final MessageBroadcaster broadcaster;
     private final List<ChannelAdapter> adapters;
+    private final SendRateLimiter rateLimiter;
+    private final RetryService retryService;
+
+    @org.springframework.beans.factory.annotation.Value("${notify.rate-limit-retry-delay-seconds:30}")
+    private int rateLimitRetryDelay;
 
     /** 去重缓存：scenario::accountId -> 上次发送时间；冷却内不重复发 */
     private final Cache<String, Long> dedup = Caffeine.newBuilder()
@@ -54,7 +61,9 @@ public class NotificationService {
                               NotifyMessageMapper messageMapper,
                               CryptoUtil cryptoUtil,
                               MessageBroadcaster broadcaster,
-                              List<ChannelAdapter> adapters) {
+                              List<ChannelAdapter> adapters,
+                              SendRateLimiter rateLimiter,
+                              RetryService retryService) {
         this.channelMapper = channelMapper;
         this.templateMapper = templateMapper;
         this.subscriptionMapper = subscriptionMapper;
@@ -63,6 +72,8 @@ public class NotificationService {
         this.cryptoUtil = cryptoUtil;
         this.broadcaster = broadcaster;
         this.adapters = adapters;
+        this.rateLimiter = rateLimiter;
+        this.retryService = retryService;
     }
 
     @Async
@@ -128,6 +139,21 @@ public class NotificationService {
             String decrypted = cryptoUtil.decrypt(channel.getConfigJson());
             channel.setConfigJson(decrypted);
             List<String> recipients = resolveRecipients(sub, channel);
+
+            // 通道限频：超限则转入重试队列短延时重发，不直接丢弃
+            int channelRate = 0;
+            try {
+                JsonNode cfgNode = mapper.readTree(channel.getConfigJson());
+                if (cfgNode != null && cfgNode.has("rateLimitPerMinute")) {
+                    channelRate = cfgNode.get("rateLimitPerMinute").asInt(0);
+                }
+            } catch (Exception ignored) {}
+            if (!rateLimiter.tryAcquire(channel.getId(), channelRate)) {
+                logger.warn("通道 {} 触发限频，转入重试队列", channel.getName());
+                retryService.enqueue(event, channel, recipients, title, body, "触发限频，延迟重试", rateLimitRetryDelay);
+                continue;
+            }
+
             try {
                 ChannelAdapter adapter = adapterFor(channel.getType());
                 if (adapter == null) {
@@ -138,6 +164,7 @@ public class NotificationService {
             } catch (Exception e) {
                 logger.error("通知发送失败 scenario={} channel={}", event.getScenario(), channel.getName(), e);
                 writeLog(event, channel, recipients, "FAILED", e.getMessage());
+                retryService.enqueue(event, channel, recipients, title, body, e.getMessage());
             }
         }
     }
@@ -172,6 +199,32 @@ public class NotificationService {
         } catch (Exception e) {
             writeLog(new NotifyEvent("TEST", null, null, Map.of()), channel, List.of(), "FAILED", e.getMessage());
             throw new IllegalStateException("发送失败： " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 经指定通道直接发送一条消息（供每日摘要等合成场景调用）。
+     * config_json 自动解密，发送结果写入投递日志。
+     */
+    public void dispatchViaChannel(Long channelId, List<String> recipients, String title, String body) {
+        NotifyChannel channel = channelMapper.selectById(channelId);
+        if (channel == null || !Boolean.TRUE.equals(channel.getEnabled())) {
+            throw new IllegalStateException("通道不存在或已禁用");
+        }
+        String decrypted = cryptoUtil.decrypt(channel.getConfigJson());
+        channel.setConfigJson(decrypted);
+        try {
+            ChannelAdapter adapter = adapterFor(channel.getType());
+            if (adapter == null) {
+                throw new IllegalStateException("无对应通道适配器： " + channel.getType());
+            }
+            adapter.send(channel, title, body, recipients == null ? Collections.emptyList() : recipients);
+            writeLog(new NotifyEvent("DIGEST", null, null, Map.of()), channel,
+                    recipients == null ? Collections.emptyList() : recipients, "SENT", null);
+        } catch (Exception e) {
+            writeLog(new NotifyEvent("DIGEST", null, null, Map.of()), channel,
+                    recipients == null ? Collections.emptyList() : recipients, "FAILED", e.getMessage());
+            throw new IllegalStateException("摘要发送失败： " + e.getMessage(), e);
         }
     }
 

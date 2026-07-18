@@ -42,6 +42,18 @@ jwt:
 crypto:
   secret: ${XIANYU_CRYPTO_SECRET:defaultCryptoSecretKeyForDevelopmentOnly}
 
+# ======================== 通知模块 ========================
+notify:
+  rate-limit-per-minute: 60                  # 单通道默认每分钟发送上限（0=不限制）
+  rate-limit-retry-delay-seconds: 30        # 触发限频后转入重试队列的短延时
+  retry:
+    enabled: true
+    max-attempts: 5                          # 最大重试次数
+    initial-delay-seconds: 60                # 首次重试延时
+    max-delay-seconds: 1800                  # 退避上限（30 分钟）
+  digest:
+    cron: "0 0 9 * * ?"                       # 每天 09:00 生成昨日摘要
+
 # 闲钱钱包 MTOP 接口名（运行时可覆盖，无需重新编译）
 # 当前为占位候选；拿到真实接口名（DevTools Network 抓取 或 CDP 抓包）后改这里即可。
 # 可用 POST /api/wallet/{accountId}/probe?api=候选名 在线验证，GET /api/wallet/api-names 查看当前生效值。

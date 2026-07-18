@@ -1,5 +1,8 @@
 package cn.net.rjnetwork.xianyu.manager.virtual.service;
 
+import cn.net.rjnetwork.xianyu.manager.clouddisk.model.CloudStorageAccount;
+import cn.net.rjnetwork.xianyu.manager.clouddisk.model.CloudStorageFile;
+import cn.net.rjnetwork.xianyu.manager.clouddisk.service.CloudStorageService;
 import cn.net.rjnetwork.xianyu.manager.order.mapper.OrderMapper;
 import cn.net.rjnetwork.xianyu.manager.order.model.XianyuOrder;
 import cn.net.rjnetwork.xianyu.manager.product.mapper.ProductMapper;
@@ -15,6 +18,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.FileInputStream;
+import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -38,22 +43,25 @@ public class VirtualShipService {
     private final VirtualShipConfigMapper shipConfigMapper;
     private final ProductMapper productMapper;
     private final OrderMapper orderMapper;
-
     /** 消息发送器（注入自定义消息发送器；真实场景对接 xianyu-sdk） */
     private final VirtualMessageSender messageSender;
+    /** 网盘存储服务（FILE 类型发货） */
+    private final CloudStorageService cloudStorageService;
 
     public VirtualShipService(VirtualShipTaskMapper shipTaskMapper,
                               VirtualCardPoolMapper cardPoolMapper,
                               VirtualShipConfigMapper shipConfigMapper,
                               ProductMapper productMapper,
                               OrderMapper orderMapper,
-                              VirtualMessageSender messageSender) {
+                              VirtualMessageSender messageSender,
+                              CloudStorageService cloudStorageService) {
         this.shipTaskMapper = shipTaskMapper;
         this.cardPoolMapper = cardPoolMapper;
         this.shipConfigMapper = shipConfigMapper;
         this.productMapper = productMapper;
         this.orderMapper = orderMapper;
         this.messageSender = messageSender;
+        this.cloudStorageService = cloudStorageService;
     }
 
     // ======================================================================
@@ -217,7 +225,50 @@ public class VirtualShipService {
         }
 
         if ("FILE".equals(type)) {
-            return "请查收下载链接：" + product.getDeliverContentTemplate();
+            // 真实场景：文件路径在 deliverContentTemplate，调 CloudStorageService 上传 + 分享
+            String filePath = product.getDeliverContentTemplate();
+            if (filePath == null || filePath.isBlank()) {
+                return null;
+            }
+            try {
+                // 1. 查找该商品的网盘账号（取第一个可用的）
+                List<CloudStorageAccount> accounts = cloudStorageService.listAccounts(product.getAccountId());
+                if (accounts.isEmpty()) {
+                    return "【系统忙碌】网盘账号未配置，请稍后重试";
+                }
+                CloudStorageAccount account = accounts.get(0);
+
+                // 2. 上传文件到网盘
+                java.io.File file = new java.io.File(filePath);
+                if (!file.exists()) {
+                    return "【系统错误】商品文件不存在: " + filePath;
+                }
+                cn.net.rjnetwork.xianyu.manager.clouddisk.dto.FileUploadRequest uploadReq =
+                        new cn.net.rjnetwork.xianyu.manager.clouddisk.dto.FileUploadRequest();
+                uploadReq.setFileName(file.getName());
+                uploadReq.setFileSize(file.length());
+                uploadReq.setMimeType(java.nio.file.Files.probeContentType(file.toPath()));
+                uploadReq.setTargetPath("/xianyu-virtual-ship/" + product.getId());
+                uploadReq.setExpireDays(30);
+                try (FileInputStream fis = new FileInputStream(file)) {
+                    uploadReq.setContent(fis);
+                    cloudStorageService.uploadFile(account.getId(), uploadReq);
+                }
+
+                // 3. 创建分享链接
+                // 注意：uploadFile 里已写入 DB，需重新查最新的一条 file 记录
+                List<CloudStorageFile> files = cloudStorageService.listFiles(account.getId());
+                CloudStorageFile latest = files.isEmpty() ? null : files.get(files.size() - 1);
+                if (latest != null && "COMPLETED".equals(latest.getUploadStatus())) {
+                    String link = cloudStorageService.shareFile(latest.getId());
+                    return String.format("下载链接：%s\n提取码：%s\n有效期：7天",
+                            link, latest.getExtractCode());
+                }
+                return "【系统错误】文件上传失败，请稍后重试";
+            } catch (Exception e) {
+                System.err.println("[VirtualShip] FILE deliver failed: " + e.getMessage());
+                return "【系统错误】文件发货失败，请联系客服";
+            }
         }
 
         return null;

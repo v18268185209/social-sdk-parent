@@ -266,7 +266,7 @@ CREATE INDEX IF NOT EXISTS idx_ai_model_type ON ai_model(model_type);
 -- 通知通道（邮件 SMTP / Webhook 机器人）。config_json 密文存储敏感配置。
 CREATE TABLE IF NOT EXISTS notify_channel (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type VARCHAR(16) NOT NULL,            -- EMAIL, WEBHOOK
+    type VARCHAR(16) NOT NULL,            -- EMAIL, WEBHOOK, SMS
     name VARCHAR(128) NOT NULL,
     enabled BOOLEAN DEFAULT TRUE,
     config_json TEXT,                     -- AES 加密后的 JSON 配置
@@ -331,6 +331,38 @@ CREATE INDEX IF NOT EXISTS idx_notify_sub_scenario ON notify_subscription(scenar
 CREATE INDEX IF NOT EXISTS idx_notify_log_scenario ON notify_log(scenario);
 CREATE INDEX IF NOT EXISTS idx_notify_msg_read ON notify_message(is_read);
 CREATE INDEX IF NOT EXISTS idx_notify_msg_created ON notify_message(created_at);
+
+-- 发送重试队列（失败/限频后入队，按退避重发）
+CREATE TABLE IF NOT EXISTS notify_retry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scenario VARCHAR(64),
+    channel_id INTEGER,
+    channel_type VARCHAR(16),
+    recipient VARCHAR(256),
+    title TEXT,
+    body TEXT,
+    retry_count INTEGER DEFAULT 0,
+    max_retry INTEGER DEFAULT 5,
+    next_retry_at DATETIME,
+    status VARCHAR(16),              -- PENDING / SENDING / DONE / GIVEN_UP
+    last_error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_notify_retry_due ON notify_retry(status, next_retry_at);
+
+-- 每日摘要配置（单例 id=1）
+CREATE TABLE IF NOT EXISTS notify_digest_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    enabled BOOLEAN DEFAULT FALSE,
+    channel_id INTEGER,
+    recipients TEXT,
+    hour INTEGER DEFAULT 9,
+    minute INTEGER DEFAULT 0,
+    scenarios TEXT,                  -- JSON 数组；空=全部场景
+    include_in_app BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 
 -- ======================== 虚拟商品 / 自动发货 ========================
 
@@ -535,3 +567,48 @@ CREATE TABLE IF NOT EXISTS ai_ops_knowledge (
 
 CREATE INDEX IF NOT EXISTS idx_ai_ops_task_account ON ai_ops_task(account_id);
 CREATE INDEX IF NOT EXISTS idx_ai_ops_suggestion_account ON ai_ops_suggestion(account_id);
+
+-- ======================== 网盘存储（虚拟发货扩展） ========================
+
+-- 网盘账号表
+CREATE TABLE IF NOT EXISTS cloud_storage_account (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    provider VARCHAR(32) NOT NULL,                - BAIDU_NETDISK / QUARK_NETDISK / ALIYUN_DRIVE
+    access_token VARCHAR(512),
+    refresh_token VARCHAR(512),
+    token_expires_at DATETIME,
+    uid VARCHAR(64),
+    total_space BIGINT DEFAULT 0,
+    used_space BIGINT DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0,
+    FOREIGN KEY (account_id) REFERENCES xianyu_account(id)
+);
+
+-- 网盘文件表
+CREATE TABLE IF NOT EXISTS cloud_storage_file (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    storage_account_id INTEGER NOT NULL,
+    file_name VARCHAR(256),
+    file_path VARCHAR(512),
+    file_size BIGINT,
+    file_hash VARCHAR(64),
+    mime_type VARCHAR(64),
+    share_link VARCHAR(1024),                    -- 分享链接
+    extract_code VARCHAR(16),                     -- 提取码
+    share_expires_at DATETIME,                    -- 分享过期时间
+    upload_status VARCHAR(32),                   - PENDING / UPLOADING / COMPLETED / FAILED
+    remote_file_id VARCHAR(128),                 -- 网盘侧 file_id
+    extra_meta TEXT,                             -- JSON 扩展
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0,
+    FOREIGN KEY (storage_account_id) REFERENCES cloud_storage_account(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cloud_storage_account_account ON cloud_storage_account(account_id);
+CREATE INDEX IF NOT EXISTS idx_cloud_storage_file_account ON cloud_storage_file(storage_account_id);
+
