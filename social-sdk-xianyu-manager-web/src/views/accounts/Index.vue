@@ -32,21 +32,96 @@
     </el-card>
 
     <!-- 添加账号对话框 -->
-    <el-dialog v-model="showLoginDialog" title="添加账号" width="400px">
-      <el-form :model="loginForm" label-width="80px">
-        <el-form-item label="账号名称">
-          <el-input v-model="loginForm.accountName" placeholder="如：账号A" />
-        </el-form-item>
-        <el-form-item label="Cookie">
-          <el-input v-model="loginForm.cookieHeader" type="textarea" :rows="4" placeholder="粘贴 Cookie 字符串" />
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="loginForm.remark" placeholder="可选" />
-        </el-form-item>
-      </el-form>
+    <el-dialog v-model="showLoginDialog" title="添加账号" width="500px">
+      <!-- 登录方式切换 -->
+      <el-tabs v-model="loginMode" style="margin-bottom: 20px;">
+        <el-tab-pane label="📱 二维码登录" name="qr" />
+        <el-tab-pane label="🍪 Cookie 登录" name="cookie" />
+      </el-tabs>
+
+      <!-- 二维码登录 -->
+      <div v-if="loginMode === 'qr'">
+        <el-form :model="qrForm" label-width="80px">
+          <el-form-item label="账号名称">
+            <el-input v-model="qrForm.accountName" placeholder="如：账号A" />
+          </el-form-item>
+          <el-form-item label="备注">
+            <el-input v-model="qrForm.remark" placeholder="可选" />
+          </el-form-item>
+        </el-form>
+
+        <div v-if="qrState.loading" style="text-align: center; padding: 20px;">
+          <el-icon class="is-loading" :size="40"><Loading /></el-icon>
+          <p>正在生成二维码...</p>
+        </div>
+
+        <div v-else-if="qrState.qrCodeDataUrl" class="qr-container">
+          <img :src="qrState.qrCodeDataUrl" alt="二维码" class="qr-image" />
+          <p class="qr-tip">请使用闲鱼 APP 扫码登录</p>
+          <p v-if="qrState.status === 'SCANNED'" class="qr-scanned">
+            <el-icon :size="16"><SuccessFilled /></el-icon> 已扫码，请在手机上确认
+          </p>
+          <p v-if="qrState.status === 'VERIFICATION_REQUIRED'" class="qr-verify">
+            <el-alert title="需要验证" type="warning" :closable="false" show-icon />
+          </p>
+          <p v-if="qrState.status === 'EXPIRED'" class="qr-expired">
+            <el-alert title="二维码已过期" type="error" :closable="false" show-icon>
+              <template #default>请重新生成二维码</template>
+            </el-alert>
+          </p>
+          <p v-if="qrState.status === 'ERROR'" class="qr-error">
+            <el-alert :title="qrState.message || '生成失败'" type="error" :closable="false" show-icon />
+          </p>
+        </div>
+
+        <div v-else-if="qrState.error" class="qr-error">
+          <el-alert :title="qrState.message || '生成失败'" type="error" :closable="false" show-icon />
+        </div>
+
+        <div v-if="qrState.qrCodeDataUrl || qrState.error" style="margin-top: 16px; text-align: center;">
+          <el-button v-if="qrState.status === 'EXPIRED'" type="primary" @click="refreshQrCode">
+            <el-icon><Refresh /></el-icon> 刷新二维码
+          </el-button>
+          <el-button v-if="['WAITING', 'SCANNED'].includes(qrState.status)" type="danger" plain @click="cancelQrLogin">
+            <el-icon><Close /></el-icon> 取消登录
+          </el-button>
+        </div>
+      </div>
+
+      <!-- Cookie 登录 -->
+      <div v-if="loginMode === 'cookie'">
+        <el-form :model="loginForm" label-width="80px">
+          <el-form-item label="账号名称">
+            <el-input v-model="loginForm.accountName" placeholder="如：账号A" />
+          </el-form-item>
+          <el-form-item label="Cookie">
+            <el-input v-model="loginForm.cookieHeader" type="textarea" :rows="4" placeholder="粘贴 Cookie 字符串" />
+          </el-form-item>
+          <el-form-item label="备注">
+            <el-input v-model="loginForm.remark" placeholder="可选" />
+          </el-form-item>
+        </el-form>
+      </div>
+
       <template #footer>
-        <el-button @click="showLoginDialog = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleLogin">确定</el-button>
+        <el-button @click="closeDialog">取消</el-button>
+        <el-button
+          v-if="loginMode === 'cookie'"
+          type="primary"
+          :loading="submitting"
+          @click="handleCookieLogin"
+        >
+          确定
+        </el-button>
+        <el-button
+          v-else
+          type="primary"
+          :loading="qrState.submitting"
+          :disabled="!qrForm.accountName"
+          @click="handleQrLogin"
+        >
+          生成二维码
+        </el-button>
       </template>
     </el-dialog>
 
@@ -73,19 +148,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/request'
 
+// ===== 列表 =====
 const accounts = ref([])
 const loading = ref(false)
-const showLoginDialog = ref(false)
-const showStatusDialog = ref(false)
-const submitting = ref(false)
-const loginForm = ref({ accountName: '', cookieHeader: '', remark: '' })
-const statusForm = ref({ id: null, status: 'ACTIVE', remark: '' })
-
-const statusType = (s) => ({ ACTIVE: 'success', DISABLED: 'info', FROZEN: 'danger', COOKIE_EXPIRED: 'warning' }[s] || 'info')
 
 async function loadAccounts() {
   loading.value = true
@@ -96,23 +165,11 @@ async function loadAccounts() {
   finally { loading.value = false }
 }
 
-async function handleLogin() {
-  if (!loginForm.value.accountName || !loginForm.value.cookieHeader) {
-    ElMessage.warning('请填写账号名称和 Cookie')
-    return
-  }
-  submitting.value = true
-  try {
-    const res = await api.post('/accounts/login', loginForm.value)
-    if (res.success) {
-      ElMessage.success('账号添加成功')
-      showLoginDialog.value = false
-      loginForm.value = { accountName: '', cookieHeader: '', remark: '' }
-      await loadAccounts()
-    }
-  } catch (e) { /* handled by interceptor */ }
-  finally { submitting.value = false }
-}
+// ===== 状态切换 =====
+const showStatusDialog = ref(false)
+const statusForm = ref({ id: null, status: 'ACTIVE', remark: '' })
+
+const statusType = (s) => ({ ACTIVE: 'success', DISABLED: 'info', FROZEN: 'danger', COOKIE_EXPIRED: 'warning' }[s] || 'info')
 
 function editStatus(row) {
   statusForm.value = { id: row.id, status: row.status, remark: row.remark || '' }
@@ -144,5 +201,212 @@ async function deleteAccount(id) {
   } catch (e) { /* ignore */ }
 }
 
+// ===== Cookie 登录 =====
+const showLoginDialog = ref(false)
+const loginMode = ref('qr') // 'qr' | 'cookie'
+const submitting = ref(false)
+const loginForm = ref({ accountName: '', cookieHeader: '', remark: '' })
+
+async function handleCookieLogin() {
+  if (!loginForm.value.accountName || !loginForm.value.cookieHeader) {
+    ElMessage.warning('请填写账号名称和 Cookie')
+    return
+  }
+  submitting.value = true
+  try {
+    const res = await api.post('/accounts/login', loginForm.value)
+    if (res.success) {
+      ElMessage.success('账号添加成功')
+      closeDialog()
+      await loadAccounts()
+    }
+  } catch (e) { /* handled by interceptor */ }
+  finally { submitting.value = false }
+}
+
+// ===== 二维码登录 =====
+const qrForm = ref({ accountName: '', remark: '' })
+const qrState = ref({
+  loading: false,
+  sessionId: null,
+  status: null,
+  qrCodeDataUrl: null,
+  message: null,
+  error: false,
+  submitting: false
+})
+
+let qrPollTimer = null
+
+function closeDialog() {
+  showLoginDialog.value = false
+  stopQrPolling()
+  resetQrState()
+  loginMode.value = 'qr'
+  qrForm.value = { accountName: '', remark: '' }
+  loginForm.value = { accountName: '', cookieHeader: '', remark: '' }
+}
+
+function resetQrState() {
+  qrState.value = {
+    loading: false,
+    sessionId: null,
+    status: null,
+    qrCodeDataUrl: null,
+    message: null,
+    error: false,
+    submitting: false
+  }
+}
+
+function stopQrPolling() {
+  if (qrPollTimer) {
+    clearInterval(qrPollTimer)
+    qrPollTimer = null
+  }
+}
+
+async function handleQrLogin() {
+  if (!qrForm.value.accountName) {
+    ElMessage.warning('请填写账号名称')
+    return
+  }
+  qrState.value.submitting = true
+  qrState.value.loading = true
+  qrState.value.error = false
+
+  try {
+    const res = await api.post('/accounts/qr-login', qrForm.value)
+    if (res.success && res.data) {
+      const data = res.data
+      qrState.value.sessionId = data.sessionId
+      qrState.value.qrCodeDataUrl = data.qrCodeDataUrl
+      qrState.value.status = data.status
+      qrState.value.message = data.message
+      qrState.value.loading = false
+
+      if (data.status === 'SUCCESS') {
+        // 直接登录成功
+        ElMessage.success('二维码登录成功！账号已添加')
+        closeDialog()
+        await loadAccounts()
+      } else {
+        // 开始轮询
+        startQrPolling()
+      }
+    } else {
+      qrState.value.error = true
+      qrState.value.message = res.message || '生成二维码失败'
+      qrState.value.loading = false
+    }
+  } catch (e) {
+    qrState.value.error = true
+    qrState.value.message = '生成二维码失败: ' + (e.message || '未知错误')
+    qrState.value.loading = false
+  } finally {
+    qrState.value.submitting = false
+  }
+}
+
+function startQrPolling() {
+  stopQrPolling()
+  qrPollTimer = setInterval(async () => {
+    if (!qrState.value.sessionId) return
+
+    try {
+      const res = await api.get('/accounts/qr-login/status', {
+        params: { sessionId: qrState.value.sessionId }
+      })
+      if (res.success && res.data) {
+        const data = res.data
+        qrState.value.status = data.status
+        qrState.value.message = data.message
+
+        if (data.status === 'SUCCESS') {
+          stopQrPolling()
+          ElMessage.success('二维码登录成功！账号已添加')
+          closeDialog()
+          await loadAccounts()
+        } else if (data.status === 'SCANNED') {
+          qrState.value.message = '已扫码，请在手机上确认'
+        } else if (data.status === 'EXPIRED' || data.status === 'CANCELLED' || data.status === 'ERROR') {
+          stopQrPolling()
+          if (data.status === 'CANCELLED') {
+            ElMessage.info('已取消登录')
+            closeDialog()
+          } else {
+            qrState.value.error = true
+            qrState.value.message = data.message || '登录失败或已过期'
+          }
+        }
+      }
+    } catch (e) {
+      // polling error, continue
+    }
+  }, 3000)
+}
+
+async function refreshQrCode() {
+  resetQrState()
+  qrState.value.loading = true
+  await handleQrLogin()
+}
+
+async function cancelQrLogin() {
+  stopQrPolling()
+  qrState.value.status = 'CANCELLED'
+  ElMessage.info('已取消登录')
+  closeDialog()
+}
+
+// ===== 生命周期 =====
+onUnmounted(() => {
+  stopQrPolling()
+})
+
 onMounted(loadAccounts)
 </script>
+
+<style scoped>
+.qr-container {
+  text-align: center;
+  padding: 20px;
+}
+
+.qr-image {
+  width: 280px;
+  height: 280px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+.qr-tip {
+  margin-top: 12px;
+  color: #606266;
+  font-size: 14px;
+}
+
+.qr-scanned {
+  margin-top: 8px;
+  color: #67c23a;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.qr-verify {
+  margin-top: 12px;
+}
+
+.qr-expired {
+  margin-top: 12px;
+}
+
+.qr-error {
+  margin-top: 12px;
+}
+</style>

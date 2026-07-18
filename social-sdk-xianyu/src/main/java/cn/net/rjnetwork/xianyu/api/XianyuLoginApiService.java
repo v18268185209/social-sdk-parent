@@ -71,9 +71,10 @@ public class XianyuLoginApiService {
      */
     public QrLoginResult createQrLoginSession() {
         try {
+            System.err.println("[SDK] createQrLoginSession START");
             InternalQrSession session = new InternalQrSession();
             session.sessionId = UUID.randomUUID().toString();
-            session.createdAt = Instant.now();
+            // 注意：createdAt 不在这里设置，等二维码真正生成后再设置，避免创建过程耗时导致误判过期
             session.status = "WAITING";
 
             // 第1步：预热 _m_h5_tk Cookie
@@ -86,9 +87,16 @@ public class XianyuLoginApiService {
             // 第3步：生成二维码
             generateQrCode(session);
 
+            // 二维码生成成功后，再设置 createdAt
+            session.createdAt = Instant.now();
+            System.err.println("[SDK] QR code generated, createdAt=" + session.createdAt);
+
             qrSessions.put(session.sessionId, session);
+            System.err.println("[SDK] Session stored. Total sessions: " + qrSessions.size());
             return toPublicResult(session);
         } catch (Exception e) {
+            System.err.println("[SDK] createQrLoginSession FAILED: " + e.getMessage());
+            e.printStackTrace(System.err);
             QrLoginResult error = new QrLoginResult();
             error.success = false;
             error.message = "Failed to create QR login session: " + e.getMessage();
@@ -103,14 +111,17 @@ public class XianyuLoginApiService {
      * @return 二维码状态结果
      */
     public QrLoginResult pollQrStatus(String sessionId) {
+        System.err.println("[SDK] pollQrStatus called, sessionId=" + sessionId);
         InternalQrSession session = qrSessions.get(sessionId);
         if (session == null) {
+            System.err.println("[SDK] Session NOT FOUND in qrSessions map. Available keys: " + qrSessions.keySet());
             QrLoginResult result = new QrLoginResult();
             result.success = false;
             result.status = "NOT_FOUND";
             result.message = "QR login session not found";
             return result;
         }
+        System.err.println("[SDK] Session found, current status=" + session.status + ", t=" + session.t + ", ck=" + session.ck);
 
         // 检查过期
         if (isExpired(session) && !"SUCCESS".equals(session.status)
@@ -420,8 +431,12 @@ public class XianyuLoginApiService {
         params.put("stie", "77");
         params.put("rnd", String.valueOf(Math.random()));
 
+        String loginUrl = MINI_LOGIN_URL + "?" + buildQuery(params);
+        System.err.println("[SDK] fetchLoginFormData - URL: " + loginUrl);
+        System.err.println("[SDK] fetchLoginFormData - cookies before: " + session.cookies);
+
         HttpRequest request = HttpRequest.newBuilder(
-                        URI.create(MINI_LOGIN_URL + "?" + buildQuery(params)))
+                        URI.create(loginUrl))
                 .GET()
                 .header("User-Agent", userAgent())
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9")
@@ -433,10 +448,16 @@ public class XianyuLoginApiService {
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         mergeSetCookies(session.cookies, response);
 
+        System.err.println("[SDK] fetchLoginFormData - response status: " + response.statusCode());
+        System.err.println("[SDK] fetchLoginFormData - response body length: " + response.body().length());
+        System.err.println("[SDK] fetchLoginFormData - cookies after: " + session.cookies);
+
         String viewDataJson = extractViewDataJson(response.body());
         if (viewDataJson == null) {
             throw new RuntimeException("Parse mini_login viewData failed");
         }
+
+        System.err.println("[SDK] fetchLoginFormData - viewDataJson: " + viewDataJson);
 
         JsonNode root = MAPPER.readTree(viewDataJson);
         JsonNode loginFormData = root.path("loginFormData");
@@ -453,6 +474,8 @@ public class XianyuLoginApiService {
             }
         });
         out.put("umidTag", "SERVER");
+        
+        System.err.println("[SDK] fetchLoginFormData - extracted loginFormData params: " + out);
         return out;
     }
 
@@ -462,8 +485,13 @@ public class XianyuLoginApiService {
         allParams.put("appName", "xianyu");
         allParams.put("appEntrance", "web");
 
+        String queryString = buildQuery(allParams);
+        System.err.println("[SDK] generateQrCode - URL: " + GENERATE_QR_URL);
+        System.err.println("[SDK] generateQrCode - params: " + queryString);
+        System.err.println("[SDK] generateQrCode - cookies: " + session.cookies);
+
         HttpRequest request = HttpRequest.newBuilder(
-                        URI.create(GENERATE_QR_URL + "?" + buildQuery(allParams)))
+                        URI.create(GENERATE_QR_URL + "?" + queryString))
                 .GET()
                 .header("User-Agent", userAgent())
                 .header("Origin", PASSPORT_BASE)
@@ -473,6 +501,9 @@ public class XianyuLoginApiService {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         mergeSetCookies(session.cookies, response);
+
+        System.err.println("[SDK] generateQrCode - response status: " + response.statusCode());
+        System.err.println("[SDK] generateQrCode - response body: " + response.body());
 
         JsonNode root = MAPPER.readTree(response.body());
         JsonNode content = root.path("content");
@@ -494,8 +525,13 @@ public class XianyuLoginApiService {
     }
 
     private void pollQrStatusInternal(InternalQrSession session) throws Exception {
+        // 轮询二维码状态只需要 t 和 ck 两个关键参数
+        Map<String, String> pollParams = new LinkedHashMap<>();
+        if (session.t != null) pollParams.put("t", session.t);
+        if (session.ck != null) pollParams.put("ck", session.ck);
+
         HttpRequest request = HttpRequest.newBuilder(URI.create(QUERY_QR_URL))
-                .POST(HttpRequest.BodyPublishers.ofString(buildQuery(session.params)))
+                .POST(HttpRequest.BodyPublishers.ofString(buildQuery(pollParams)))
                 .header("User-Agent", userAgent())
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .header("Origin", PASSPORT_BASE)
@@ -505,6 +541,9 @@ public class XianyuLoginApiService {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         mergeSetCookies(session.cookies, response);
+
+        // 调试：打印完整响应
+        System.err.println("[QR POLL] Status=" + response.statusCode() + " Body=" + response.body());
 
         JsonNode root = MAPPER.readTree(response.body());
         JsonNode data = root.path("content").path("data");

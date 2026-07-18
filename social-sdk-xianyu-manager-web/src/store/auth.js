@@ -3,8 +3,14 @@ import { ref, computed } from 'vue'
 import { login as loginApi, getProfile } from '@/api/auth'
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref(localStorage.getItem('token') || '')
+  const token = ref('')
   const user = ref(null)
+
+  // 从 localStorage 恢复
+  const savedToken = localStorage.getItem('token')
+  if (savedToken) {
+    token.value = savedToken
+  }
 
   const isLoggedIn = computed(() => !!token.value)
 

@@ -2,6 +2,8 @@ package cn.net.rjnetwork.xianyu.manager.account.controller;
 
 import cn.net.rjnetwork.xianyu.manager.account.dto.AccountLoginRequest;
 import cn.net.rjnetwork.xianyu.manager.account.dto.AccountStatusUpdateRequest;
+import cn.net.rjnetwork.xianyu.manager.account.dto.QrLoginRequest;
+import cn.net.rjnetwork.xianyu.manager.account.dto.QrLoginResponse;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import cn.net.rjnetwork.xianyu.manager.account.service.AccountService;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
@@ -34,6 +36,22 @@ public class AccountController {
     @PostMapping("/login")
     public ApiResponse<XianyuAccount> login(@RequestBody AccountLoginRequest request) {
         return ApiResponse.ok(accountService.login(request));
+    }
+
+    /**
+     * 创建二维码登录会话
+     */
+    @PostMapping("/qr-login")
+    public ApiResponse<QrLoginResponse> qrLogin(@RequestBody QrLoginRequest request) {
+        return ApiResponse.ok(accountService.createQrLoginSession(request));
+    }
+
+    /**
+     * 轮询二维码登录状态
+     */
+    @GetMapping("/qr-login/status")
+    public ApiResponse<QrLoginResponse> qrLoginStatus(@RequestParam("sessionId") String sessionId) {
+        return ApiResponse.ok(accountService.pollQrLoginStatus(sessionId));
     }
 
     @PutMapping("/{id}/status")
