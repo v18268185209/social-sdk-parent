@@ -1,14 +1,11 @@
 package cn.net.rjnetwork.xianyu.manager.common;
 
-import lombok.Data;
-
 import java.time.LocalDateTime;
 import java.util.List;
 
 /**
  * 统一 API 响应结构
  */
-@Data
 public class ApiResponse<T> {
 
     private boolean success;
@@ -16,6 +13,17 @@ public class ApiResponse<T> {
     private String message;
     private T data;
     private LocalDateTime timestamp;
+
+    public boolean isSuccess() { return success; }
+    public void setSuccess(boolean success) { this.success = success; }
+    public String getCode() { return code; }
+    public void setCode(String code) { this.code = code; }
+    public String getMessage() { return message; }
+    public void setMessage(String message) { this.message = message; }
+    public T getData() { return data; }
+    public void setData(T data) { this.data = data; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
 
     public static <T> ApiResponse<T> ok(T data) {
         ApiResponse<T> response = new ApiResponse<>();
@@ -50,11 +58,19 @@ public class ApiResponse<T> {
         return (ApiResponse<T>) ok(page);
     }
 
-    @Data
     public static class PageResponse<T> {
         private List<T> records;
         private long total;
         private long current;
         private long size;
+
+        public List<T> getRecords() { return records; }
+        public void setRecords(List<T> records) { this.records = records; }
+        public long getTotal() { return total; }
+        public void setTotal(long total) { this.total = total; }
+        public long getCurrent() { return current; }
+        public void setCurrent(long current) { this.current = current; }
+        public long getSize() { return size; }
+        public void setSize(long size) { this.size = size; }
     }
 }

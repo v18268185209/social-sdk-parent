@@ -29,6 +29,7 @@ public class RuleService {
     private final AiChatService aiChatService;
     // 内存缓存：accountId -> list of rules
     private final Map<Long, List<XianyuKeywordRule>> ruleCache = new ConcurrentHashMap<>();
+    private static final Logger log = LoggerFactory.getLogger(RuleService.class);
 
     public RuleService(RuleMapper ruleMapper, AutoReplyConfigMapper autoReplyConfigMapper, AiChatService aiChatService) {
         this.ruleMapper = ruleMapper;
@@ -197,10 +198,7 @@ public class RuleService {
         if (existing != null) {
             // 更新已有配置
             if (formData.getAiEnabled() != null) existing.setAiEnabled(formData.getAiEnabled());
-            if (formData.getAiProvider() != null) existing.setAiProvider(formData.getAiProvider());
-            if (formData.getAiApiKey() != null) existing.setAiApiKey(formData.getAiApiKey());
-            if (formData.getAiApiUrl() != null) existing.setAiApiUrl(formData.getAiApiUrl());
-            if (formData.getAiModel() != null) existing.setAiModel(formData.getAiModel());
+            if (formData.getAiModelId() != null) existing.setAiModelId(formData.getAiModelId());
             if (formData.getAiSystemPrompt() != null) existing.setAiSystemPrompt(formData.getAiSystemPrompt());
             if (formData.getAiTemperature() != null) existing.setAiTemperature(formData.getAiTemperature());
             if (formData.getAutoReplyEnabled() != null) existing.setAutoReplyEnabled(formData.getAutoReplyEnabled());

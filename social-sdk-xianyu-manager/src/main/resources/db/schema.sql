@@ -487,3 +487,51 @@ CREATE INDEX IF NOT EXISTS idx_ai_cs_session_buyer ON ai_cs_session(account_id, 
 CREATE INDEX IF NOT EXISTS idx_ai_cs_message_session ON ai_cs_message(session_id);
 CREATE INDEX IF NOT EXISTS idx_ai_cs_knowledge_account ON ai_cs_knowledge(account_id);
 CREATE INDEX IF NOT EXISTS idx_ai_cs_daily_stats_account ON ai_cs_daily_stats(account_id);
+
+-- ======================== AI 运营 ========================
+
+-- AI 运营任务表（批量上品、多账号同步等）
+CREATE TABLE IF NOT EXISTS ai_ops_task (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    task_type VARCHAR(32) NOT NULL,              - BATCH_CREATE / MULTI_ACCOUNT_SYNC / AUTO_REFRESH
+    status VARCHAR(16) DEFAULT 'PENDING',         - PENDING / RUNNING / COMPLETED / FAILED
+    payload TEXT,                                 - JSON 任务参数
+    result_summary TEXT,                          - AI 生成摘要
+    error_message TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    deleted INTEGER DEFAULT 0,
+    FOREIGN KEY (account_id) REFERENCES xianyu_account(id)
+);
+
+-- AI 建议执行记录
+CREATE TABLE IF NOT EXISTS ai_ops_suggestion (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    suggestion_type VARCHAR(32),                  - PRICE_ADJUST / REFRESH_TIME / LISTING_OPTIMIZE
+    product_id INTEGER,
+    suggestion_content TEXT,                      - JSON AI 建议详情
+    confidence REAL,
+    adopted BOOLEAN,                              - 运营是否采纳
+    adopted_at DATETIME,
+    expected_impact TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0,
+    FOREIGN KEY (account_id) REFERENCES xianyu_account(id),
+    FOREIGN KEY (product_id) REFERENCES xianyu_product(id)
+);
+
+-- 运营知识库
+CREATE TABLE IF NOT EXISTS ai_ops_knowledge (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category VARCHAR(64),                         - 商品品类
+    knowledge_type VARCHAR(32),                   - PRICING / DESCRIPTION_STYLE / POSTING_TIME / KEYWORD
+    content TEXT,
+    source VARCHAR(32),                           - AI_GENERATED / MANUAL / PLATFORM_RULE
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_ops_task_account ON ai_ops_task(account_id);
+CREATE INDEX IF NOT EXISTS idx_ai_ops_suggestion_account ON ai_ops_suggestion(account_id);

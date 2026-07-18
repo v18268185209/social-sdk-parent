@@ -49,12 +49,22 @@
           <el-icon><Document /></el-icon>
           <span>审计日志</span>
         </el-menu-item>
+        <el-menu-item index="/notify">
+          <el-icon><Bell /></el-icon>
+          <span>消息通知</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
       <el-header class="header">
         <span class="page-title">{{ currentTitle }}</span>
-        <el-dropdown @command="handleCommand">
+        <div class="header-right">
+          <el-badge :value="unread" :hidden="unread === 0" :max="99" class="bell-badge">
+            <el-button text circle @click="openInbox" title="站内通知">
+              <el-icon :size="18"><Bell /></el-icon>
+            </el-button>
+          </el-badge>
+          <el-dropdown @command="handleCommand">
           <span class="user-info">
             <el-icon><UserFilled /></el-icon>
             {{ authStore.user?.displayName || '管理员' }}
@@ -66,6 +76,7 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+        </div>
       </el-header>
       <el-main class="main-content">
         <router-view />
@@ -103,15 +114,40 @@
           <el-button type="primary" class="qr-copy" @click="copyWechat">复制微信号</el-button>
         </div>
       </el-dialog>
+
+      <!-- 站内通知收件箱 -->
+      <el-drawer v-model="inboxVisible" title="站内通知" direction="rtl" size="380px">
+        <div class="inbox-head">
+          <span v-if="unread > 0">有 <strong>{{ unread }}</strong> 条未读</span>
+          <span v-else>全部已读</span>
+          <el-button text type="primary" :disabled="unread === 0" @click="readAll">全部已读</el-button>
+        </div>
+        <el-empty v-if="!messages.length" description="暂无通知" />
+        <div
+          v-for="m in messages"
+          :key="m.id"
+          class="inbox-item"
+          :class="{ unread: !m.isRead }"
+          @click="readMsg(m)"
+        >
+          <div class="inbox-title">
+            <span class="inbox-dot" v-if="!m.isRead" />
+            {{ m.title }}
+          </div>
+          <div class="inbox-content">{{ m.content }}</div>
+          <div class="inbox-meta">{{ scenarioLabel(m.scenario) }} · {{ m.createdAt }}</div>
+        </div>
+      </el-drawer>
     </el-container>
   </el-container>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import * as notify from '@/api/notification'
 
 const route = useRoute()
 const router = useRouter()
@@ -127,7 +163,8 @@ const titleMap = {
   '/wallet': '钱包资产',
   '/collect': '收藏关注',
   '/monitor': '监控面板',
-  '/audit': '审计日志'
+  '/audit': '审计日志',
+  '/notify': '消息通知'
 }
 
 const currentTitle = computed(() => titleMap[route.path] || '管理后台')
@@ -170,6 +207,72 @@ function copyWechat() {
     fallback()
   }
 }
+
+// ===== 站内通知收件箱 =====
+const inboxVisible = ref(false)
+const messages = ref([])
+const unread = ref(0)
+const scenarioMap = ref({})
+
+function scenarioLabel(s) { return scenarioMap.value[s] || s }
+
+async function loadScenarios() {
+  try {
+    const res = await notify.listScenarios()
+    if (res.success) {
+      scenarioMap.value = {}
+      ;(res.data || []).forEach(it => { scenarioMap.value[it.scenario] = it.label })
+    }
+  } catch (e) {}
+}
+
+async function loadUnread() {
+  try {
+    const res = await notify.unreadCount()
+    if (res.success) unread.value = res.data?.unread || 0
+  } catch (e) {}
+}
+
+async function loadMessages() {
+  try {
+    const res = await notify.listMessages({ page: 1, size: 30 })
+    if (res.success) messages.value = res.data?.records || []
+  } catch (e) {}
+}
+
+async function openInbox() {
+  inboxVisible.value = true
+  await loadMessages()
+}
+
+async function readMsg(m) {
+  if (!m.isRead) {
+    try {
+      await notify.markRead(m.id)
+      m.isRead = true
+      await loadUnread()
+    } catch (e) {}
+  }
+}
+
+async function readAll() {
+  try {
+    const res = await notify.markAllRead()
+    if (res.success) {
+      messages.value.forEach(m => { m.isRead = true })
+      unread.value = 0
+      ElMessage.success('已全部标记为已读')
+    }
+  } catch (e) {}
+}
+
+let pollTimer = null
+onMounted(() => {
+  loadScenarios()
+  loadUnread()
+  pollTimer = setInterval(loadUnread, 30000)
+})
+onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 </script>
 
 <style scoped>
@@ -267,4 +370,63 @@ function copyWechat() {
   margin: 0;
 }
 .qr-tip strong { color: #303133; }
+
+/* 顶部右侧：通知铃铛 + 用户 */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.bell-badge { margin-right: 4px; }
+.bell-badge :deep(.el-button) {
+  color: #606266;
+}
+
+/* 站内通知收件箱 */
+.inbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  color: #606266;
+  font-size: 13px;
+}
+.inbox-item {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.inbox-item:hover { background: #f5f7fa; }
+.inbox-item.unread { border-color: #b3d8ff; background: #ecf5ff; }
+.inbox-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #303133;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.inbox-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #409eff;
+  flex: 0 0 auto;
+}
+.inbox-content {
+  margin-top: 6px;
+  color: #606266;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.inbox-meta {
+  margin-top: 6px;
+  color: #a8abb2;
+  font-size: 12px;
+}
 </style>

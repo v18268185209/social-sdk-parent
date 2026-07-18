@@ -84,6 +84,12 @@ const routes = [
         name: 'Audit',
         component: () => import('@/views/audit/Index.vue'),
         meta: { title: '审计日志' }
+      },
+      {
+        path: 'notify',
+        name: 'Notify',
+        component: () => import('@/views/notify/Index.vue'),
+        meta: { title: '消息通知' }
       }
     ]
   }
