@@ -6,17 +6,11 @@
 <title>AI鱼多宝 · 登录预览</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', Arial, sans-serif;
-  }
+  body { font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', Arial, sans-serif; }
   .login-page {
-    position: relative;
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    background: #070b1e;
+    position: relative; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; padding-bottom: 64px;
+    overflow: hidden; background: #070b1e;
   }
   .bg-layer { position: absolute; inset: 0; pointer-events: none; }
   .bg-aurora {
@@ -27,10 +21,7 @@
       linear-gradient(160deg, #070b1e 0%, #0d1230 50%, #070b1e 100%);
     animation: auroraShift 18s ease-in-out infinite alternate;
   }
-  @keyframes auroraShift {
-    0% { transform: scale(1) translate(0,0); }
-    100% { transform: scale(1.12) translate(-2%,-2%); }
-  }
+  @keyframes auroraShift { 0%{transform:scale(1) translate(0,0);} 100%{transform:scale(1.12) translate(-2%,-2%);} }
   .bg-grid {
     background-image:
       linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),
@@ -39,6 +30,54 @@
     -webkit-mask-image: radial-gradient(ellipse at center, #000 25%, transparent 78%);
     mask-image: radial-gradient(ellipse at center, #000 25%, transparent 78%);
   }
+
+  .stars { position: absolute; inset: 0; pointer-events: none; }
+  .stars-1 {
+    background-image:
+      radial-gradient(1.5px 1.5px at 12% 18%, #fff, transparent),
+      radial-gradient(1.5px 1.5px at 28% 62%, #cfe9ff, transparent),
+      radial-gradient(1px 1px at 45% 30%, #fff, transparent),
+      radial-gradient(2px 2px at 62% 75%, #fff, transparent),
+      radial-gradient(1.5px 1.5px at 78% 44%, #d8c9ff, transparent),
+      radial-gradient(1px 1px at 88% 12%, #fff, transparent),
+      radial-gradient(1.5px 1.5px at 8% 82%, #bff3ff, transparent),
+      radial-gradient(1px 1px at 55% 92%, #fff, transparent);
+    animation: twinkle 3.5s ease-in-out infinite;
+  }
+  .stars-2 {
+    background-image:
+      radial-gradient(1px 1px at 20% 40%, #fff, transparent),
+      radial-gradient(1.5px 1.5px at 35% 78%, #a9d8ff, transparent),
+      radial-gradient(1px 1px at 52% 20%, #fff, transparent),
+      radial-gradient(1.5px 1.5px at 70% 58%, #fff, transparent),
+      radial-gradient(1px 1px at 83% 84%, #e2d4ff, transparent),
+      radial-gradient(1.5px 1.5px at 95% 34%, #fff, transparent);
+    animation: twinkle 4.8s ease-in-out infinite .8s;
+  }
+  .stars-3 {
+    background-image:
+      radial-gradient(1px 1px at 15% 55%, #fff, transparent),
+      radial-gradient(1px 1px at 40% 10%, #bcefff, transparent),
+      radial-gradient(1.5px 1.5px at 66% 36%, #fff, transparent),
+      radial-gradient(1px 1px at 90% 66%, #fff, transparent),
+      radial-gradient(1px 1px at 5% 30%, #d9caff, transparent);
+    animation: twinkle 6s ease-in-out infinite 1.6s;
+  }
+  @keyframes twinkle { 0%,100%{opacity:.25;} 50%{opacity:1;} }
+
+  .shooting {
+    position: absolute; top:-10%; left:-10%; width:160px; height:2px;
+    background: linear-gradient(90deg, rgba(255,255,255,.9), transparent);
+    border-radius:2px; filter: drop-shadow(0 0 6px #fff); transform: rotate(35deg);
+    opacity:0; animation: shoot 7s ease-in-out infinite 2s; pointer-events:none;
+  }
+  @keyframes shoot {
+    0%{transform:translate(0,0) rotate(35deg); opacity:0;}
+    6%{opacity:1;}
+    16%{transform:translate(120vw,84vh) rotate(35deg); opacity:0;}
+    100%{opacity:0;}
+  }
+
   .orb { position: absolute; border-radius: 50%; filter: blur(50px); opacity: .5; pointer-events: none; }
   .orb-1 { width:240px; height:240px; background: radial-gradient(circle,#7c6cff,transparent 70%); top:8%; left:6%; animation: float1 15s ease-in-out infinite; }
   .orb-2 { width:200px; height:200px; background: radial-gradient(circle,#22d3ee,transparent 70%); bottom:10%; right:10%; animation: float2 19s ease-in-out infinite; }
@@ -56,58 +95,141 @@
   }
   @keyframes splitIn { from{opacity:0; transform:translateY(26px) scale(.985);} to{opacity:1; transform:none;} }
 
+  .glow-border {
+    position: absolute; inset:-2px; border-radius:28px; padding:2px;
+    background: conic-gradient(from 0deg, transparent 0deg, #7c6cff 60deg, #22d3ee 130deg, transparent 200deg, #fbbf24 300deg, transparent 360deg);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    opacity:.85; pointer-events:none; z-index:5; animation: spinBorder 6s linear infinite;
+  }
+  @keyframes spinBorder { to{transform:rotate(360deg);} }
+
+  .card-shine {
+    position: absolute; top:0; left:-60%; width:45%; height:100%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.14), transparent);
+    transform: skewX(-18deg); pointer-events:none; z-index:4; animation: cardShine 6.5s ease-in-out infinite 1.2s;
+  }
+  @keyframes cardShine { 0%{left:-60%;} 35%,100%{left:130%;} }
+
   .brand-panel {
-    flex: 1.15; padding: 54px 48px; display: flex; flex-direction: column; justify-content: space-between;
+    position: relative; z-index:3; flex: 1.15; padding: 54px 48px; display: flex; flex-direction: column; justify-content: space-between;
     background: linear-gradient(160deg, rgba(124,108,255,.2), rgba(34,211,238,.08));
     animation: fadeRight .8s ease both .1s;
   }
   @keyframes fadeRight { from{opacity:0; transform:translateX(-26px);} to{opacity:1; transform:none;} }
   .brand-logo { display: flex; align-items: center; gap: 14px; }
-  .brand-mark { filter: drop-shadow(0 6px 16px rgba(124,108,255,.5)); }
+  .logo-halo { position: relative; display: inline-flex; border-radius: 16px; }
+  .logo-halo::before {
+    content:''; position:absolute; inset:-8px; border-radius:20px;
+    background: radial-gradient(circle, rgba(124,108,255,.6), transparent 70%); filter: blur(10px); z-index:-1;
+    animation: haloPulse 2.6s ease-in-out infinite;
+  }
+  @keyframes haloPulse { 0%,100%{opacity:.5; transform:scale(1);} 50%{opacity:1; transform:scale(1.12);} }
+  .brand-mark { filter: drop-shadow(0 6px 16px rgba(124,108,255,.6)); animation: markFloat 4s ease-in-out infinite; }
+  @keyframes markFloat { 0%,100%{transform:translateY(0) rotate(0deg);} 50%{transform:translateY(-5px) rotate(-3deg);} }
   .brand-name {
     font-size: 26px; font-weight: 800; letter-spacing: 1px;
-    background: linear-gradient(135deg,#b3a4ff,#5ce0f0);
+    background: linear-gradient(90deg,#b3a4ff,#5ce0f0,#fbbf24,#b3a4ff); background-size:300% 100%;
     -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: gradientFlow 5s linear infinite;
   }
-  .brand-title { font-size: 30px; font-weight: 700; color: #fff; line-height: 1.35; margin-top: 30px; }
+  @keyframes gradientFlow { 0%{background-position:0% 50%;} 100%{background-position:300% 50%;} }
+  .brand-title { font-size: 30px; font-weight: 700; color: #fff; line-height: 1.35; margin-top: 30px; text-shadow: 0 2px 24px rgba(124,108,255,.35); }
   .brand-sub { color: rgba(226,232,240,.72); margin-top: 16px; line-height: 1.75; font-size: 15px; }
   .feature-list { list-style: none; display: flex; flex-direction: column; gap: 18px; margin: 34px 0; }
   .feature-list li { display: flex; gap: 14px; align-items: flex-start; }
-  .feature-icon { color:#5ce0f0; width:42px; height:42px; display:flex; align-items:center; justify-content:center; background: rgba(34,211,238,.12); border-radius:12px; flex-shrink:0; }
+  .feature-icon { color:#5ce0f0; width:42px; height:42px; display:flex; align-items:center; justify-content:center; background: rgba(34,211,238,.12); border-radius:12px; flex-shrink:0; box-shadow: 0 0 0 1px rgba(34,211,238,.2), 0 0 18px rgba(34,211,238,.25); }
   .feature-title { color:#fff; font-weight:600; font-size:15px; }
   .feature-desc { color: rgba(226,232,240,.6); font-size:13px; margin-top:3px; }
   .brand-footer { color: rgba(255,255,255,.4); font-size:12px; }
 
   .form-panel {
-    flex: .85; padding: 54px 44px; display: flex; align-items: center; justify-content: center;
+    position: relative; z-index:3; flex: .85; padding: 54px 44px; display: flex; align-items: center; justify-content: center;
     background: rgba(7,11,30,.55); animation: fadeLeft .8s ease both .1s;
   }
   @keyframes fadeLeft { from{opacity:0; transform:translateX(26px);} to{opacity:1; transform:none;} }
   .login-card { width:100%; max-width:360px; }
   .form-header h2 { color:#fff; font-size:24px; font-weight:700; }
   .form-header p { color: rgba(226,232,240,.6); margin-top:8px; font-size:14px; margin-bottom:28px; }
-  .field { margin-bottom: 20px; }
+  .field { margin-bottom: 20px; position: relative; }
   .field input {
     width:100%; height:46px; padding: 0 14px 0 44px; color:#e2e8f0; font-size:15px;
     background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); border-radius:12px; outline:none;
     transition: border-color .25s, box-shadow .25s;
   }
   .field input::placeholder { color: rgba(226,232,240,.4); }
-  .field input:focus { border-color:#22d3ee; box-shadow: 0 0 0 3px rgba(34,211,238,.16); }
-  .field { position: relative; }
+  .field input:hover { border-color: rgba(34,211,238,.4); }
+  .field input:focus { border-color:#22d3ee; box-shadow: 0 0 0 3px rgba(34,211,238,.18), 0 0 22px rgba(34,211,238,.28); }
   .field .ico { position:absolute; left:14px; top:50%; transform:translateY(-50%); color: rgba(226,232,240,.5); }
   .login-btn {
-    width:100%; height:48px; font-size:16px; font-weight:600; letter-spacing:4px; color:#fff; border:none; border-radius:12px; cursor:pointer;
-    background: linear-gradient(135deg,#7c6cff,#22d3ee); box-shadow: 0 12px 30px rgba(124,108,255,.42);
-    transition: transform .2s, box-shadow .2s; margin-top: 4px;
+    position: relative; overflow: hidden; width:100%; height:48px; font-size:16px; font-weight:600; letter-spacing:4px; color:#fff; border:none; border-radius:12px; cursor:pointer;
+    background: linear-gradient(135deg,#7c6cff,#22d3ee); background-size:200% 100%;
+    box-shadow: 0 12px 30px rgba(124,108,255,.42), 0 0 20px rgba(34,211,238,.3);
+    transition: transform .2s, box-shadow .2s; margin-top: 4px; animation: btnGradient 4s ease infinite;
   }
-  .login-btn:hover { transform: translateY(-2px); box-shadow: 0 16px 42px rgba(34,211,238,.45); }
+  @keyframes btnGradient { 0%,100%{background-position:0% 50%;} 50%{background-position:100% 50%;} }
+  .login-btn::after {
+    content:''; position:absolute; top:0; left:-80%; width:50%; height:100%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.5), transparent);
+    transform: skewX(-20deg); animation: btnSheen 3.2s ease-in-out infinite 1s;
+  }
+  @keyframes btnSheen { 0%{left:-80%;} 40%,100%{left:140%;} }
+  .login-btn:hover { transform: translateY(-2px); box-shadow: 0 16px 46px rgba(34,211,238,.55), 0 0 28px rgba(124,108,255,.45); }
+  .btn-text { position: relative; z-index: 1; }
   .form-footer { text-align:center; color: rgba(226,232,240,.4); font-size:12px; margin-top:18px; }
+  .legal-link { color:#5ce0f0; text-decoration:none; transition: color .2s, text-shadow .2s; }
+  .legal-link:hover { color:#7fe9f5; text-shadow:0 0 10px rgba(34,211,238,.6); }
 
-  @media (max-width: 900px) {
-    .brand-panel { display:none; }
-    .login-split { width:92%; max-width:420px; border-radius:22px; }
-    .form-panel { flex:1; padding:48px 32px; }
+  .page-footer {
+    position: absolute; left:0; right:0; bottom:16px; z-index:6;
+    display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px 22px;
+    padding:0 16px; pointer-events:none; color: rgba(226,232,240,.5); font-size:13px;
+  }
+  .coop-label { color: rgba(255,255,255,.55); font-weight:600; letter-spacing:1px; }
+  .coop-item {
+    display:inline-flex; align-items:center; gap:6px; color: rgba(226,232,240,.62); font-size:13px;
+    text-decoration:none; background:none; border:none; cursor:pointer; padding:4px 10px; border-radius:9px;
+    pointer-events:auto; transition: color .2s, background .2s, text-shadow .2s;
+  }
+  .coop-item:hover { color:#5ce0f0; background: rgba(34,211,238,.08); text-shadow:0 0 10px rgba(34,211,238,.5); }
+  .coop-ico { width:15px; height:15px; }
+  .coop-ico.wechat { color:#07c160; }
+
+  /* 二维码弹窗（预览） */
+  .qr-modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:50; }
+  .qr-modal.show { display:flex; }
+  .qr-modal-mask { position:absolute; inset:0; background:rgba(7,11,30,.7); backdrop-filter:blur(4px); }
+  .qr-modal-box {
+    position:relative; z-index:1; width:260px; padding:22px 22px 18px; border-radius:16px;
+    background:rgba(20,26,56,.96); border:1px solid rgba(255,255,255,.1);
+    box-shadow:0 20px 60px rgba(0,0,0,.5); text-align:center;
+  }
+  .qr-modal-close {
+    position:absolute; top:8px; right:12px; width:28px; height:28px; border:none; border-radius:8px;
+    background:rgba(255,255,255,.06); color:#cbd5e1; font-size:20px; line-height:1; cursor:pointer;
+  }
+  .qr-modal-close:hover { color:#fff; background:rgba(255,255,255,.12); }
+  .qr-modal-img { width:220px; height:280px; border-radius:12px; background:#fff; border:1px solid rgba(0,0,0,.08); object-fit:contain; }
+  .qr-modal-tip { color:#cbd5e1; font-size:14px; margin:12px 0 14px; }
+  .qr-modal-tip strong { color:#fff; }
+  .qr-modal-copy {
+    width:100%; height:40px; border:none; border-radius:10px; cursor:pointer; color:#fff; font-size:14px; font-weight:600;
+    background:linear-gradient(135deg,#7c6cff,#22d3ee);
+  }
+  .qr-modal-copy:hover { filter:brightness(1.08); }
+
+  @media (max-width: 1024px) {
+    .login-split { flex-direction:column; width:92%; max-width:460px; border-radius:22px; }
+    .brand-panel { flex:none; padding:30px 32px 18px; }
+    .feature-list { display:none; }
+    .brand-footer { display:none; }
+    .brand-title { font-size:22px; margin-top:16px; }
+    .brand-sub { margin-top:10px; font-size:14px; }
+    .form-panel { flex:none; padding:24px 32px 34px; }
+    .page-footer { position:static; margin-top:18px; }
+    .login-page { padding-bottom:28px; }
   }
 </style>
 </head>
@@ -115,29 +237,38 @@
   <div class="login-page">
     <div class="bg-layer bg-aurora"></div>
     <div class="bg-layer bg-grid"></div>
+    <div class="stars stars-1"></div>
+    <div class="stars stars-2"></div>
+    <div class="stars stars-3"></div>
+    <div class="shooting"></div>
     <div class="orb orb-1"></div>
     <div class="orb orb-2"></div>
     <div class="orb orb-3"></div>
 
     <div class="login-split">
+      <span class="glow-border"></span>
+      <span class="card-shine"></span>
+
       <section class="brand-panel">
         <div class="brand-top">
           <div class="brand-logo">
-            <svg class="brand-mark" viewBox="0 0 64 64" width="52" height="52" aria-hidden="true">
-              <defs>
-                <linearGradient id="markGrad" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0" stop-color="#7c6cff" />
-                  <stop offset="1" stop-color="#22d3ee" />
-                </linearGradient>
-              </defs>
-              <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#markGrad)" />
-              <g fill="#ffffff">
-                <ellipse cx="25" cy="34" rx="15" ry="9" />
-                <path d="M40 34 L54 23 L54 45 Z" />
-                <circle cx="19" cy="31" r="2.4" fill="#11163a" />
-                <path d="M44 13 l2 5.5 5.5 2 -5.5 2 -2 5.5 -2 -5.5 -5.5 -2 5.5 -2 z" fill="#fbbf24" />
-              </g>
-            </svg>
+            <div class="logo-halo">
+              <svg class="brand-mark" viewBox="0 0 64 64" width="52" height="52" aria-hidden="true">
+                <defs>
+                  <linearGradient id="markGrad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#7c6cff" />
+                    <stop offset="1" stop-color="#22d3ee" />
+                  </linearGradient>
+                </defs>
+                <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#markGrad)" />
+                <g fill="#ffffff">
+                  <ellipse cx="25" cy="34" rx="15" ry="9" />
+                  <path d="M40 34 L54 23 L54 45 Z" />
+                  <circle cx="19" cy="31" r="2.4" fill="#11163a" />
+                  <path d="M44 13 l2 5.5 5.5 2 -5.5 2 -2 5.5 -2 -5.5 -5.5 -2 5.5 -2 z" fill="#fbbf24" />
+                </g>
+              </svg>
+            </div>
             <span class="brand-name">AI鱼多宝</span>
           </div>
           <h1 class="brand-title">AI 驱动的<br />闲鱼经营智能平台</h1>
@@ -198,11 +329,68 @@
             </span>
             <input type="password" placeholder="密码" value="••••••••" />
           </div>
-          <button class="login-btn">登 录</button>
-          <div class="form-footer">登录即代表同意《服务协议》与《隐私政策》</div>
+          <button class="login-btn"><span class="btn-text">登 录</span></button>
+          <div class="form-footer">登录即代表同意<a class="legal-link" href="#service">《服务协议》</a>与<a class="legal-link" href="#privacy">《隐私政策》</a></div>
         </div>
       </section>
+
+      <div class="page-footer">
+        <span class="coop-label">商务合作</span>
+        <button class="coop-item" type="button" id="openQr" title="点击查看二维码">
+          <svg class="coop-ico wechat" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M8.5 3C4.9 3 2 5.6 2 8.8c0 1.8 1 3.4 2.6 4.4L4 15.5l2.7-1.4c.8.2 1.6.3 2.5.3h.4c-.2-.7-.3-1.4-.3-2.1 0-3.1 2.9-5.5 6.5-5.5h.5C15.6 4.9 12.4 3 8.5 3z" />
+            <path d="M21.5 13.2c0-2.5-2.5-4.5-5.6-4.5S10.3 10.7 10.3 13.2s2.5 4.5 5.6 4.5c.7 0 1.4-.1 2-.3l2.4 1.2-.5-1.9c1.2-.7 1.8-1.8 1.8-3z" />
+          </svg>
+          worker_680
+        </button>
+        <a class="coop-item" href="tel:18268185209">
+          <svg class="coop-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2 4.1 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7A2 2 0 0 1 22 16.9z" />
+          </svg>
+          18268185209
+        </a>
+        <a class="coop-item" href="https://aius.autos" target="_blank" rel="noopener noreferrer">
+          <svg class="coop-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" />
+            <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
+          </svg>
+          aius.autos
+        </a>
+      </div>
+    </div>
+
+    <div class="qr-modal" id="qrModal">
+      <div class="qr-modal-mask" id="qrMask"></div>
+      <div class="qr-modal-box">
+        <button class="qr-modal-close" id="qrClose" type="button">×</button>
+        <img src="public/wechat.jpg" alt="微信二维码" class="qr-modal-img" />
+        <p class="qr-modal-tip">请使用微信「扫一扫」添加：<strong>worker_680</strong></p>
+        <button class="qr-modal-copy" id="qrCopy" type="button">复制微信号</button>
+      </div>
     </div>
   </div>
+  <script>
+    var modal = document.getElementById('qrModal');
+    function openQr() { modal.classList.add('show'); }
+    function closeQr() { modal.classList.remove('show'); }
+    document.getElementById('openQr').addEventListener('click', openQr);
+    document.getElementById('qrMask').addEventListener('click', closeQr);
+    document.getElementById('qrClose').addEventListener('click', closeQr);
+    document.getElementById('qrCopy').addEventListener('click', function () {
+      var id = 'worker_680';
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(id);
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = id; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+      }
+      this.textContent = '已复制 ✓';
+      var el = this;
+      setTimeout(function () { el.textContent = '复制微信号'; }, 1500);
+    });
+  </script>
 </body>
 </html>

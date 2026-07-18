@@ -14,12 +14,9 @@ public class XianyuAutoReplyConfig extends BaseEntity {
 
     // ===== AI 配置 =====
     private Boolean aiEnabled;           // 是否启用 AI 接管
-    private String aiProvider;           // OPENAI, CLAUDE, CUSTOM 等
-    private String aiApiKey;             // API Key（加密存储）
-    private String aiApiUrl;             // 自定义 API 地址
-    private String aiModel;              // 模型名称
+    private Long aiModelId;              // 关联的 AI 模型 ID（ai_model.id）
     private String aiSystemPrompt;       // 系统提示词
-    private Double aiTemperature;        // 温度参数
+    private Double aiTemperature;        // 温度参数（覆盖模型默认值）
 
     // ===== 自动回复配置 =====
     private Boolean autoReplyEnabled;    // 是否启用兜底自动回复

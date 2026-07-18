@@ -1,24 +1,34 @@
 package cn.net.rjnetwork.xianyu.manager.message.service;
 
+import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
+import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import cn.net.rjnetwork.xianyu.manager.message.dto.MessageSendRequest;
 import cn.net.rjnetwork.xianyu.manager.message.mapper.MessageMapper;
 import cn.net.rjnetwork.xianyu.manager.message.model.XianyuMessage;
+import cn.net.rjnetwork.xianyu.manager.notify.NotifyEvent;
 import cn.net.rjnetwork.xianyu.manager.rule.service.RuleService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class MessageService {
 
     private final MessageMapper messageMapper;
     private final RuleService ruleService;
+    private final ApplicationEventPublisher eventPublisher;
+    private final AccountMapper accountMapper;
 
-    public MessageService(MessageMapper messageMapper, RuleService ruleService) {
+    public MessageService(MessageMapper messageMapper, RuleService ruleService,
+                          ApplicationEventPublisher eventPublisher, AccountMapper accountMapper) {
         this.messageMapper = messageMapper;
         this.ruleService = ruleService;
+        this.eventPublisher = eventPublisher;
+        this.accountMapper = accountMapper;
     }
 
     public List<String> listSessions(Long accountId) {
@@ -48,6 +58,22 @@ public class MessageService {
         msg.setCreatedAt(LocalDateTime.now());
         msg.setUpdatedAt(LocalDateTime.now());
         messageMapper.insert(msg);
+        // 仅对“收到的买家消息”发布通知（自动回复的 OUTGOING 不触发）
+        if ("INCOMING".equals(msg.getDirection())) {
+            Long accountId = msg.getAccountId();
+            String accountName = accountName(accountId);
+            eventPublisher.publishEvent(new NotifyEvent("NEW_MESSAGE", accountId, accountName,
+                    Map.of("accountName", accountName,
+                            "content", msg.getContent() != null ? msg.getContent() : "",
+                            "sessionId", msg.getSessionId() != null ? msg.getSessionId() : "")));
+        }
+    }
+
+    private String accountName(Long accountId) {
+        cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount a =
+                accountMapper.selectById(accountId);
+        if (a == null) return String.valueOf(accountId);
+        return a.getDisplayName() != null ? a.getDisplayName() : a.getAccountName();
     }
 
     /**

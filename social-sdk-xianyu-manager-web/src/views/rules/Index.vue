@@ -67,21 +67,18 @@
           <el-form-item label="启用 AI">
             <el-switch v-model="aiConfig.aiEnabled" />
           </el-form-item>
-          <el-form-item label="AI 供应商">
-            <el-select v-model="aiConfig.aiProvider" style="width: 100%;">
-              <el-option label="OpenAI" value="OPENAI" />
-              <el-option label="Claude" value="CLAUDE" />
-              <el-option label="自定义 API" value="CUSTOM" />
+          <el-form-item label="AI 模型">
+            <el-select v-model="aiConfig.aiModelId" placeholder="选择 AI 模型" style="width: 100%;" clearable>
+              <el-option
+                v-for="m in aiModels"
+                :key="m.id"
+                :label="m.displayName + ' (' + m.modelName + ')'"
+                :value="m.id"
+              />
             </el-select>
-          </el-form-item>
-          <el-form-item label="API Key">
-            <el-input v-model="aiConfig.aiApiKey" type="password" show-password placeholder="sk-..." />
-          </el-form-item>
-          <el-form-item label="API 地址">
-            <el-input v-model="aiConfig.aiApiUrl" placeholder="https://api.openai.com/v1" />
-          </el-form-item>
-          <el-form-item label="模型">
-            <el-input v-model="aiConfig.aiModel" placeholder="gpt-4o-mini" />
+            <div style="color: #999; font-size: 12px; margin-top: 4px;">
+              <router-link to="/ai">前往 AI 管理添加模型</router-link>
+            </div>
           </el-form-item>
           <el-form-item label="Temperature">
             <el-slider v-model="aiConfig.aiTemperature" :min="0" :max="2" :step="0.1" show-input />
@@ -189,12 +186,10 @@ const keywordRules = ref([])
 const loading = ref(false)
 
 // ===== AI 配置 =====
+const aiModels = ref([])
 const aiConfig = reactive({
   aiEnabled: false,
-  aiProvider: 'OPENAI',
-  aiApiKey: '',
-  aiApiUrl: '',
-  aiModel: '',
+  aiModelId: null,
   aiSystemPrompt: '',
   aiTemperature: 0.7,
   includeChatHistory: true
@@ -321,8 +316,19 @@ async function deleteRule(id) {
 }
 
 // === AI 配置 ===
+async function loadAiModels() {
+  try {
+    // 加载所有模型（不过滤厂商，全量展示）
+    const res = await api.get('/ai/models', { params: { size: 200 } })
+    if (res.success) {
+      aiModels.value = res.data.records || []
+    }
+  } catch (e) {}
+}
+
 async function loadAiConfig() {
   if (!selectedAccountId.value) return
+  await loadAiModels()
   try {
     const res = await api.get(`/rules/config/${selectedAccountId.value}`)
     if (res.success && res.data) {

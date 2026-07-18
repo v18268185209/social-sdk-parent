@@ -1,0 +1,63 @@
+package cn.net.rjnetwork.xianyu.manager.notify;
+
+import java.util.Arrays;
+
+/**
+ * 通知场景枚举。每个场景自带默认标题/正文模板与去重冷却时间（防骚扰）。
+ * 数据库 notify_template 表中若存在同 scenario 的启用模板，则优先使用库内模板。
+ */
+public enum NotifyScenario {
+
+    ACCOUNT_COOKIE_EXPIRED("账号Cookie过期",
+            "闲鱼账号 {accountName} 登录已失效",
+            "账号 {accountName} 的登录状态已失效（Cookie 过期），请尽快重新扫码登录，否则相关自动化将中断。",
+            3600),
+    ACCOUNT_OFFLINE("账号离线",
+            "闲鱼账号 {accountName} 已离线",
+            "账号 {accountName} 当前处于离线状态，可能影响消息/订单处理。",
+            3600),
+    NEW_ORDER("新订单",
+            "账号 {accountName} 收到新订单",
+            "账号 {accountName} 收到新订单：{itemTitle}，金额 {amount}，对手方 {counterparty}。",
+            60),
+    ORDER_STATUS_CHANGED("订单状态变更",
+            "订单 {orderId} 状态更新",
+            "账号 {accountName} 的订单 {orderId}（{itemTitle}）状态变更为：{status}。",
+            60),
+    NEW_MESSAGE("新消息",
+            "账号 {accountName} 收到买家消息",
+            "账号 {accountName} 收到来自买家的消息：{content}",
+            30),
+    WALLET_LOW_BALANCE("钱包余额预警",
+            "账号 {accountName} 钱包余额偏低",
+            "账号 {accountName} 钱包余额 {balance}，已低于预警阈值 {threshold}。",
+            3600),
+    WALLET_LARGE_TXN("大额交易",
+            "账号 {accountName} 发生大额交易",
+            "账号 {accountName} 发生大额交易：{amount}（{bizType}），当前余额 {balance}。",
+            300);
+
+    private final String label;
+    private final String defaultTitle;
+    private final String defaultBody;
+    private final int cooldownSeconds;
+
+    NotifyScenario(String label, String defaultTitle, String defaultBody, int cooldownSeconds) {
+        this.label = label;
+        this.defaultTitle = defaultTitle;
+        this.defaultBody = defaultBody;
+        this.cooldownSeconds = cooldownSeconds;
+    }
+
+    public String getLabel() { return label; }
+    public String getDefaultTitle() { return defaultTitle; }
+    public String getDefaultBody() { return defaultBody; }
+    public int getCooldownSeconds() { return cooldownSeconds; }
+
+    public static NotifyScenario fromName(String name) {
+        return Arrays.stream(values())
+                .filter(s -> s.name().equals(name))
+                .findFirst()
+                .orElse(null);
+    }
+}

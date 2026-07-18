@@ -23,6 +23,16 @@ public class XianyuProduct extends BaseEntity {
     private String images; // JSON array of image URLs
     private String description;
     private String videos; // JSON array of video URLs
+
+    /** 商品类型：PHYSICAL / VIRTUAL */
+    private String goodsType;
+
+    /** 发货类型：CARD / ACCOUNT / LINK / FILE（虚拟商品用） */
+    private String deliverType;
+
+    /** 发货内容模板（虚拟商品用） */
+    private String deliverContentTemplate;
+
     private String detailUrl;
     private Integer viewCount;
     private Integer favoriteCount;

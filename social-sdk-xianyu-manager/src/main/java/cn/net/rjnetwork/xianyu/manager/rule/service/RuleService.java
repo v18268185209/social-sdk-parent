@@ -1,5 +1,6 @@
 package cn.net.rjnetwork.xianyu.manager.rule.service;
 
+import cn.net.rjnetwork.xianyu.manager.ai.service.AiChatService;
 import cn.net.rjnetwork.xianyu.manager.rule.dto.RuleCreateRequest;
 import cn.net.rjnetwork.xianyu.manager.rule.dto.RuleTestRequest;
 import cn.net.rjnetwork.xianyu.manager.rule.engine.KeywordRuleEngine;
@@ -8,6 +9,8 @@ import cn.net.rjnetwork.xianyu.manager.rule.mapper.RuleMapper;
 import cn.net.rjnetwork.xianyu.manager.rule.model.XianyuAutoReplyConfig;
 import cn.net.rjnetwork.xianyu.manager.rule.model.XianyuKeywordRule;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -23,12 +26,14 @@ public class RuleService {
 
     private final RuleMapper ruleMapper;
     private final AutoReplyConfigMapper autoReplyConfigMapper;
+    private final AiChatService aiChatService;
     // 内存缓存：accountId -> list of rules
     private final Map<Long, List<XianyuKeywordRule>> ruleCache = new ConcurrentHashMap<>();
 
-    public RuleService(RuleMapper ruleMapper, AutoReplyConfigMapper autoReplyConfigMapper) {
+    public RuleService(RuleMapper ruleMapper, AutoReplyConfigMapper autoReplyConfigMapper, AiChatService aiChatService) {
         this.ruleMapper = ruleMapper;
         this.autoReplyConfigMapper = autoReplyConfigMapper;
+        this.aiChatService = aiChatService;
     }
 
     public List<XianyuKeywordRule> listRules(Long accountId) {
@@ -138,15 +143,23 @@ public class RuleService {
     }
 
     /**
-     * 调用 AI 生成回复（预留实现，当前返回 null 不影响其他层级）
+     * 调用 AI 生成回复 — 对接 AiChatService
+     * 通过 config.aiModelId 找到模型和厂商，构造 systemPrompt 后发起调用
      */
     private String callAiReply(XianyuAutoReplyConfig config, String message) {
-        if (config == null || config.getAiApiKey() == null || config.getAiApiKey().isEmpty()) {
+        if (config == null || config.getAiModelId() == null) {
             return null;
         }
-        // TODO: 实现真实 AI 调用（OpenAI / Claude / 自定义 API）
-        // 临时返回 null 让后续层级接管
-        return null;
+        try {
+            String systemPrompt = (config.getAiSystemPrompt() != null && !config.getAiSystemPrompt().isBlank())
+                    ? config.getAiSystemPrompt()
+                    : "你是一个友好、专业的闲鱼卖家客服，请用简洁亲切的语气回复买家。";
+            String reply = aiChatService.chat(config.getAiModelId(), systemPrompt, message);
+            return (reply != null && !reply.isBlank()) ? reply.trim() : null;
+        } catch (Exception e) {
+            log.warn("[RuleService] AI reply failed: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**

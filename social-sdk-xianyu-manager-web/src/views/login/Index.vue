@@ -116,9 +116,46 @@
             </el-form-item>
           </el-form>
 
-          <div class="form-footer">登录即代表同意《服务协议》与《隐私政策》</div>
+          <div class="form-footer">
+            登录即代表同意
+            <router-link to="/service" class="legal-link">《服务协议》</router-link>
+            与
+            <router-link to="/privacy" class="legal-link">《隐私政策》</router-link>
+          </div>
         </div>
       </section>
+
+      <div class="page-footer">
+        <span class="coop-label">商务合作</span>
+        <button class="coop-item" type="button" @click="openWechatQr" title="点击查看二维码">
+          <svg class="coop-ico wechat" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M8.5 3C4.9 3 2 5.6 2 8.8c0 1.8 1 3.4 2.6 4.4L4 15.5l2.7-1.4c.8.2 1.6.3 2.5.3h.4c-.2-.7-.3-1.4-.3-2.1 0-3.1 2.9-5.5 6.5-5.5h.5C15.6 4.9 12.4 3 8.5 3z" />
+            <path d="M21.5 13.2c0-2.5-2.5-4.5-5.6-4.5S10.3 10.7 10.3 13.2s2.5 4.5 5.6 4.5c.7 0 1.4-.1 2-.3l2.4 1.2-.5-1.9c1.2-.7 1.8-1.8 1.8-3z" />
+          </svg>
+          worker_680
+        </button>
+        <a class="coop-item" href="tel:18268185209">
+          <svg class="coop-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2 4.1 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7A2 2 0 0 1 22 16.9z" />
+          </svg>
+          18268185209
+        </a>
+        <a class="coop-item" href="https://aius.autos" target="_blank" rel="noopener noreferrer">
+          <svg class="coop-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" />
+            <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
+          </svg>
+          aius.autos
+        </a>
+      </div>
+
+      <el-dialog v-model="qrVisible" title="扫码添加微信" width="360px" align-center class="qr-dialog">
+        <div class="qr-wrap">
+          <el-image :src="qrSrc" fit="contain" class="qr-img" :preview-src-list="[qrSrc]" />
+          <p class="qr-tip">请使用微信「扫一扫」添加：<strong>worker_680</strong></p>
+          <el-button type="primary" class="qr-copy" @click="copyWechat">复制微信号</el-button>
+        </div>
+      </el-dialog>
     </div>
   </div>
 </template>
@@ -152,6 +189,36 @@ async function handleLogin() {
     loading.value = false
   }
 }
+
+const wechatId = 'worker_680'
+const qrSrc = '/wechat.jpg'
+const qrVisible = ref(false)
+function openWechatQr() {
+  qrVisible.value = true
+}
+function copyWechat() {
+  const ok = () => ElMessage.success('微信号已复制：' + wechatId)
+  const fallback = () => {
+    const ta = document.createElement('textarea')
+    ta.value = wechatId
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    try {
+      document.execCommand('copy')
+      ok()
+    } catch (e) {
+      ElMessage.error('复制失败，请手动复制：' + wechatId)
+    }
+    document.body.removeChild(ta)
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(wechatId).then(ok).catch(fallback)
+  } else {
+    fallback()
+  }
+}
 </script>
 
 <style scoped>
@@ -161,6 +228,8 @@ async function handleLogin() {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-direction: column;
+  padding-bottom: 64px;
   overflow: hidden;
   background: #070b1e;
   font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', Arial, sans-serif;
@@ -594,18 +663,116 @@ async function handleLogin() {
   font-size: 12px;
   margin-top: 18px;
 }
+.legal-link {
+  color: #5ce0f0;
+  text-decoration: none;
+  transition: color 0.2s, text-shadow 0.2s;
+}
+.legal-link:hover {
+  color: #7fe9f5;
+  text-shadow: 0 0 10px rgba(34, 211, 238, 0.6);
+}
 
-/* ===== 响应式 ===== */
-@media (max-width: 900px) {
-  .brand-panel { display: none; }
+/* 页脚业务合作 */
+.page-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 16px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  padding: 0 16px;
+  pointer-events: none;
+  color: rgba(226, 232, 240, 0.5);
+  font-size: 13px;
+}
+.coop-label {
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.coop-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(226, 232, 240, 0.62);
+  font-size: 13px;
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 9px;
+  pointer-events: auto;
+  transition: color 0.2s, background 0.2s, text-shadow 0.2s;
+}
+.coop-item:hover {
+  color: #5ce0f0;
+  background: rgba(34, 211, 238, 0.08);
+  text-shadow: 0 0 10px rgba(34, 211, 238, 0.5);
+}
+.coop-ico {
+  width: 15px;
+  height: 15px;
+}
+.coop-ico.wechat {
+  color: #07c160;
+}
+
+/* 二维码弹窗 */
+.qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 0 2px;
+}
+.qr-img {
+  width: 220px;
+  height: 280px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fff;
+  cursor: zoom-in;
+}
+.qr-tip {
+  color: #606266;
+  font-size: 14px;
+  margin: 0;
+}
+.qr-tip strong { color: #303133; }
+
+/* ===== 响应式：小屏改为上下堆叠，输入框占满整行 ===== */
+@media (max-width: 1024px) {
   .login-split {
+    flex-direction: column;
     width: 92%;
-    max-width: 420px;
+    max-width: 460px;
     border-radius: 22px;
   }
+  .brand-panel {
+    flex: none;
+    padding: 30px 32px 18px;
+  }
+  .feature-list { display: none; }
+  .brand-footer { display: none; }
+  .brand-title { font-size: 22px; margin-top: 16px; }
+  .brand-sub { margin-top: 10px; font-size: 14px; }
   .form-panel {
-    flex: 1;
-    padding: 48px 32px;
+    flex: none;
+    padding: 24px 32px 34px;
+  }
+  /* 小屏：页脚改为正常流，避免与协议链接重叠 */
+  .page-footer {
+    position: static;
+    margin-top: 18px;
+  }
+  .login-page {
+    padding-bottom: 28px;
   }
 }
 

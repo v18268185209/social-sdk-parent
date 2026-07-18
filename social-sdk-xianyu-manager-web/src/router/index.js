@@ -8,6 +8,18 @@ const routes = [
     meta: { public: true }
   },
   {
+    path: '/service',
+    name: 'Service',
+    component: () => import('@/views/agreement/Service.vue'),
+    meta: { public: true, title: '服务协议' }
+  },
+  {
+    path: '/privacy',
+    name: 'Privacy',
+    component: () => import('@/views/privacy/Privacy.vue'),
+    meta: { public: true, title: '隐私政策' }
+  },
+  {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
     redirect: '/dashboard',

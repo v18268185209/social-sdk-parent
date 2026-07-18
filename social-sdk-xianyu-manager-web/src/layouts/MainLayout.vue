@@ -70,15 +70,48 @@
       <el-main class="main-content">
         <router-view />
       </el-main>
+      <el-footer class="app-footer" height="auto">
+        <span class="coop-label">商务合作</span>
+        <button class="coop-item" type="button" @click="openWechatQr" title="点击查看二维码">
+          <svg class="coop-ico wechat" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M8.5 3C4.9 3 2 5.6 2 8.8c0 1.8 1 3.4 2.6 4.4L4 15.5l2.7-1.4c.8.2 1.6.3 2.5.3h.4c-.2-.7-.3-1.4-.3-2.1 0-3.1 2.9-5.5 6.5-5.5h.5C15.6 4.9 12.4 3 8.5 3z" />
+            <path d="M21.5 13.2c0-2.5-2.5-4.5-5.6-4.5S10.3 10.7 10.3 13.2s2.5 4.5 5.6 4.5c.7 0 1.4-.1 2-.3l2.4 1.2-.5-1.9c1.2-.7 1.8-1.8 1.8-3z" />
+          </svg>
+          worker_680
+        </button>
+        <a class="coop-item" href="tel:18268185209">
+          <svg class="coop-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2 4.1 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7A2 2 0 0 1 22 16.9z" />
+          </svg>
+          18268185209
+        </a>
+        <a class="coop-item" href="https://aius.autos" target="_blank" rel="noopener noreferrer">
+          <svg class="coop-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" />
+            <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
+          </svg>
+          aius.autos
+        </a>
+        <span class="footer-divider">·</span>
+        <span class="copyright">© 2026 AI鱼多宝</span>
+      </el-footer>
+
+      <el-dialog v-model="qrVisible" title="扫码添加微信" width="360px" align-center class="qr-dialog">
+        <div class="qr-wrap">
+          <el-image :src="qrSrc" fit="contain" class="qr-img" :preview-src-list="[qrSrc]" />
+          <p class="qr-tip">请使用微信「扫一扫」添加：<strong>worker_680</strong></p>
+          <el-button type="primary" class="qr-copy" @click="copyWechat">复制微信号</el-button>
+        </div>
+      </el-dialog>
     </el-container>
   </el-container>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
-import { ElMessageBox } from 'element-plus'
+import { ElMessageBox, ElMessage } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
@@ -105,6 +138,36 @@ function handleCommand(cmd) {
       authStore.logout()
       router.push('/login')
     })
+  }
+}
+
+const wechatId = 'worker_680'
+const qrSrc = '/wechat.jpg'
+const qrVisible = ref(false)
+function openWechatQr() {
+  qrVisible.value = true
+}
+function copyWechat() {
+  const ok = () => ElMessage.success('微信号已复制：' + wechatId)
+  const fallback = () => {
+    const ta = document.createElement('textarea')
+    ta.value = wechatId
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    try {
+      document.execCommand('copy')
+      ok()
+    } catch (e) {
+      ElMessage.error('复制失败，请手动复制：' + wechatId)
+    }
+    document.body.removeChild(ta)
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(wechatId).then(ok).catch(fallback)
+  } else {
+    fallback()
   }
 }
 </script>
@@ -140,4 +203,68 @@ function handleCommand(cmd) {
   color: #606266;
 }
 .main-content { background: #f0f2f5; }
+
+/* 业务合作页脚 */
+.app-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  padding: 12px 16px;
+  background: #f0f2f5;
+  border-top: 1px solid #e4e7ed;
+  color: #909399;
+  font-size: 13px;
+}
+.coop-label {
+  color: #606266;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.coop-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #606266;
+  font-size: 13px;
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 8px;
+  transition: color 0.2s, background 0.2s;
+}
+.coop-item:hover {
+  color: #409eff;
+  background: rgba(64, 158, 255, 0.08);
+}
+.coop-ico { width: 15px; height: 15px; }
+.coop-ico.wechat { color: #07c160; }
+.footer-divider { color: #c0c4cc; }
+.copyright { color: #a8abb2; }
+
+/* 二维码弹窗 */
+.qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 0 2px;
+}
+.qr-img {
+  width: 220px;
+  height: 280px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fff;
+  cursor: zoom-in;
+}
+.qr-tip {
+  color: #606266;
+  font-size: 14px;
+  margin: 0;
+}
+.qr-tip strong { color: #303133; }
 </style>

@@ -4,10 +4,12 @@ import cn.net.rjnetwork.xianyu.api.XianyuMtopApiClient;
 import cn.net.rjnetwork.xianyu.api.XianyuOrderApiService;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
+import cn.net.rjnetwork.xianyu.manager.notify.NotifyEvent;
 import cn.net.rjnetwork.xianyu.manager.order.mapper.OrderMapper;
 import cn.net.rjnetwork.xianyu.manager.order.model.XianyuOrder;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,10 +35,13 @@ public class OrderSyncService {
 
     private final AccountMapper accountMapper;
     private final OrderMapper orderMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
-    public OrderSyncService(AccountMapper accountMapper, OrderMapper orderMapper) {
+    public OrderSyncService(AccountMapper accountMapper, OrderMapper orderMapper,
+                            ApplicationEventPublisher eventPublisher) {
         this.accountMapper = accountMapper;
         this.orderMapper = orderMapper;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -215,6 +220,7 @@ public class OrderSyncService {
      * 批量 upsert 订单（按 orderId 去重）
      */
     private void upsertOrders(List<XianyuOrder> orders, Long accountId, String type) {
+        String accountName = accountName(accountId);
         for (XianyuOrder order : orders) {
             if (order.getOrderId() == null || order.getOrderId().isEmpty()) {
                 continue;
@@ -223,6 +229,10 @@ public class OrderSyncService {
             // 检查是否已存在（同一 accountId + orderId）
             XianyuOrder existing = findByAccountIdAndOrderId(accountId, order.getOrderId());
             if (existing != null) {
+                // 仅当状态变化时发布通知
+                boolean statusChanged = existing.getStatus() != null
+                        && order.getStatus() != null
+                        && !existing.getStatus().equals(order.getStatus());
                 // 更新
                 existing.setItemTitle(order.getItemTitle());
                 existing.setCounterpartyName(order.getCounterpartyName());
@@ -231,14 +241,31 @@ public class OrderSyncService {
                 existing.setOrderTime(order.getOrderTime());
                 existing.setUpdatedAt(LocalDateTime.now());
                 orderMapper.updateById(existing);
+                if (statusChanged) {
+                    eventPublisher.publishEvent(new NotifyEvent("ORDER_STATUS_CHANGED", accountId, accountName,
+                            Map.of("accountName", accountName, "orderId", order.getOrderId(),
+                                    "itemTitle", str(order.getItemTitle()), "status", str(order.getStatus()))));
+                }
             } else {
                 // 新增
                 order.setCreatedAt(LocalDateTime.now());
                 order.setUpdatedAt(LocalDateTime.now());
                 orderMapper.insert(order);
+                eventPublisher.publishEvent(new NotifyEvent("NEW_ORDER", accountId, accountName,
+                        Map.of("accountName", accountName, "orderId", order.getOrderId(),
+                                "itemTitle", str(order.getItemTitle()), "amount", str(order.getAmount()),
+                                "counterparty", str(order.getCounterpartyName()))));
             }
         }
     }
+
+    private String accountName(Long accountId) {
+        XianyuAccount a = accountMapper.selectById(accountId);
+        if (a == null) return String.valueOf(accountId);
+        return a.getDisplayName() != null ? a.getDisplayName() : a.getAccountName();
+    }
+
+    private String str(Object o) { return o != null ? o.toString() : ""; }
 
     /**
      * 按 accountId + orderId 查询

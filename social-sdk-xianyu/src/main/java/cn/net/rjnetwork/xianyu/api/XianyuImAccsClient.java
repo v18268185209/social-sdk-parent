@@ -76,12 +76,26 @@ public class XianyuImAccsClient {
         if (channel != null && channel.isActive()) return;
         closed = false;
 
-        // 1. MTOP 拿 IM accessToken
-        JsonNode tokenResp = apiClient.callMtop("mtop.taobao.idlemessage.pc.login.token", "{}");
+        // 1. MTOP 拿 IM accessToken（真实抓包 2026-07-19 CDP：data 需带 appKey + deviceId，否则 FAIL_SYS_BIZPARAM_MISSED）
+        //    deviceId 格式 = "<固定 UUID>-<userId>"，userId 从 cookie 的 unb 字段解析
+        String userId = extractUserIdFromCookie();
+        String deviceId = "B213E622-BED6-4903-9907-0BFDE5E9DEA9-" + (userId.isEmpty() ? "0" : userId);
+        String tokenReqData = MAPPER.writeValueAsString(Map.of(
+                "appKey", "444e9908a51d1cb236a27862abc769c9",
+                "deviceId", deviceId
+        ));
+        JsonNode tokenResp = apiClient.callMtop("mtop.taobao.idlemessage.pc.login.token", tokenReqData);
         JsonNode data = tokenResp != null ? tokenResp.path("data") : null;
-        accessToken = data != null ? data.path("accessToken").asText("") : "";
+        // 兼容多种字段名：accessToken / access_token / token
+        accessToken = "";
+        if (data != null) {
+            accessToken = data.path("accessToken").asText("");
+            if (accessToken.isEmpty()) accessToken = data.path("access_token").asText("");
+            if (accessToken.isEmpty()) accessToken = data.path("token").asText("");
+            if (accessToken.isEmpty()) accessToken = data.path("tk").asText("");
+        }
         if (accessToken.isEmpty()) {
-            throw new IllegalStateException("Failed to fetch IM accessToken via pc.login.token");
+            throw new IllegalStateException("Failed to fetch IM accessToken via pc.login.token, resp=" + tokenResp);
         }
         System.err.println("[IM-ACCS] got accessToken len=" + accessToken.length());
 
@@ -191,6 +205,20 @@ public class XianyuImAccsClient {
 
     private String nextMid() {
         return String.valueOf(midSeq.incrementAndGet()) + " 0";
+    }
+
+    /** 从 cookie 的 unb 字段解析当前登录用户 id（形如 "2215024781926"），找不到返回空字符串。 */
+    private String extractUserIdFromCookie() {
+        String cookie = apiClient.getCookie();
+        if (cookie == null || cookie.isEmpty()) return "";
+        for (String part : cookie.split(";")) {
+            String p = part.trim();
+            if (p.startsWith("unb=")) {
+                String v = p.substring(4).trim();
+                if (!v.isEmpty()) return v;
+            }
+        }
+        return "";
     }
 
     /** accs 心跳帧（HEARTBEAT_ACCS_H5）真实抓包：{"type":"ACK","protocol":"HEARTBEAT_ACCS_H5","data":""} */

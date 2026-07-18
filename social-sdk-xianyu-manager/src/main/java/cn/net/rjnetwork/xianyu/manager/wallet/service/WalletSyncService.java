@@ -4,12 +4,14 @@ import cn.net.rjnetwork.xianyu.api.XianyuMtopApiClient;
 import cn.net.rjnetwork.xianyu.api.XianyuWalletApiService;
 import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
+import cn.net.rjnetwork.xianyu.manager.notify.NotifyEvent;
 import cn.net.rjnetwork.xianyu.manager.wallet.mapper.WalletMapper;
 import cn.net.rjnetwork.xianyu.manager.wallet.mapper.WalletTransactionMapper;
 import cn.net.rjnetwork.xianyu.manager.wallet.model.XianyuWallet;
 import cn.net.rjnetwork.xianyu.manager.wallet.model.XianyuWalletTransaction;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,15 +35,23 @@ import java.util.Map;
 @Service
 public class WalletSyncService {
 
+    /** 余额低于该值触发预警（元） */
+    private static final BigDecimal LOW_BALANCE_THRESHOLD = new BigDecimal("100");
+    /** 单笔交易超过该值视为大额（元） */
+    private static final BigDecimal LARGE_TXN_THRESHOLD = new BigDecimal("1000");
+
     private final AccountMapper accountMapper;
     private final WalletMapper walletMapper;
     private final WalletTransactionMapper transactionMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     public WalletSyncService(AccountMapper accountMapper, WalletMapper walletMapper,
-                             WalletTransactionMapper transactionMapper) {
+                             WalletTransactionMapper transactionMapper,
+                             ApplicationEventPublisher eventPublisher) {
         this.accountMapper = accountMapper;
         this.walletMapper = walletMapper;
         this.transactionMapper = transactionMapper;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -100,6 +110,9 @@ public class WalletSyncService {
                 result.message = "同步完成";
             }
             result.syncedAt = LocalDateTime.now();
+
+            // 余额预警 / 大额交易 通知
+            publishWalletAlerts(account, wallet, txns);
             return result;
         } catch (Exception e) {
             result.success = false;
@@ -227,6 +240,28 @@ public class WalletSyncService {
             if (t.getTransactionId() != null || t.getTradeNo() != null) list.add(t);
         }
         return list;
+    }
+
+    // ===================== 通知 =====================
+
+    private void publishWalletAlerts(XianyuAccount account, XianyuWallet wallet, List<XianyuWalletTransaction> txns) {
+        String accountName = account.getDisplayName() != null ? account.getDisplayName() : account.getAccountName();
+        if (wallet != null && wallet.getBalance() != null
+                && wallet.getBalance().compareTo(LOW_BALANCE_THRESHOLD) < 0) {
+            eventPublisher.publishEvent(new NotifyEvent("WALLET_LOW_BALANCE", account.getId(), accountName,
+                    Map.of("accountName", accountName,
+                            "balance", wallet.getBalance().toPlainString(),
+                            "threshold", LOW_BALANCE_THRESHOLD.toPlainString())));
+        }
+        for (XianyuWalletTransaction t : txns) {
+            if (t.getAmount() != null && t.getAmount().abs().compareTo(LARGE_TXN_THRESHOLD) >= 0) {
+                eventPublisher.publishEvent(new NotifyEvent("WALLET_LARGE_TXN", account.getId(), accountName,
+                        Map.of("accountName", accountName,
+                                "amount", t.getAmount().toPlainString(),
+                                "bizType", t.getBizType() != null ? t.getBizType() : "",
+                                "balance", wallet != null && wallet.getBalance() != null ? wallet.getBalance().toPlainString() : "")));
+            }
+        }
     }
 
     // ===================== 持久化 =====================
