@@ -14,6 +14,7 @@ import cn.net.rjnetwork.starter.platform.xianyu.model.XianyuProductEntity;
 import cn.net.rjnetwork.starter.platform.xianyu.repository.XianyuAccountRepository;
 import cn.net.rjnetwork.starter.platform.xianyu.repository.XianyuKeywordRuleRepository;
 import cn.net.rjnetwork.starter.platform.xianyu.repository.XianyuProductRepository;
+import cn.net.rjnetwork.xianyu.api.XianyuLoginApiService;
 import cn.net.rjnetwork.xianyu.api.XianyuApiFacade;
 import cn.net.rjnetwork.xianyu.service.XianyuSdk;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -29,10 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/**
- * 闲鱼控制台 Service（纯 HTTP/MTOP API 版本）
- * 不再依赖 CDP/浏览器，所有操作通过 XianyuSdk + XianyuApiFacade 完成。
- */
 public class XianyuConsoleService {
 
     private static final Logger logger = LoggerFactory.getLogger(XianyuConsoleService.class);
@@ -59,8 +56,6 @@ public class XianyuConsoleService {
         this.xianyuSdk = xianyuSdk;
     }
 
-    // ==================== Health ====================
-
     public Map<String, Object> health() {
         Map<String, Object> status = new LinkedHashMap<>();
         status.put("service", "xianyu-console");
@@ -69,8 +64,6 @@ public class XianyuConsoleService {
         status.put("status", "running");
         return status;
     }
-
-    // ==================== Account CRUD ====================
 
     public List<XianyuAccountEntity> listAccounts() {
         return accountRepository.findAll();
@@ -90,17 +83,14 @@ public class XianyuConsoleService {
         XianyuSdk.XianyuAccount acc = xianyuSdk.account(accountKey);
         acc.setCookie(cookie);
 
-        // 验证登录态
-        XianyuApiFacade.QrLoginResult loginResult = acc.api().checkLoginStatus(cookie);
+        XianyuLoginApiService.LoginStatusResult loginResult = acc.api().checkLoginStatus(cookie);
         if (!loginResult.loggedIn) {
             throw new RuntimeException("Login failed: cookie is invalid or expired");
         }
 
-        // 获取用户信息
-        String userId = (String) loginResult.extra.get("userId");
-        String displayName = (String) loginResult.extra.get("nickName");
+        String userId = loginResult.userId;
+        String displayName = loginResult.nickname;
 
-        // 持久化账号
         XianyuAccountEntity entity = new XianyuAccountEntity();
         entity.setPlatform("xianyu");
         entity.setAccountName(request.getAccountName());
@@ -130,7 +120,6 @@ public class XianyuConsoleService {
         account.setUpdatedAt(Instant.now());
         accountRepository.update(account);
 
-        // 同步到 SDK
         String accountKey = account.getAccountName() != null ? account.getAccountName() : String.valueOf(id);
         XianyuSdk.XianyuAccount acc = xianyuSdk.account(accountKey);
         acc.setCookie(cookie);
@@ -160,7 +149,6 @@ public class XianyuConsoleService {
         XianyuAccountEntity account = accountRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
 
-        // 从 SDK 中移除
         String accountKey = account.getAccountName() != null ? account.getAccountName() : String.valueOf(id);
         xianyuSdk.removeAccount(accountKey);
 
@@ -195,14 +183,12 @@ public class XianyuConsoleService {
         }
     }
 
-    // ==================== Product CRUD ====================
-
     public List<Map<String, Object>> listProducts(Long accountId) {
         List<XianyuProductEntity> products;
         if (accountId != null) {
             products = productRepository.findByAccountId(accountId);
         } else {
-            products = productRepository.findAll();
+            products = new ArrayList<>();
         }
 
         List<Map<String, Object>> result = new ArrayList<>();
@@ -228,13 +214,12 @@ public class XianyuConsoleService {
         XianyuApiFacade facade = acc.api();
 
         try {
-            JsonNode result = facade.createProduct(
+            JsonNode apiResult = facade.createProduct(
                     request.getTitle(),
                     String.valueOf(request.getPrice()),
                     request.getDescription(),
                     null, null);
 
-            // 本地持久化
             XianyuProductEntity entity = toProductEntity(request, null);
             entity.setAccountId(resolveAccountId(request.getAccountId()));
             entity.setCreatedAt(Instant.now());
@@ -243,7 +228,7 @@ public class XianyuConsoleService {
 
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("local", entity);
-            response.put("api", objectMapper.convertValue(result, Map.class));
+            response.put("api", objectMapper.convertValue(apiResult, Map.class));
             return response;
         } catch (Exception e) {
             throw new RuntimeException("Failed to create product: " + e.getMessage(), e);
@@ -283,7 +268,6 @@ public class XianyuConsoleService {
         XianyuProductEntity product = productRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Product not found: " + id));
 
-        // 远程下架
         try {
             XianyuSdk.XianyuAccount acc = resolveAccount(product.getAccountId());
             acc.api().shelfOff(product.getItemId());
@@ -294,8 +278,6 @@ public class XianyuConsoleService {
         productRepository.deleteById(id);
         return true;
     }
-
-    // ==================== Messaging ====================
 
     public Map<String, Object> sendMessage(MessageSendRequest request) {
         XianyuSdk.XianyuAccount acc = resolveAccount(request.getAccountId());
@@ -335,20 +317,19 @@ public class XianyuConsoleService {
         }
     }
 
-    // ==================== Rules ====================
-
     public List<XianyuKeywordRuleEntity> listRules(Long accountId) {
         if (accountId != null) {
             return keywordRuleRepository.findByAccountId(accountId);
         }
-        return keywordRuleRepository.findAll();
+        return new ArrayList<>();
     }
 
     public XianyuKeywordRuleEntity createRule(KeywordRuleUpsertRequest request) {
         XianyuKeywordRuleEntity entity = toRuleEntity(request, null);
         entity.setCreatedAt(Instant.now());
         entity.setUpdatedAt(Instant.now());
-        return keywordRuleRepository.update(entity);
+        keywordRuleRepository.insert(entity);
+        return entity;
     }
 
     public XianyuKeywordRuleEntity updateRule(long id, KeywordRuleUpsertRequest request) {
@@ -363,7 +344,7 @@ public class XianyuConsoleService {
     }
 
     public Map<String, Object> matchRule(RuleMatchRequest request) {
-        List<XianyuKeywordRuleEntity> rules = keywordRuleRepository.findAll();
+        List<XianyuKeywordRuleEntity> rules = keywordRuleRepository.findByAccountId(null);
         for (XianyuKeywordRuleEntity rule : rules) {
             if (isRuleMatched(rule, request.getText())) {
                 Map<String, Object> result = new LinkedHashMap<>();
@@ -377,8 +358,6 @@ public class XianyuConsoleService {
         result.put("matched", false);
         return result;
     }
-
-    // ==================== Helpers ====================
 
     private XianyuSdk.XianyuAccount resolveAccount(Long accountId) {
         if (accountId == null) {
@@ -436,13 +415,14 @@ public class XianyuConsoleService {
         XianyuKeywordRuleEntity entity = base != null ? base : new XianyuKeywordRuleEntity();
         entity.setRuleName(firstNonNull(request.getRuleName(), entity.getRuleName()));
         entity.setKeyword(firstNonNull(request.getKeyword(), entity.getKeyword()));
-        entity.setMatchType(firstNonNull(request.getMatchType(), entity.getMatchType(), "CONTAINS"));
+        entity.setMatchType(request.getMatchType() != null ? request.getMatchType() : (entity.getMatchType() != null ? entity.getMatchType() : "CONTAINS"));
         entity.setReplyText(firstNonNull(request.getReplyText(), entity.getReplyText()));
-        entity.setEnabled(request.getEnabled() != null ? (request.getEnabled() ? 1 : 0) : entity.getEnabled());
+        entity.setEnabled(request.getEnabled() != null ? request.getEnabled() : entity.isEnabled());
         entity.setPriority(request.getPriority() != null ? request.getPriority() : entity.getPriority());
         entity.setAccountId(request.getAccountId() != null ? request.getAccountId() : entity.getAccountId());
         entity.setUpdatedAt(Instant.now());
-        return keywordRuleRepository.update(entity);
+        keywordRuleRepository.update(entity);
+        return entity;
     }
 
     private String buildCookieHeader(Map<String, String> cookies) {
