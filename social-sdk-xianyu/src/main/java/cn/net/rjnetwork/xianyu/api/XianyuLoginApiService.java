@@ -74,8 +74,11 @@ public class XianyuLoginApiService {
             System.err.println("[SDK] createQrLoginSession START");
             InternalQrSession session = new InternalQrSession();
             session.sessionId = UUID.randomUUID().toString();
-            // 注意：createdAt 不在这里设置，等二维码真正生成后再设置，避免创建过程耗时导致误判过期
             session.status = "WAITING";
+
+            // 第0步：先访问 passport.goofish.com 首页建立基础会话
+            System.err.println("[SDK] Step 0: Visiting passport homepage to establish session...");
+            visitPassportHomepage(session);
 
             // 第1步：预热 _m_h5_tk Cookie
             fetchMh5Tk(session);
@@ -102,6 +105,21 @@ public class XianyuLoginApiService {
             error.message = "Failed to create QR login session: " + e.getMessage();
             return error;
         }
+    }
+
+    /**
+     * 访问 passport 首页建立基础 Cookie 会话
+     */
+    private void visitPassportHomepage(InternalQrSession session) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(PASSPORT_BASE + "/"))
+                .GET()
+                .header("User-Agent", userAgent())
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9")
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        mergeSetCookies(session.cookies, response);
+        System.err.println("[SDK] visitPassportHomepage - status: " + response.statusCode() + ", cookies: " + session.cookies);
     }
 
     /**
@@ -516,6 +534,20 @@ public class XianyuLoginApiService {
         session.ck = data.path("ck").asText(null);
         session.qrContent = data.path("codeContent").asText(null);
 
+        // 提取 lgToken（从 codeContent URL 中）
+        String lgToken = null;
+        if (session.qrContent != null && session.qrContent.contains("lgToken=")) {
+            int start = session.qrContent.indexOf("lgToken=") + 8;
+            int end = session.qrContent.indexOf("&", start);
+            if (end > 0) {
+                lgToken = session.qrContent.substring(start, end);
+            } else {
+                lgToken = session.qrContent.substring(start);
+            }
+        }
+        session.lgToken = lgToken;
+        System.err.println("[SDK] Extracted lgToken: " + lgToken);
+
         if (session.qrContent == null) {
             throw new RuntimeException("QR codeContent is null");
         }
@@ -525,17 +557,25 @@ public class XianyuLoginApiService {
     }
 
     private void pollQrStatusInternal(InternalQrSession session) throws Exception {
-        // 轮询二维码状态只需要 t 和 ck 两个关键参数
+        // 轮询二维码状态需要 t、ck 和 lgToken 三个关键参数
         Map<String, String> pollParams = new LinkedHashMap<>();
         if (session.t != null) pollParams.put("t", session.t);
         if (session.ck != null) pollParams.put("ck", session.ck);
+        if (session.lgToken != null) pollParams.put("lgToken", session.lgToken);
 
-        HttpRequest request = HttpRequest.newBuilder(URI.create(QUERY_QR_URL))
-                .POST(HttpRequest.BodyPublishers.ofString(buildQuery(pollParams)))
+        String pollQueryString = buildQuery(pollParams);
+        System.err.println("[SDK] pollQrStatusInternal - body params: " + pollQueryString);
+
+        // 关键：轮询 URL 必须带 appName 和 fromSite query 参数（与浏览器行为一致）
+        String pollUrl = QUERY_QR_URL + "?appName=xianyu&fromSite=77";
+        System.err.println("[SDK] pollQrStatusInternal - URL: " + pollUrl);
+
+        HttpRequest request = HttpRequest.newBuilder(URI.create(pollUrl))
+                .POST(HttpRequest.BodyPublishers.ofString(pollQueryString))
                 .header("User-Agent", userAgent())
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .header("Origin", PASSPORT_BASE)
-                .header("Referer", PASSPORT_BASE + "/")
+                .header("Referer", PASSPORT_BASE + "/mini_login.htm")
                 .header("Cookie", buildCookieHeader(session.cookies))
                 .build();
 
@@ -761,6 +801,7 @@ public class XianyuLoginApiService {
         String unb;
         String t;
         String ck;
+        String lgToken;
         String message;
         Instant createdAt;
         final Map<String, String> cookies = new LinkedHashMap<>();
