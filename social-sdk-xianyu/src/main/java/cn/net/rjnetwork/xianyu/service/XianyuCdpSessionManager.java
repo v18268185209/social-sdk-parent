@@ -62,32 +62,18 @@ public class XianyuCdpSessionManager {
         }
     }
 
-    /** 获取客户端；若未连接则自动连接。 */
+    /**
+     * 获取客户端；若从未连接则建立。
+     *
+     * <p>关键：已建立的连接不复不探、不重连——避免每次接口调用都探测远端 target，
+     * 探测失败就 reconnect 丢掉已导航好的登录态标签页（SPA 状态机没初始化的新标签页 = 登录页）。
+     * 若远端真断了，留给后续 evaluate/click 报错时再由调用方主动 reconnect。</p>
+     */
     public CdpClient getClient() throws Exception {
-        if (!connected || client == null) {
-            return connect();
+        if (connected && client != null) {
+            return client;
         }
-        try {
-            HttpClient http = httpClient();
-            String url = endpoint.replaceAll("/$", "") + "/json/list";
-            HttpRequest req = HttpRequest.newBuilder(URI.create(url)).GET()
-                    .timeout(Duration.ofSeconds(5)).build();
-            String body = http.send(req, HttpResponse.BodyHandlers.ofString()).body();
-            JsonNode list = new ObjectMapper().readTree(body);
-            boolean alive = false;
-            for (JsonNode t : list) {
-                if (targetId != null && targetId.equals(t.path("id").asText(""))) {
-                    alive = true;
-                    break;
-                }
-            }
-            if (!alive) {
-                reconnect();
-            }
-        } catch (Exception ignore) {
-            // 检测失败不阻塞，留给后续 evaluate 报错时再重试
-        }
-        return client;
+        return connect();
     }
 
     public boolean isConnected() {
