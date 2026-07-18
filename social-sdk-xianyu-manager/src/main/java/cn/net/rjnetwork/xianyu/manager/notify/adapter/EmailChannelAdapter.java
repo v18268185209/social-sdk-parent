@@ -9,6 +9,7 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 /**
@@ -25,7 +26,7 @@ public class EmailChannelAdapter implements ChannelAdapter {
     public String type() { return "EMAIL"; }
 
     @Override
-    public void send(NotifyChannel channel, String title, String body, List<String> recipients) throws Exception {
+    public void send(NotifyChannel channel, String title, String body, List<String> recipients, Map<String, Object> vars) throws Exception {
         JsonNode cfg = mapper.readTree(channel.getConfigJson());
         JavaMailSenderImpl mailSender = new JavaMailSenderImpl();
         mailSender.setHost(text(cfg, "smtpHost"));

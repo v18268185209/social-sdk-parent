@@ -48,6 +48,14 @@ public class ApiResponse<T> {
         return fail("ERROR", message);
     }
 
+    public static <T> ApiResponse<T> error(String message) {
+        return fail("ERROR", message);
+    }
+
+    public static <T> ApiResponse<T> error(String code, String message) {
+        return fail(code, message);
+    }
+
     @SuppressWarnings("unchecked")
     public static <T> ApiResponse<T> page(List<T> list, long total, long current, long size) {
         PageResponse<T> page = new PageResponse<>();

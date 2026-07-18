@@ -109,6 +109,13 @@
             <version>${caffeine.version}</version>
         </dependency>
 
+        <!-- SpringDoc OpenAPI (对外 API 文档) -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.7.0</version>
+        </dependency>
+
         <!-- ZXing for QR code generation -->
         <dependency>
             <groupId>com.google.zxing</groupId>

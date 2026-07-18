@@ -14,6 +14,7 @@ public class XianyuMessage extends BaseEntity {
 
     private Long accountId;
     private String sessionId;
+    private String msgId;     // 消息唯一 id（去重用）
     private String senderId;
     private String senderName;
     private String content;

@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS xianyu_message (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER NOT NULL,
     session_id VARCHAR(64) NOT NULL,
+    msg_id VARCHAR(64),
     sender_id VARCHAR(64),
     sender_name VARCHAR(128),
     content TEXT,
@@ -341,6 +342,7 @@ CREATE TABLE IF NOT EXISTS notify_retry (
     recipient VARCHAR(256),
     title TEXT,
     body TEXT,
+    vars_json TEXT,               -- 触发事件的模板变量 JSON（用于重试时结构化重发）
     retry_count INTEGER DEFAULT 0,
     max_retry INTEGER DEFAULT 5,
     next_retry_at DATETIME,
@@ -611,4 +613,24 @@ CREATE TABLE IF NOT EXISTS cloud_storage_file (
 
 CREATE INDEX IF NOT EXISTS idx_cloud_storage_account_account ON cloud_storage_account(account_id);
 CREATE INDEX IF NOT EXISTS idx_cloud_storage_file_account ON cloud_storage_file(storage_account_id);
+
+-- ======================== 对外 OpenAPI ========================
+
+-- 对外应用（调用方凭证）。app_secret_enc 为 AES 加密后的明文 secret，绝不落明文。
+CREATE TABLE IF NOT EXISTS open_app (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_name VARCHAR(128) NOT NULL,                 -- 应用展示名
+    app_key VARCHAR(64) NOT NULL UNIQUE,            -- 公开标识（调用方传 appKey）
+    app_secret_enc VARCHAR(512),                    -- AES 加密后的 appSecret（明文仅在创建时返回一次）
+    status VARCHAR(16) DEFAULT 'ENABLED',           -- ENABLED / DISABLED
+    bound_account_ids TEXT,                         -- 绑定账号白名单（JSON 数组，空=不限制）
+    rate_limit_per_minute INTEGER DEFAULT 60,       -- 单应用每分钟请求上限（0=不限制）
+    expire_at DATETIME,                             -- 凭证过期时间（NULL=不过期）
+    last_used_at DATETIME,                          -- 最近一次成功调用时间
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_open_app_key ON open_app(app_key);
 

@@ -35,7 +35,7 @@ public class ProductSyncService {
             XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(account.getCookieHeader());
             XianyuProductApiService productApi = new XianyuProductApiService(mtopClient);
 
-            JsonNode data = productApi.getUserItemList("ON_SALE", 1, 100);
+            JsonNode data = productApi.getMyProducts(1, 100);
             List<XianyuProduct> products = parseProducts(data, accountId);
 
             int upserted = 0;

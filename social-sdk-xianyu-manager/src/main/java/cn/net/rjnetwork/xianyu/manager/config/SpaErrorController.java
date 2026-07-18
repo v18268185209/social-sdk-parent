@@ -38,6 +38,7 @@ public class SpaErrorController implements ErrorController {
         boolean isSpaRoute = status == HttpStatus.NOT_FOUND.value()
                 && uri != null
                 && !uri.startsWith("/api")
+                && !uri.startsWith("/openapi")
                 && !uri.startsWith("/ws")
                 && !uri.startsWith("/v3")
                 && !uri.startsWith("/swagger-ui")

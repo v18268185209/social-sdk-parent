@@ -27,16 +27,18 @@
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="loadProducts">搜索</el-button>
-        </el-form-item>
-        <el-form-item>
           <el-button
-            type="success"
+            type="primary"
             :disabled="!filters.accountId"
             :loading="syncing"
             @click="handleSyncFromXianyu"
           >
-            <el-icon><Refresh /></el-icon> 同步闲鱼商品
+            <el-icon><Refresh /></el-icon> 同步闲鱼
+          </el-button>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="success" @click="showAiOptimizeDialog = true">
+            <el-icon><MagicStick /></el-icon> AI 优化文案
           </el-button>
         </el-form-item>
       </el-form>
@@ -76,6 +78,55 @@
       />
     </el-card>
 
+    <!-- AI 优化文案对话框 -->
+    <el-dialog v-model="showAiOptimizeDialog" title="AI 商品文案优化" width="600px">
+      <el-form :model="aiForm" label-width="100px">
+        <el-form-item label="AI 模型">
+          <el-select v-model="aiForm.modelId" placeholder="选择 AI 模型" style="width: 100%;">
+            <el-option v-for="m in aiModels" :key="m.id" :label="`${m.modelName} (${m.providerName})`" :value="m.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="商品名">
+          <el-input v-model="aiForm.productTitle" placeholder="如：iPhone 15 Pro 256G 原色钛金属" />
+        </el-form-item>
+        <el-form-item label="关键词">
+          <el-input v-model="aiForm.keywordsRaw" placeholder="逗号分隔，如：iPhone,15 Pro,256G,原色钛金属" style="width: 100%;" />
+        </el-form-item>
+        <el-form-item label="成色">
+          <el-select v-model="aiForm.condition" style="width: 150px;">
+            <el-option label="全新" value="全新" />
+            <el-option label="九成新" value="九成新" />
+            <el-option label="八成新" value="八成新" />
+            <el-option label="七成新" value="七成新" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+
+      <el-divider />
+      <el-tabs v-model="aiActiveTab">
+        <el-tab-pane label="📝 标题优化" name="title">
+          <el-input v-model="aiResult.title" type="textarea" :rows="3" readonly />
+          <el-button type="primary" size="small" style="margin-top: 8px;" @click="optimizeTitle" :loading="aiLoading">生成标题</el-button>
+        </el-tab-pane>
+        <el-tab-pane label="📄 描述优化" name="desc">
+          <el-input v-model="aiResult.description" type="textarea" :rows="6" readonly />
+          <el-button type="primary" size="small" style="margin-top: 8px;" @click="optimizeDesc" :loading="aiLoading">生成描述</el-button>
+        </el-tab-pane>
+        <el-tab-pane label="🏷️ 关键词提取" name="kw">
+          <div style="min-height: 50px;">
+            <el-tag v-for="kw in aiResult.keywords" :key="kw" style="margin: 4px;">{{ kw }}</el-tag>
+            <span v-if="!aiResult.keywords.length" style="color: #909399;">暂无关键词</span>
+          </div>
+          <el-button type="primary" size="small" style="margin-top: 8px;" @click="extractKeywords" :loading="aiLoading">提取关键词</el-button>
+        </el-tab-pane>
+      </el-tabs>
+
+      <template #footer>
+        <el-button @click="showAiOptimizeDialog = false">关闭</el-button>
+        <el-button type="success" @click="useAiResult" v-if="aiResult.title">应用为商品信息</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 创建商品对话框 -->
     <el-dialog v-model="showCreateDialog" title="创建商品" width="500px">
       <el-form :model="createForm" label-width="80px">
@@ -111,18 +162,25 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
+import { Refresh, MagicStick } from '@element-plus/icons-vue'
 import api from '@/api/request'
+import { optimizeTitle as optimizeTitleApi, optimizeDescription as optimizeDescriptionApi, extractKeywords as extractKeywordsApi } from '@/api/ai'
 
 const products = ref([])
 const accounts = ref([])
+const aiModels = ref([])
 const loading = ref(false)
 const submitting = ref(false)
 const syncing = ref(false)
 const showCreateDialog = ref(false)
+const showAiOptimizeDialog = ref(false)
+const aiLoading = ref(false)
+const aiActiveTab = ref('title')
 const filters = ref({ accountId: null, keyword: '', status: '' })
 const pagination = ref({ page: 1, size: 20, total: 0 })
 const createForm = ref({ accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '' })
+const aiForm = ref({ modelId: null, productTitle: '', keywordsRaw: '', condition: '九成新' })
+const aiResult = ref({ title: '', description: '', keywords: [] })
 
 const statusType = (s) => ({ ON_SALE: 'success', OFF_SALE: 'warning', DRAFT: 'info' }[s] || 'info')
 
@@ -244,5 +302,69 @@ async function deleteProduct(id) {
   } catch (e) {}
 }
 
-onMounted(() => { loadAccounts(); loadProducts() })
+const parseKeywords = () =>
+  (aiForm.value.keywordsRaw || '').split(/[,，、\s]+/).map(s => s.trim()).filter(Boolean)
+
+async function optimizeTitle() {
+  if (!aiForm.value.productTitle) return ElMessage.warning('请填写商品名')
+  aiLoading.value = true
+  try {
+    const res = await optimizeTitleApi(
+      aiForm.value.modelId,
+      aiForm.value.productTitle,
+      parseKeywords(),
+      aiForm.value.condition
+    )
+    if (res.success) {
+      aiResult.value.title = res.data?.title || res.data || ''
+      ElMessage.success('标题已生成')
+    }
+  } finally { aiLoading.value = false }
+}
+
+async function optimizeDesc() {
+  if (!aiForm.value.productTitle) return ElMessage.warning('请填写商品名')
+  aiLoading.value = true
+  try {
+    const res = await optimizeDescriptionApi(
+      aiForm.value.modelId,
+      aiForm.value.productTitle,
+      parseKeywords(),
+      aiForm.value.condition
+    )
+    if (res.success) {
+      aiResult.value.description = res.data?.description || res.data || ''
+      ElMessage.success('描述已生成')
+    }
+  } finally { aiLoading.value = false }
+}
+
+async function extractKeywords() {
+  if (!aiForm.value.productTitle) return ElMessage.warning('请填写商品名')
+  aiLoading.value = true
+  try {
+    const res = await extractKeywordsApi(aiForm.value.modelId, aiForm.value.productTitle)
+    if (res.success) {
+      aiResult.value.keywords = Array.isArray(res.data) ? res.data : (res.data?.keywords || [])
+      ElMessage.success(`已提取 ${aiResult.value.keywords.length} 个关键词`)
+    }
+  } finally { aiLoading.value = false }
+}
+
+function useAiResult() {
+  if (aiResult.value.title) createForm.value.title = aiResult.value.title
+  if (aiResult.value.description) createForm.value.description = aiResult.value.description
+  showAiOptimizeDialog.value = false
+  showCreateDialog.value = true
+  ElMessage.success('已应用 AI 生成内容')
+}
+
+async function loadAiModels() {
+  try {
+    const res = await api.get('/ai/models', { params: { active: true } })
+    if (res.success) aiModels.value = res.data || []
+  } catch {}
+}
+
+onMounted(() => { loadAccounts(); loadProducts(); loadAiModels() })
 </script>

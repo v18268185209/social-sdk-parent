@@ -9,6 +9,7 @@
         <el-tab-pane label="通知模板" name="templates" />
         <el-tab-pane label="订阅规则" name="subscriptions" />
         <el-tab-pane label="投递日志" name="logs" />
+        <el-tab-pane label="每日摘要" name="digest" />
       </el-tabs>
 
       <!-- ===================== 通道 ===================== -->
@@ -22,8 +23,8 @@
           <el-table-column prop="name" label="名称" min-width="140" />
           <el-table-column label="类型" width="120">
             <template #default="{ row }">
-              <el-tag :type="row.type === 'EMAIL' ? 'primary' : 'warning'" size="small">
-                {{ row.type === 'EMAIL' ? '邮件(SMTP)' : 'Webhook' }}
+              <el-tag :type="row.type === 'EMAIL' ? 'primary' : row.type === 'SMS' ? 'success' : 'warning'" size="small">
+                {{ channelTypeLabel(row.type) }}
               </el-tag>
             </template>
           </el-table-column>
@@ -150,6 +151,42 @@
           :page-size="logSize"
           @current-change="loadLogs" />
       </div>
+
+      <!-- ===================== 每日摘要 ===================== -->
+      <div v-show="activeTab === 'digest'">
+        <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px;"
+          title="每天定时把前一天的站内通知按场景汇总，经指定通道（邮件/短信）一次性发送。">
+        </el-alert>
+        <el-form label-width="120px" style="max-width: 640px;" v-loading="loadingDigest">
+          <el-form-item label="启用">
+            <el-switch v-model="digestForm.enabled" />
+          </el-form-item>
+          <el-form-item label="发送通道">
+            <el-select v-model="digestForm.channelId" style="width: 100%;" placeholder="选择通道">
+              <el-option v-for="c in channels" :key="c.id" :label="c.name + '（' + channelTypeLabel(c.type) + '）'" :value="c.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="接收人">
+            <el-input v-model="digestForm.recipients" placeholder="邮箱/手机号，逗号分隔（留空则用通道默认）" />
+          </el-form-item>
+          <el-form-item label="触发时间">
+            <el-time-picker v-model="digestTime" value-format="HH:mm" format="HH:mm" placeholder="每日发送时间" />
+          </el-form-item>
+          <el-form-item label="纳入场景">
+            <el-select v-model="digestForm.scenarios" multiple clearable collapse-tags
+              style="width: 100%;" placeholder="全部场景">
+              <el-option v-for="s in scenarios" :key="s.scenario" :label="s.label" :value="s.scenario" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="站内留痕">
+            <el-switch v-model="digestForm.includeInApp" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="savingDigest" @click="saveDigest">保存配置</el-button>
+            <el-button :loading="sendingDigest" @click="sendDigestNow">立即发送一次</el-button>
+          </el-form-item>
+        </el-form>
+      </div>
     </el-card>
 
     <!-- 通道编辑 -->
@@ -162,6 +199,7 @@
           <el-radio-group v-model="channelForm.type" @change="onChannelTypeChange">
             <el-radio-button value="EMAIL">邮件(SMTP)</el-radio-button>
             <el-radio-button value="WEBHOOK">Webhook</el-radio-button>
+            <el-radio-button value="SMS">短信(SMS)</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="启用">
@@ -194,7 +232,7 @@
         </template>
 
         <!-- Webhook 配置 -->
-        <template v-else>
+        <template v-else-if="channelForm.type === 'WEBHOOK'">
           <el-form-item label="Webhook 类型">
             <el-select v-model="channelForm.config.webhookType" style="width: 100%;">
               <el-option label="企业微信机器人" value="WECHAT_WORK" />
@@ -208,6 +246,56 @@
           </el-form-item>
           <el-form-item label="加签密钥">
             <el-input v-model="channelForm.config.secret" placeholder="机器人加签 secret（可选）" />
+          </el-form-item>
+        </template>
+
+        <!-- 短信配置 -->
+        <template v-if="channelForm.type === 'SMS'">
+          <el-form-item label="短信服务商">
+            <el-select v-model="channelForm.config.provider" style="width: 100%;">
+              <el-option label="通用 HTTP 网关" value="GENERIC" />
+              <el-option label="阿里云短信" value="ALIYUN" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="默认手机号">
+            <el-input v-model="channelForm.config.phones" placeholder="逗号分隔，订阅未指定接收人时回退" />
+          </el-form-item>
+          <el-form-item label="签名">
+            <el-input v-model="channelForm.config.signName" placeholder="短信签名" />
+          </el-form-item>
+          <el-form-item label="模板 Code">
+            <el-input v-model="channelForm.config.templateCode" placeholder="如 SMS_123456" />
+          </el-form-item>
+          <el-form-item label="模板参数">
+            <el-input v-model="channelForm.config.templateParam" type="textarea" :rows="2"
+              placeholder='阿里云：{"name":"{accountName}"} 或整段 {"content":"{body}"}' />
+            <div style="color:#909399;font-size:12px;margin-top:4px;line-height:1.6">
+              支持任意模板变量：{accountName} {orderId} {itemTitle} {amount} {status} {counterparty} {content} {balance} {threshold} {bizType}；{body} 兜底为完整正文。
+            </div>
+          </el-form-item>
+          <template v-if="channelForm.config.provider === 'GENERIC'">
+            <el-form-item label="网关地址">
+              <el-input v-model="channelForm.config.url" placeholder="https://your-gateway/send" />
+            </el-form-item>
+            <el-form-item label="负载模板">
+              <el-input v-model="channelForm.config.bodyTemplate" type="textarea" :rows="2"
+                placeholder='可选，支持 {phones}{body}{signName}{templateCode}{templateParam} 及任意 {var}' />
+            </el-form-item>
+          </template>
+          <template v-else>
+            <el-form-item label="AccessKeyId">
+              <el-input v-model="channelForm.config.accessKeyId" />
+            </el-form-item>
+            <el-form-item label="AccessKeySecret">
+              <el-input v-model="channelForm.config.accessKeySecret" type="password" show-password />
+            </el-form-item>
+            <el-form-item label="RegionId">
+              <el-input v-model="channelForm.config.regionId" placeholder="cn-hangzhou" />
+            </el-form-item>
+          </template>
+          <el-form-item label="每分钟限频">
+            <el-input-number v-model="channelForm.config.rateLimitPerMinute" :min="0" :max="1000" />
+            <span style="margin-left:8px;color:#909399;font-size:12px">0=不限制</span>
           </el-form-item>
         </template>
       </el-form>
@@ -313,7 +401,18 @@ const scenarios = ref([])
 const scenarioMap = ref({})
 const channels = ref([])
 const channelMap = ref({})
-function scenarioLabel(s) { return scenarioMap.value[s] || s }
+function scenarioLabel(s) {
+  if (s === 'DAILY_DIGEST') return '每日摘要'
+  if (s === 'DIGEST') return '摘要发送'
+  if (s === 'TEST') return '测试'
+  return scenarioMap.value[s] || s
+}
+function channelTypeLabel(t) {
+  if (t === 'EMAIL') return '邮件(SMTP)'
+  if (t === 'SMS') return '短信(SMS)'
+  if (t === 'WEBHOOK') return 'Webhook'
+  return t || '-'
+}
 function channelName(id) { return channelMap.value[id] || (id ? 'ID:' + id : '-') }
 
 // ===== 通道 =====
@@ -333,9 +432,16 @@ function emptyEmailConfig() {
 function emptyWebhookConfig() {
   return { webhookUrl: '', webhookType: 'WECHAT_WORK', secret: '' }
 }
+function emptySmsConfig() {
+  return { provider: 'GENERIC', phones: '', signName: '', templateCode: '', templateParam: '',
+    url: '', bodyTemplate: '', accessKeyId: '', accessKeySecret: '', regionId: 'cn-hangzhou',
+    rateLimitPerMinute: 0 }
+}
 
 function onChannelTypeChange() {
-  channelForm.config = channelForm.type === 'EMAIL' ? emptyEmailConfig() : emptyWebhookConfig()
+  if (channelForm.type === 'EMAIL') channelForm.config = emptyEmailConfig()
+  else if (channelForm.type === 'SMS') channelForm.config = emptySmsConfig()
+  else channelForm.config = emptyWebhookConfig()
 }
 
 function openChannelDialog(row) {
@@ -347,7 +453,8 @@ function openChannelDialog(row) {
     try {
       channelForm.config = row.configJson ? JSON.parse(row.configJson) : (row.type === 'EMAIL' ? emptyEmailConfig() : emptyWebhookConfig())
     } catch (e) {
-      channelForm.config = row.type === 'EMAIL' ? emptyEmailConfig() : emptyWebhookConfig()
+      channelForm.config = row.type === 'EMAIL' ? emptyEmailConfig()
+        : row.type === 'SMS' ? emptySmsConfig() : emptyWebhookConfig()
     }
   } else {
     channelForm.id = null
@@ -562,6 +669,63 @@ async function loadLogs(page = 1) {
   finally { loadingLogs.value = false }
 }
 
+// ===== 每日摘要 =====
+const loadingDigest = ref(false)
+const savingDigest = ref(false)
+const sendingDigest = ref(false)
+const digestTime = ref('09:00')
+const digestForm = reactive({
+  id: 1, enabled: false, channelId: null, recipients: '',
+  hour: 9, minute: 0, scenarios: [], includeInApp: true
+})
+
+async function loadDigest() {
+  loadingDigest.value = true
+  try {
+    const res = await notify.getDigestConfig()
+    if (res.success && res.data) {
+      Object.assign(digestForm, res.data)
+      digestForm.scenarios = Array.isArray(res.data.scenarios)
+        ? res.data.scenarios
+        : (res.data.scenarios ? JSON.parse(res.data.scenarios) : [])
+      const h = res.data.hour != null ? res.data.hour : 9
+      const m = res.data.minute != null ? res.data.minute : 0
+      digestTime.value = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0')
+    }
+  } catch (e) {}
+  finally { loadingDigest.value = false }
+}
+
+async function saveDigest() {
+  if (!digestForm.channelId) { ElMessage.warning('请选择发送通道'); return }
+  savingDigest.value = true
+  const payload = {
+    enabled: digestForm.enabled,
+    channelId: digestForm.channelId,
+    recipients: digestForm.recipients,
+    hour: Number(digestTime.value.split(':')[0]),
+    minute: Number(digestTime.value.split(':')[1]),
+    scenarios: JSON.stringify(digestForm.scenarios || []),
+    includeInApp: digestForm.includeInApp
+  }
+  try {
+    const res = await notify.saveDigestConfig(payload)
+    if (res.success) ElMessage.success('已保存')
+    else ElMessage.error(res.message || '保存失败')
+  } catch (e) {}
+  finally { savingDigest.value = false }
+}
+
+async function sendDigestNow() {
+  sendingDigest.value = true
+  try {
+    const res = await notify.sendDigestNow()
+    if (res.success) ElMessage.success('已触发发送，请查看投递日志')
+    else ElMessage.error(res.message || '发送失败')
+  } catch (e) {}
+  finally { sendingDigest.value = false }
+}
+
 // ===== 加载 =====
 async function loadScenarios() {
   try {
@@ -608,5 +772,6 @@ onMounted(async () => {
   await loadTemplates()
   await loadSubs()
   await loadLogs(1)
+  await loadDigest()
 })
 </script>

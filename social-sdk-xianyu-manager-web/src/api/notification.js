@@ -75,3 +75,14 @@ export function markRead(id) {
 export function markAllRead() {
   return api.post('/notify/messages/read-all')
 }
+
+// ===== 每日摘要配置 =====
+export function getDigestConfig() {
+  return api.get('/notify/digest/config')
+}
+export function saveDigestConfig(data) {
+  return api.put('/notify/digest/config', data)
+}
+export function sendDigestNow() {
+  return api.post('/notify/digest/send-now')
+}

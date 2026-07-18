@@ -34,6 +34,7 @@ public class XianyuProduct extends BaseEntity {
     private String deliverContentTemplate;
 
     private String detailUrl;
+    private String imageUrl; // 主图 URL（商品列表返回的首图）
     private Integer viewCount;
     private Integer favoriteCount;
 }

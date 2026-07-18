@@ -74,6 +74,12 @@ const routes = [
         meta: { title: '收藏关注' }
       },
       {
+        path: 'ai-ops',
+        name: 'AiOps',
+        component: () => import('@/views/aiOps/Index.vue'),
+        meta: { title: 'AI 运营' }
+      },
+      {
         path: 'monitor',
         name: 'Monitor',
         component: () => import('@/views/monitor/Index.vue'),
@@ -84,6 +90,18 @@ const routes = [
         name: 'Audit',
         component: () => import('@/views/audit/Index.vue'),
         meta: { title: '审计日志' }
+      },
+      {
+        path: 'cloud-storage',
+        name: 'CloudStorage',
+        component: () => import('@/views/cloudStorage/Index.vue'),
+        meta: { title: '网盘存储' }
+      },
+      {
+        path: 'virtual-ship',
+        name: 'VirtualShip',
+        component: () => import('@/views/virtualShip/Index.vue'),
+        meta: { title: '虚拟发货' }
       },
       {
         path: 'notify',

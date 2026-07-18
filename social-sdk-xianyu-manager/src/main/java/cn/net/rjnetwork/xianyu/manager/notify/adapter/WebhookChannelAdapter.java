@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Webhook 通道适配器，支持四类机器人：
@@ -39,7 +40,7 @@ public class WebhookChannelAdapter implements ChannelAdapter {
     public String type() { return "WEBHOOK"; }
 
     @Override
-    public void send(NotifyChannel channel, String title, String body, List<String> recipients) throws Exception {
+    public void send(NotifyChannel channel, String title, String body, List<String> recipients, Map<String, Object> vars) throws Exception {
         JsonNode cfg = mapper.readTree(channel.getConfigJson());
         String webhookType = text(cfg, "webhookType", "GENERIC").toUpperCase();
         String url = text(cfg, "url");
@@ -114,6 +115,9 @@ public class WebhookChannelAdapter implements ChannelAdapter {
                     ArrayNode arr = mapper.createArrayNode();
                     recipients.forEach(arr::add);
                     root.set("recipients", arr);
+                }
+                if (vars != null && !vars.isEmpty()) {
+                    root.set("vars", mapper.valueToTree(vars));
                 }
                 payload = mapper.writeValueAsString(root);
             }

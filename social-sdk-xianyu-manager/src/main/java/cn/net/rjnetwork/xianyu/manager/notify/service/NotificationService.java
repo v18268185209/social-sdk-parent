@@ -159,7 +159,7 @@ public class NotificationService {
                 if (adapter == null) {
                     throw new IllegalStateException("无对应通道适配器： " + channel.getType());
                 }
-                adapter.send(channel, title, body, recipients);
+                adapter.send(channel, title, body, recipients, event.getVars());
                 writeLog(event, channel, recipients, "SENT", null);
             } catch (Exception e) {
                 logger.error("通知发送失败 scenario={} channel={}", event.getScenario(), channel.getName(), e);
@@ -194,7 +194,7 @@ public class NotificationService {
         ChannelAdapter adapter = adapterFor(channel.getType());
         if (adapter == null) throw new IllegalStateException("无对应通道适配器： " + channel.getType());
         try {
-            adapter.send(channel, title, body, Collections.emptyList());
+            adapter.send(channel, title, body, Collections.emptyList(), Map.of("body", body, "title", title));
             writeLog(new NotifyEvent("TEST", null, null, Map.of()), channel, List.of(), "SENT", null);
         } catch (Exception e) {
             writeLog(new NotifyEvent("TEST", null, null, Map.of()), channel, List.of(), "FAILED", e.getMessage());
@@ -218,7 +218,7 @@ public class NotificationService {
             if (adapter == null) {
                 throw new IllegalStateException("无对应通道适配器： " + channel.getType());
             }
-            adapter.send(channel, title, body, recipients == null ? Collections.emptyList() : recipients);
+            adapter.send(channel, title, body, recipients == null ? Collections.emptyList() : recipients, Map.of("body", body, "title", title));
             writeLog(new NotifyEvent("DIGEST", null, null, Map.of()), channel,
                     recipients == null ? Collections.emptyList() : recipients, "SENT", null);
         } catch (Exception e) {

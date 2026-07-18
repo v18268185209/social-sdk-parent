@@ -81,10 +81,10 @@ public class ImMessageWatcherService {
 
                 XianyuMessage entity = new XianyuMessage();
                 entity.setAccountId(acc.getId());
-                entity.setCid(cid);
+                entity.setSessionId(cid);
                 entity.setMsgId(msgId);
                 entity.setSenderId(msg.path("senderId").asText());
-                entity.setSenderNick(msg.path("senderNick").asText());
+                entity.setSenderName(msg.path("senderNick").asText());
                 entity.setDirection("INCOMING");
                 entity.setMsgType(msg.path("msgType").asText("text"));
                 entity.setContent(msg.path("content").path("text").asText());
@@ -95,8 +95,8 @@ public class ImMessageWatcherService {
                 if (count != null && count == 0) {
                     messageMapper.insert(entity);
                     seenMsgIds.put(msgId, Boolean.TRUE);
-                    eventPublisher.publishEvent(new NotifyEvent(this, entity));
-                    log.info("[IM] new msg from {} (account {}): {}", entity.getSenderNick(), acc.getId(),
+                    eventPublisher.publishEvent(new NotifyEvent(this, entity, "NEW_MESSAGE"));
+                    log.info("[IM] new msg from {} (account {}): {}", entity.getSenderName(), acc.getId(),
                             entity.getContent());
                 }
             }
