@@ -24,6 +24,8 @@ public class AccountService {
 
     private final AccountMapper accountMapper;
     private final Map<String, XianyuLoginApiService> qrLoginServices = new ConcurrentHashMap<>();
+    /** 缓存每个二维码会话对应的创建请求（含 accountName / remark）*/
+    private final Map<String, QrLoginRequest> qrLoginRequests = new ConcurrentHashMap<>();
 
     public AccountService(AccountMapper accountMapper) {
         this.accountMapper = accountMapper;
@@ -75,6 +77,7 @@ public class AccountService {
         // 修复：只要有 sessionId 和 qrCodeDataUrl 就说明创建成功，不管 status 是 WAITING 还是其他
         if (sdkResult.sessionId != null && sdkResult.qrCodeDataUrl != null) {
             qrLoginServices.put(sdkResult.sessionId, loginService);
+            qrLoginRequests.put(sdkResult.sessionId, request);
             System.err.println("[ACCOUNT-SERVICE] Session stored in map: " + sdkResult.sessionId);
         } else {
             System.err.println("[ACCOUNT-SERVICE] Failed to store session: sessionId=" + sdkResult.sessionId + ", qrCodeDataUrl=" + sdkResult.qrCodeDataUrl);
@@ -113,15 +116,18 @@ public class AccountService {
 
         // 登录成功：保存 Cookie 到数据库
         if ("SUCCESS".equals(sdkResult.status) && sdkResult.cookieHeader != null) {
-            XianyuAccount account = saveAccountFromCookie(sdkResult.cookieHeader, sdkResult.unb);
+            QrLoginRequest createReq = qrLoginRequests.get(sessionId);
+            XianyuAccount account = saveAccountFromCookie(sdkResult.cookieHeader, sdkResult.unb, createReq);
             if (account != null) {
                 resp.setAccount(convertToAccountInfo(account));
             }
             // 清理会话
             qrLoginServices.remove(sessionId);
+            qrLoginRequests.remove(sessionId);
         } else if ("EXPIRED".equals(sdkResult.status) || "CANCELLED".equals(sdkResult.status)
                 || "ERROR".equals(sdkResult.status)) {
             qrLoginServices.remove(sessionId);
+            qrLoginRequests.remove(sessionId);
         }
 
         return resp;
@@ -130,16 +136,24 @@ public class AccountService {
     /**
      * 根据 Cookie 保存账号
      */
-    private XianyuAccount saveAccountFromCookie(String cookieHeader, String unb) {
+    private XianyuAccount saveAccountFromCookie(String cookieHeader, String unb, QrLoginRequest createReq) {
         // 通过 SDK 获取用户信息
         XianyuLoginApiService tempService = new XianyuLoginApiService(cookieHeader);
         XianyuLoginApiService.LoginStatusResult statusResult = tempService.checkLoginStatus(cookieHeader);
 
         XianyuAccount account = new XianyuAccount();
+        // account_name 在数据库中是 NOT NULL，必须赋值
+        String accountName = createReq != null && createReq.getAccountName() != null && !createReq.getAccountName().isBlank()
+                ? createReq.getAccountName()
+                : (statusResult.nickname != null && !statusResult.nickname.isBlank()
+                    ? statusResult.nickname
+                    : (unb != null ? "unb_" + unb : "xianyu_" + System.currentTimeMillis()));
+        account.setAccountName(accountName);
         account.setUserId(statusResult.userId);
         account.setDisplayName(statusResult.nickname);
         account.setCookieHeader(cookieHeader);
         account.setStatus("ACTIVE");
+        account.setRemark(createReq != null ? createReq.getRemark() : null);
         account.setLastLoginAt(LocalDateTime.now());
         account.setCreatedAt(LocalDateTime.now());
         account.setUpdatedAt(LocalDateTime.now());

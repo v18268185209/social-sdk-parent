@@ -1,15 +1,21 @@
 package cn.net.rjnetwork.xianyu.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 闲鱼商品发布表单 API 服务
  * 封装商品发布时的表单数据准备、草稿保存、智能分类推荐等 MTOP 接口调用
  *
- * <p>替代原有的 CDP DOM 表单填写方式，全部通过 API 完成。</p>
+ * <p>所有业务参数通过 data JSON 传递，底层 XianyuMtopApiClient 自动计算 sign、预热 token、
+ * 设置 Referer/Origin，无需手动构造 URL 和签名。</p>
  */
 public class XianyuPublishFormApiService {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
     private final XianyuMtopApiClient apiClient;
 
     public XianyuPublishFormApiService(XianyuMtopApiClient apiClient) {
@@ -18,206 +24,102 @@ public class XianyuPublishFormApiService {
 
     // ==================== 发布前数据准备 ====================
 
-    /**
-     * 获取发布页预加载数据
-     * API: mtop.idle.pc.idleitem.preget
-     *
-     * <p>发布商品前需要调用此接口获取表单初始数据，包括默认分类、发货地、
-     * 价格模板等。</p>
-     *
-     * @return 预加载数据 JSON
-     */
+    /** 获取发布页预加载数据 — mtop.idle.pc.idleitem.preget */
     public JsonNode getPublishPreData() {
-        String url = new XianyuMtopRequestBuilder("mtop.idle.pc.idleitem.preget")
-                .setCookie(apiClient.getCookie())
-                .buildUrl();
-        return apiClient.post(url, "{}");
+        return apiClient.callMtop("mtop.idle.pc.idleitem.preget", "{}");
     }
 
-    /**
-     * 获取默认发货地址
-     * API: mtop.taobao.idle.local.poi.get
-     *
-     * @return 默认地址 JSON
-     */
+    /** 获取默认发货地址 — mtop.taobao.idle.local.poi.get */
     public JsonNode getDefaultLocation() {
-        String url = new XianyuMtopRequestBuilder("mtop.taobao.idle.local.poi.get")
-                .setCookie(apiClient.getCookie())
-                .buildUrl();
-        return apiClient.post(url, "{}");
+        return apiClient.callMtop("mtop.taobao.idle.local.poi.get", "{}");
     }
 
-    /**
-     * 获取价格模板/历史定价
-     * API: mtop.taobao.idleprice.template.get
-     *
-     * @return 价格模板 JSON
-     */
+    /** 获取价格模板/历史定价 — mtop.taobao.idleprice.template.get */
     public JsonNode getPriceTemplate() {
-        String url = new XianyuMtopRequestBuilder("mtop.taobao.idleprice.template.get")
-                .setCookie(apiClient.getCookie())
-                .buildUrl();
-        return apiClient.post(url, "{}");
+        return apiClient.callMtop("mtop.taobao.idleprice.template.get", "{}");
     }
 
     // ==================== 草稿管理 ====================
 
-    /**
-     * 保存商品草稿
-     * API: mtop.taobao.idlehome.item.draft.save
-     *
-     * @param title 商品标题
-     * @param description 商品描述
-     * @param price 价格
-     * @param categoryId 分类 ID
-     * @param images 图片 CDN URL 列表（逗号分隔）
-     * @param location 发货地
-     * @param shippingType 发货方式（0=包邮 1=买家承担）
-     * @return 草稿保存结果 JSON
-     */
+    /** 保存商品草稿 — mtop.taobao.idlehome.item.draft.save */
     public JsonNode saveDraft(String title, String description, String price,
                                String categoryId, String images,
                                String location, String shippingType) {
-        String url = new XianyuMtopRequestBuilder("mtop.taobao.idlehome.item.draft.save")
-                .addParam("title", title != null ? title : "")
-                .addParam("description", description != null ? description : "")
-                .addParam("price", price != null ? price : "")
-                .addParam("categoryId", categoryId != null ? categoryId : "")
-                .addParam("images", images != null ? images : "")
-                .addParam("location", location != null ? location : "")
-                .addParam("shippingType", shippingType != null ? shippingType : "0")
-                .setCookie(apiClient.getCookie())
-                .buildUrl();
-        return apiClient.post(url, "{}");
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("title", title != null ? title : "");
+        data.put("description", description != null ? description : "");
+        data.put("price", price != null ? price : "");
+        data.put("categoryId", categoryId != null ? categoryId : "");
+        data.put("images", images != null ? images : "");
+        data.put("location", location != null ? location : "");
+        data.put("shippingType", shippingType != null ? shippingType : "0");
+        return apiClient.callMtop("mtop.taobao.idlehome.item.draft.save", toJson(data));
     }
 
-    /**
-     * 获取我的草稿列表
-     * API: mtop.taobao.idlehome.item.draft.list
-     *
-     * @param page 页码
-     * @param pageSize 每页数量
-     * @return 草稿列表 JSON
-     */
+    /** 获取我的草稿列表 — mtop.taobao.idlehome.item.draft.list */
     public JsonNode getDraftList(String page, String pageSize) {
-        String url = new XianyuMtopRequestBuilder("mtop.taobao.idlehome.item.draft.list")
-                .addParam("page", page != null ? page : "1")
-                .addParam("pageSize", pageSize != null ? pageSize : "20")
-                .setCookie(apiClient.getCookie())
-                .buildUrl();
-        return apiClient.post(url, "{}");
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("page", page != null ? page : "1");
+        data.put("pageSize", pageSize != null ? pageSize : "20");
+        return apiClient.callMtop("mtop.taobao.idlehome.item.draft.list", toJson(data));
     }
 
-    /**
-     * 删除草稿
-     * API: mtop.taobao.idlehome.item.draft.delete
-     *
-     * @param draftId 草稿 ID
-     * @return 删除结果 JSON
-     */
+    /** 删除草稿 — mtop.taobao.idlehome.item.draft.delete */
     public JsonNode deleteDraft(String draftId) {
-        String url = new XianyuMtopRequestBuilder("mtop.taobao.idlehome.item.draft.delete")
-                .addParam("draftId", draftId)
-                .setCookie(apiClient.getCookie())
-                .buildUrl();
-        return apiClient.post(url, "{}");
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("draftId", draftId != null ? draftId : "");
+        return apiClient.callMtop("mtop.taobao.idlehome.item.draft.delete", toJson(data));
     }
 
-    /**
-     * 加载草稿内容
-     * API: mtop.taobao.idlehome.item.draft.get
-     *
-     * @param draftId 草稿 ID
-     * @return 草稿内容 JSON
-     */
+    /** 加载草稿内容 — mtop.taobao.idlehome.item.draft.get */
     public JsonNode loadDraft(String draftId) {
-        String url = new XianyuMtopRequestBuilder("mtop.taobao.idlehome.item.draft.get")
-                .addParam("draftId", draftId)
-                .setCookie(apiClient.getCookie())
-                .buildUrl();
-        return apiClient.post(url, "{}");
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("draftId", draftId != null ? draftId : "");
+        return apiClient.callMtop("mtop.taobao.idlehome.item.draft.get", toJson(data));
     }
 
     // ==================== 智能分类 ====================
 
-    /**
-     * AI 智能识别分类（根据标题和描述）
-     * API: mtop.taobao.idlecategory.ai.recommend
-     *
-     * @param title 商品标题
-     * @param description 商品描述
-     * @return AI 推荐分类列表 JSON
-     */
+    /** AI 智能识别分类 — mtop.taobao.idlecategory.ai.recommend */
     public JsonNode aiRecommendCategory(String title, String description) {
-        String url = new XianyuMtopRequestBuilder("mtop.taobao.idlecategory.ai.recommend")
-                .addParam("title", title != null ? title : "")
-                .addParam("description", description != null ? description : "")
-                .setCookie(apiClient.getCookie())
-                .buildUrl();
-        return apiClient.post(url, "{}");
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("title", title != null ? title : "");
+        data.put("description", description != null ? description : "");
+        return apiClient.callMtop("mtop.taobao.idlecategory.ai.recommend", toJson(data));
     }
 
-    /**
-     * 获取分类树
-     * API: mtop.taobao.idlecategory.tree.get
-     *
-     * @param level 层级（1=一级分类）
-     * @return 分类树 JSON
-     */
+    /** 获取分类树 — mtop.taobao.idlecategory.tree.get */
     public JsonNode getCategoryTree(String level) {
-        String url = new XianyuMtopRequestBuilder("mtop.taobao.idlecategory.tree.get")
-                .addParam("level", level != null ? level : "1")
-                .setCookie(apiClient.getCookie())
-                .buildUrl();
-        return apiClient.post(url, "{}");
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("level", level != null ? level : "1");
+        return apiClient.callMtop("mtop.taobao.idlecategory.tree.get", toJson(data));
     }
 
     // ==================== 价格智能建议 ====================
 
-    /**
-     * 获取同类商品价格建议
-     * API: mtop.taobao.idleprice.suggest
-     *
-     * @param categoryId 分类 ID
-     * @param keyword 关键词
-     * @return 价格建议 JSON（最低价、均价、最高价）
-     */
+    /** 获取同类商品价格建议 — mtop.taobao.idleprice.suggest */
     public JsonNode suggestPrice(String categoryId, String keyword) {
-        String url = new XianyuMtopRequestBuilder("mtop.taobao.idleprice.suggest")
-                .addParam("categoryId", categoryId != null ? categoryId : "")
-                .addParam("keyword", keyword != null ? keyword : "")
-                .setCookie(apiClient.getCookie())
-                .buildUrl();
-        return apiClient.post(url, "{}");
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("categoryId", categoryId != null ? categoryId : "");
+        data.put("keyword", keyword != null ? keyword : "");
+        return apiClient.callMtop("mtop.taobao.idleprice.suggest", toJson(data));
     }
 
     // ==================== 运费模板 ====================
 
-    /**
-     * 获取运费模板列表
-     * API: mtop.taobao.idleshipping.template.list
-     *
-     * @return 运费模板列表 JSON
-     */
+    /** 获取运费模板列表 — mtop.taobao.idleshipping.template.list */
     public JsonNode getShippingTemplates() {
-        String url = new XianyuMtopRequestBuilder("mtop.taobao.idleshipping.template.list")
-                .setCookie(apiClient.getCookie())
-                .buildUrl();
-        return apiClient.post(url, "{}");
+        return apiClient.callMtop("mtop.taobao.idleshipping.template.list", "{}");
     }
 
-    /**
-     * 设置发货方式
-     * API: mtop.taobao.idleshipping.method.set
-     *
-     * @param method 发货方式（0=无需邮寄 1=快递 2=自提）
-     * @return 设置结果 JSON
-     */
+    /** 设置发货方式 — mtop.taobao.idleshipping.method.set */
     public JsonNode setShippingMethod(String method) {
-        String url = new XianyuMtopRequestBuilder("mtop.taobao.idleshipping.method.set")
-                .addParam("method", method != null ? method : "0")
-                .setCookie(apiClient.getCookie())
-                .buildUrl();
-        return apiClient.post(url, "{}");
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("method", method != null ? method : "0");
+        return apiClient.callMtop("mtop.taobao.idleshipping.method.set", toJson(data));
+    }
+
+    private static String toJson(Map<String, ?> map) {
+        try { return MAPPER.writeValueAsString(map); } catch (Exception e) { return "{}"; }
     }
 }

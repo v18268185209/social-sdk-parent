@@ -141,6 +141,17 @@ public class XianyuLoginApiService {
         }
         System.err.println("[SDK] Session found, current status=" + session.status + ", t=" + session.t + ", ck=" + session.ck);
 
+        // 终态短路：SUCCESS / EXPIRED / CANCELLED / ERROR / VERIFICATION_REQUIRED 不再发请求
+        // 避免对已确认的会话重复轮询，被服务端当作非法请求返回 EXPIRED
+        if ("SUCCESS".equals(session.status)
+                || "EXPIRED".equals(session.status)
+                || "CANCELLED".equals(session.status)
+                || "ERROR".equals(session.status)
+                || "VERIFICATION_REQUIRED".equals(session.status)) {
+            System.err.println("[SDK] Terminal status " + session.status + " — skip polling, return cached result");
+            return toPublicResult(session);
+        }
+
         // 检查过期
         if (isExpired(session) && !"SUCCESS".equals(session.status)
                 && !"CANCELLED".equals(session.status) && !"EXPIRED".equals(session.status)) {
@@ -264,37 +275,7 @@ public class XianyuLoginApiService {
      * 用指定 Cookie 验证登录态
      */
     public boolean verifyLoginWithCookie(String cookieHeader) {
-        try {
-            // 调用 MTOP API 获取用户信息来验证
-            String url = "https://h5api.m.goofish.com/h5/mtop.alibaba.xianyu.user.userInfo.get/1.0/";
-            Map<String, String> params = new LinkedHashMap<>();
-            params.put("jsv", "2.7.2");
-            params.put("appKey", APP_KEY);
-            params.put("t", String.valueOf(System.currentTimeMillis()));
-            params.put("v", "1.0");
-            params.put("type", "originaljson");
-            params.put("dataType", "json");
-
-            HttpRequest request = HttpRequest.newBuilder(URI.create(url + "?" + buildQuery(params)))
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .header("Cookie", cookieHeader)
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            JsonNode root = MAPPER.readTree(response.body());
-
-            // 检查返回是否有错误码（mtop.permission.login-error 表示未登录）
-            JsonNode errorCode = root.path("errorCode");
-            if (errorCode.isTextual() && errorCode.asText().contains("login")) {
-                return false;
-            }
-
-            // 如果能拿到用户信息，说明登录成功
-            return root.has("data") && !root.path("data").isNull();
-        } catch (Exception e) {
-            return false;
-        }
+        return checkLoginStatus(cookieHeader).loggedIn;
     }
 
     // ==================== 登录态检测 ====================
@@ -310,6 +291,10 @@ public class XianyuLoginApiService {
 
     /**
      * 检测指定 Cookie 的登录状态
+     *
+     * <p>通过 MTOP 接口 mtop.alibaba.xianyu.user.userInfo.get 验证登录态。
+     * 新版 XianyuMtopApiClient 会自动预热 _m_h5_tk、计算 sign、设置 Referer/Origin，
+     * 不再需要手动拼 URL 和签名。</p>
      */
     public LoginStatusResult checkLoginStatus(String cookieHeader) {
         LoginStatusResult result = new LoginStatusResult();
@@ -321,24 +306,31 @@ public class XianyuLoginApiService {
         }
 
         try {
-            // 方法1：调用用户信息接口
-            String url = "https://h5api.m.goofish.com/h5/mtop.alibaba.xianyu.user.userInfo.get/1.0/";
-            Map<String, String> params = new LinkedHashMap<>();
-            params.put("jsv", "2.7.2");
-            params.put("appKey", APP_KEY);
-            params.put("t", String.valueOf(System.currentTimeMillis()));
-            params.put("v", "1.0");
-            params.put("type", "originaljson");
-            params.put("dataType", "json");
+            XianyuMtopApiClient client = new XianyuMtopApiClient(cookieHeader);
+            JsonNode root = client.callMtop(
+                    "mtop.alibaba.xianyu.user.userInfo.get",
+                    "{}");
 
-            HttpRequest request = HttpRequest.newBuilder(URI.create(url + "?" + buildQuery(params)))
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .header("Cookie", cookieHeader)
-                    .GET()
-                    .build();
+            if (root == null) {
+                result.loggedIn = false;
+                result.message = "Check failed: no response";
+                return result;
+            }
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            JsonNode root = MAPPER.readTree(response.body());
+            // 失败码：ret[0] 含 FAIL_SYS_ILLEGAL_REQUEST / FAIL_SYS_USER_VALIDATE
+            JsonNode ret = root.path("ret");
+            if (ret.isArray() && ret.size() > 0) {
+                String r0 = ret.get(0).asText("");
+                if (r0.contains("FAIL_SYS_ILLEGAL_REQUEST")
+                        || r0.contains("FAIL_SYS_TOKEN_EXOIRED")
+                        || r0.contains("FAIL_BIZ_USER_NOT_LOGIN")
+                        || r0.contains("mtop.permission.login-error")
+                        || r0.contains("FAIL_SYS_USER_VALIDATE")) {
+                    result.loggedIn = false;
+                    result.message = "Not logged in: " + r0;
+                    return result;
+                }
+            }
 
             JsonNode errorCode = root.path("errorCode");
             if (errorCode.isTextual() && errorCode.asText().contains("login")) {
@@ -470,7 +462,21 @@ public class XianyuLoginApiService {
         System.err.println("[SDK] fetchLoginFormData - response body length: " + response.body().length());
         System.err.println("[SDK] fetchLoginFormData - cookies after: " + session.cookies);
 
-        String viewDataJson = extractViewDataJson(response.body());
+        String html = response.body();
+
+        // 从 mini_login.htm 页面提取风控参数（与浏览器 JS 行为一致）
+        session.csrfToken = extractHtmlValue(html, "_csrf_token");
+        session.umidToken = extractHtmlValue(html, "umidToken");
+        session.hsiz = extractHtmlValue(html, "hsiz");
+        session.bizParams = extractHtmlValue(html, "bizParams");
+        if (session.bizParams == null || session.bizParams.isEmpty()) {
+            session.bizParams = "taobaoBizLoginFrom=web";
+        }
+        System.err.println("[SDK] fetchLoginFormData - csrf=" + session.csrfToken
+                + ", umid=" + session.umidToken + ", hsiz=" + session.hsiz
+                + ", bizParams=" + session.bizParams);
+
+        String viewDataJson = extractViewDataJson(html);
         if (viewDataJson == null) {
             throw new RuntimeException("Parse mini_login viewData failed");
         }
@@ -492,28 +498,73 @@ public class XianyuLoginApiService {
             }
         });
         out.put("umidTag", "SERVER");
-        
+
         System.err.println("[SDK] fetchLoginFormData - extracted loginFormData params: " + out);
         return out;
     }
 
-    private void generateQrCode(InternalQrSession session) throws Exception {
-        Map<String, String> allParams = new LinkedHashMap<>(session.params);
-        allParams.put("lang", "zh_cn");
-        allParams.put("appName", "xianyu");
-        allParams.put("appEntrance", "web");
+    /**
+     * 从 HTML 中提取 name="xxx" value="yyy" 或 JS 中 var xxx = "yyy" 形式的值。
+     * 优先匹配隐藏 input，其次匹配 JS 赋值。
+     */
+    private String extractHtmlValue(String html, String name) {
+        if (html == null || name == null) return null;
+        // 匹配 name="xxx" value="yyy"（任意顺序）
+        java.util.regex.Pattern p1 = java.util.regex.Pattern.compile(
+                "name\\s*=\\s*\"" + java.util.regex.Pattern.quote(name) + "\"[^>]*value\\s*=\\s*\"([^\"]*)\"",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
+        java.util.regex.Matcher m1 = p1.matcher(html);
+        if (m1.find()) return m1.group(1);
 
-        String queryString = buildQuery(allParams);
-        System.err.println("[SDK] generateQrCode - URL: " + GENERATE_QR_URL);
-        System.err.println("[SDK] generateQrCode - params: " + queryString);
+        // 匹配 value="yyy" name="xxx"
+        java.util.regex.Pattern p2 = java.util.regex.Pattern.compile(
+                "value\\s*=\\s*\"([^\"]*)\"[^>]*name\\s*=\\s*\"" + java.util.regex.Pattern.quote(name) + "\"",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
+        java.util.regex.Matcher m2 = p2.matcher(html);
+        if (m2.find()) return m2.group(1);
+
+        // 匹配 JS: xxx = "yyy" 或 xxx: "yyy"
+        java.util.regex.Pattern p3 = java.util.regex.Pattern.compile(
+                "[\"'']" + java.util.regex.Pattern.quote(name) + "[\"'']\\s*[:=]\\s*[\"'']([^\"'']*)[\"'']");
+        java.util.regex.Matcher m3 = p3.matcher(html);
+        if (m3.find()) return m3.group(1);
+
+        // 兜底：input name="xxx" ... value='yyy'（单引号）
+        java.util.regex.Pattern p4 = java.util.regex.Pattern.compile(
+                "name\\s*=\\s*['\"]" + java.util.regex.Pattern.quote(name) + "['\"][^>]*value\\s*=\\s*['\"]([^'\"]*)['\"]",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
+        java.util.regex.Matcher m4 = p4.matcher(html);
+        if (m4.find()) return m4.group(1);
+
+        return null;
+    }
+
+    private void generateQrCode(InternalQrSession session) throws Exception {
+        // 与浏览器 CDP 抓包一致的 query 参数
+        Map<String, String> qs = new LinkedHashMap<>();
+        qs.put("appName", "xianyu");
+        qs.put("fromSite", "77");
+        qs.put("appEntrance", "web");
+        if (session.csrfToken != null) qs.put("_csrf_token", session.csrfToken);
+        if (session.umidToken != null) qs.put("umidToken", session.umidToken);
+        if (session.hsiz != null) qs.put("hsiz", session.hsiz);
+        qs.put("bizParams", session.bizParams != null ? session.bizParams : "taobaoBizLoginFrom=web");
+        qs.put("mainPage", "false");
+        qs.put("isMobile", "false");
+        qs.put("lang", "zh_CN");
+        qs.put("returnUrl", "");
+        qs.put("umidTag", "SERVER");
+
+        String url = GENERATE_QR_URL + "?" + buildQuery(qs);
+        System.err.println("[SDK] generateQrCode - URL: " + url);
         System.err.println("[SDK] generateQrCode - cookies: " + session.cookies);
 
-        HttpRequest request = HttpRequest.newBuilder(
-                        URI.create(GENERATE_QR_URL + "?" + queryString))
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .GET()
                 .header("User-Agent", userAgent())
+                .header("Accept", "application/json, text/plain, */*")
                 .header("Origin", PASSPORT_BASE)
-                .header("Referer", PASSPORT_BASE + "/")
+                .header("Referer", MINI_LOGIN_URL + "?appName=xianyu&appEntrance=web&styleType=vertical&bizParams=&notLoadSsoView=false&notKeepLogin=false&isMobile=false&qrCodeFirst=false")
                 .header("Cookie", buildCookieHeader(session.cookies))
                 .build();
 
@@ -557,32 +608,47 @@ public class XianyuLoginApiService {
     }
 
     private void pollQrStatusInternal(InternalQrSession session) throws Exception {
-        // 轮询二维码状态需要 t、ck 和 lgToken 三个关键参数
-        Map<String, String> pollParams = new LinkedHashMap<>();
-        if (session.t != null) pollParams.put("t", session.t);
-        if (session.ck != null) pollParams.put("ck", session.ck);
-        if (session.lgToken != null) pollParams.put("lgToken", session.lgToken);
+        // 与浏览器 CDP 抓包一致的轮询参数
+        // 真实 PostData: t=&ck=&ua=&appName=xianyu&appEntrance=web&_csrf_token=&umidToken=&hsiz=&
+        //               bizParams=taobaoBizLoginFrom=web&mainPage=false&isMobile=false&lang=zh_CN&
+        //               returnUrl=&fromSite=77&umidTag=SERVER&navlanguage=zh-CN&navUserAgent=...
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("t", session.t != null ? session.t : "");
+        body.put("ck", session.ck != null ? session.ck : "");
+        // ua 字段在浏览器中由前端 JS 风控 SDK 生成；服务端允许为空，但不能缺该字段
+        body.put("ua", "");
+        body.put("appName", "xianyu");
+        body.put("appEntrance", "web");
+        body.put("_csrf_token", session.csrfToken != null ? session.csrfToken : "");
+        body.put("umidToken", session.umidToken != null ? session.umidToken : "");
+        body.put("hsiz", session.hsiz != null ? session.hsiz : "");
+        body.put("bizParams", session.bizParams != null ? session.bizParams : "taobaoBizLoginFrom=web");
+        body.put("mainPage", "false");
+        body.put("isMobile", "false");
+        body.put("lang", "zh_CN");
+        body.put("returnUrl", "");
+        body.put("fromSite", "77");
+        body.put("umidTag", "SERVER");
+        body.put("navlanguage", session.navlanguage != null ? session.navlanguage : "zh-CN");
+        body.put("navUserAgent", userAgent());
 
-        String pollQueryString = buildQuery(pollParams);
-        System.err.println("[SDK] pollQrStatusInternal - body params: " + pollQueryString);
-
-        // 关键：轮询 URL 必须带 appName 和 fromSite query 参数（与浏览器行为一致）
         String pollUrl = QUERY_QR_URL + "?appName=xianyu&fromSite=77";
         System.err.println("[SDK] pollQrStatusInternal - URL: " + pollUrl);
+        System.err.println("[SDK] pollQrStatusInternal - body: " + buildQuery(body));
 
         HttpRequest request = HttpRequest.newBuilder(URI.create(pollUrl))
-                .POST(HttpRequest.BodyPublishers.ofString(pollQueryString))
+                .POST(HttpRequest.BodyPublishers.ofString(buildQuery(body)))
                 .header("User-Agent", userAgent())
                 .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("Accept", "application/json, text/plain, */*")
                 .header("Origin", PASSPORT_BASE)
-                .header("Referer", PASSPORT_BASE + "/mini_login.htm")
+                .header("Referer", MINI_LOGIN_URL + "?appName=xianyu&appEntrance=web&styleType=vertical&bizParams=&notLoadSsoView=false&notKeepLogin=false&isMobile=false&qrCodeFirst=false")
                 .header("Cookie", buildCookieHeader(session.cookies))
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         mergeSetCookies(session.cookies, response);
 
-        // 调试：打印完整响应
         System.err.println("[QR POLL] Status=" + response.statusCode() + " Body=" + response.body());
 
         JsonNode root = MAPPER.readTree(response.body());
@@ -591,7 +657,7 @@ public class XianyuLoginApiService {
 
         if (qrStatus == null) {
             session.status = "ERROR";
-            session.message = "Missing qrCodeStatus";
+            session.message = "Missing qrCodeStatus: " + response.body();
             return;
         }
 
@@ -802,6 +868,12 @@ public class XianyuLoginApiService {
         String t;
         String ck;
         String lgToken;
+        // 从 mini_login.htm 页面提取的风控参数
+        String csrfToken;
+        String umidToken;
+        String hsiz;
+        String bizParams;
+        String navlanguage = "zh-CN";
         String message;
         Instant createdAt;
         final Map<String, String> cookies = new LinkedHashMap<>();

@@ -1,24 +1,33 @@
 package cn.net.rjnetwork.xianyu.manager.product.service;
 
+import cn.net.rjnetwork.xianyu.api.XianyuMtopApiClient;
+import cn.net.rjnetwork.xianyu.api.XianyuProductApiService;
+import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
+import cn.net.rjnetwork.xianyu.manager.account.service.AccountService;
 import cn.net.rjnetwork.xianyu.manager.product.dto.ProductCreateRequest;
 import cn.net.rjnetwork.xianyu.manager.product.dto.ProductUpdateRequest;
 import cn.net.rjnetwork.xianyu.manager.product.mapper.ProductMapper;
 import cn.net.rjnetwork.xianyu.manager.product.model.XianyuProduct;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class ProductService {
 
     private final ProductMapper productMapper;
+    private final AccountService accountService;
 
-    public ProductService(ProductMapper productMapper) {
+    public ProductService(ProductMapper productMapper, AccountService accountService) {
         this.productMapper = productMapper;
+        this.accountService = accountService;
     }
 
     public Page<XianyuProduct> listPage(int pageNum, int pageSize, Long accountId, String keyword, String status) {
@@ -130,5 +139,174 @@ public class ProductService {
         wrapper.eq(XianyuProduct::getAccountId, accountId);
         wrapper.orderByDesc(XianyuProduct::getUpdatedAt);
         return productMapper.selectList(wrapper);
+    }
+
+    /**
+     * 从闲鱼同步指定账号的商品到本地。
+     * 拉首页（20 条），按 accountId + itemId 做 upsert，不删除本地已有记录。
+     *
+     * @return 同步结果统计 {synced, inserted, updated}
+     */
+    @Transactional
+    public SyncResult syncFromXianyu(Long accountId) {
+        if (accountId == null) {
+            throw new IllegalArgumentException("accountId is required");
+        }
+        XianyuAccount account = accountService.getById(accountId);
+        if (account == null) {
+            throw new IllegalArgumentException("Account not found: " + accountId);
+        }
+        if (account.getCookieHeader() == null || account.getCookieHeader().isBlank()) {
+            throw new IllegalStateException("Account has no cookie, please re-login: " + accountId);
+        }
+
+        // 构造 SDK：先 MtopApiClient（带 cookie），再 ProductApiService
+        XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(account.getCookieHeader());
+        XianyuProductApiService productApi = new XianyuProductApiService(mtopClient);
+
+        JsonNode resp = productApi.getMyProducts("1", "20");
+
+        // 闲鱼 MTOP 返回结构：data.mygoodsList 或 data.list 为商品数组，兼容多种字段名
+        JsonNode listNode = resolveProductList(resp);
+
+        int inserted = 0;
+        int updated = 0;
+        if (listNode != null && listNode.isArray()) {
+            for (JsonNode item : listNode) {
+                String itemId = pickString(item, "id", "itemId", "item_id");
+                if (itemId == null || itemId.isBlank()) continue;
+
+                // upsert：按 accountId + itemId 查
+                LambdaQueryWrapper<XianyuProduct> qw = new LambdaQueryWrapper<>();
+                qw.eq(XianyuProduct::getAccountId, accountId)
+                        .eq(XianyuProduct::getItemId, itemId);
+                XianyuProduct existing = productMapper.selectOne(qw);
+
+                XianyuProduct p = existing != null ? existing : new XianyuProduct();
+                if (existing == null) {
+                    p.setAccountId(accountId);
+                    p.setItemId(itemId);
+                    p.setCreatedAt(LocalDateTime.now());
+                    p.setViewCount(0);
+                    p.setFavoriteCount(0);
+                }
+                p.setTitle(pickString(item, "title", "name", "itemTitle"));
+                BigDecimal price = pickBigDecimal(item, "price", "soldPrice", "itemPrice");
+                if (price != null) p.setPrice(price);
+                BigDecimal orig = pickBigDecimal(item, "originalPrice", "oriPrice", "marketPrice");
+                if (orig != null) p.setOriginalPrice(orig);
+                Integer stock = pickInt(item, "stock", "quantity", "remainQuantity");
+                if (stock != null) p.setStock(stock);
+                String status = mapStatus(pickString(item, "status", "soldStatus", "itemStatus"));
+                if (status != null) p.setStatus(status);
+                String images = pickImages(item);
+                if (images != null) p.setImages(images);
+                String desc = pickString(item, "desc", "description", "detail");
+                if (desc != null) p.setDescription(desc);
+                String detailUrl = pickString(item, "detailUrl", "url", "itemUrl");
+                if (detailUrl != null) p.setDetailUrl(detailUrl);
+                Integer view = pickInt(item, "viewCount", "pv", "views");
+                if (view != null) p.setViewCount(view);
+                Integer fav = pickInt(item, "favoriteCount", "wishCount", "collectCount");
+                if (fav != null) p.setFavoriteCount(fav);
+                p.setUpdatedAt(LocalDateTime.now());
+
+                if (existing == null) {
+                    productMapper.insert(p);
+                    inserted++;
+                } else {
+                    productMapper.updateById(p);
+                    updated++;
+                }
+            }
+        }
+        return new SyncResult(inserted + updated, inserted, updated);
+    }
+
+    /** 闲鱼返回结构多变，按优先级探若干路径名 */
+    private JsonNode resolveProductList(JsonNode resp) {
+        if (resp == null) return null;
+        // resp 本身可能就是 data 节点，也可能要进 data
+        JsonNode data = resp.has("data") ? resp.get("data") : resp;
+        String[] candidates = {"mygoodsList", "list", "items", "itemList", "result"};
+        for (String key : candidates) {
+            JsonNode n = data != null ? data.get(key) : null;
+            if (n != null && n.isArray()) return n;
+        }
+        // 顶层也试一次
+        for (String key : candidates) {
+            JsonNode n = resp.get(key);
+            if (n != null && n.isArray()) return n;
+        }
+        return null;
+    }
+
+    private String pickString(JsonNode node, String... keys) {
+        if (node == null) return null;
+        for (String k : keys) {
+            JsonNode n = node.get(k);
+            if (n != null && !n.isNull() && !n.asText("").isBlank()) return n.asText();
+        }
+        return null;
+    }
+
+    private BigDecimal pickBigDecimal(JsonNode node, String... keys) {
+        String s = pickString(node, keys);
+        if (s == null) return null;
+        try { return new BigDecimal(s); } catch (NumberFormatException e) { return null; }
+    }
+
+    private Integer pickInt(JsonNode node, String... keys) {
+        String s = pickString(node, keys);
+        if (s == null) return null;
+        try { return Integer.parseInt(s); } catch (NumberFormatException e) { return null; }
+    }
+
+    /** 闲鱼图片字段可能是单 url、数组、或对象内 url，统一规整为 JSON 数组字符串 */
+    private String pickImages(JsonNode item) {
+        String[] keys = {"picUrl", "image", "imageUrl", "mainPic", "pictures"};
+        for (String k : keys) {
+            JsonNode n = item.get(k);
+            if (n == null || n.isNull()) continue;
+            if (n.isTextual()) return "[\"" + n.asText().replace("\"", "\\\"") + "\"]";
+            if (n.isArray() && n.size() > 0) {
+                List<String> urls = new ArrayList<>();
+                for (JsonNode img : n) {
+                    if (img.isTextual()) urls.add(img.asText());
+                    else if (img.has("url")) urls.add(img.get("url").asText());
+                }
+                if (!urls.isEmpty()) {
+                    StringBuilder sb = new StringBuilder("[");
+                    for (int i = 0; i < urls.size(); i++) {
+                        if (i > 0) sb.append(",");
+                        sb.append("\"").append(urls.get(i).replace("\"", "\\\"")).append("\"");
+                    }
+                    return sb.append("]").toString();
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 闲鱼商品状态映射到本地枚举 */
+    private String mapStatus(String raw) {
+        if (raw == null) return null;
+        String s = raw.toLowerCase();
+        if (s.contains("onsale") || s.contains("on_sale") || s.contains("selling")) return "ON_SALE";
+        if (s.contains("offsale") || s.contains("off_sale") || s.contains("soldout") || s.contains("off")) return "OFF_SALE";
+        if (s.contains("draft") || s.contains("wait")) return "DRAFT";
+        return "ON_SALE"; // 默认按在售处理
+    }
+
+    /** 同步结果统计 */
+    public static class SyncResult {
+        public final int synced;
+        public final int inserted;
+        public final int updated;
+        public SyncResult(int synced, int inserted, int updated) {
+            this.synced = synced;
+            this.inserted = inserted;
+            this.updated = updated;
+        }
     }
 }
