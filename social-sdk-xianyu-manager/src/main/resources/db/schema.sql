@@ -1,4 +1,4 @@
--- 闲鱼多账号管理平台 - SQLite 数据库初始化脚本
+-- 闲鱼多账号管理平台 -- SQLite 数据库初始化脚本
 
 -- 管理员用户表
 CREATE TABLE IF NOT EXISTS admin_user (
@@ -528,10 +528,10 @@ CREATE INDEX IF NOT EXISTS idx_ai_cs_daily_stats_account ON ai_cs_daily_stats(ac
 CREATE TABLE IF NOT EXISTS ai_ops_task (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER NOT NULL,
-    task_type VARCHAR(32) NOT NULL,              - BATCH_CREATE / MULTI_ACCOUNT_SYNC / AUTO_REFRESH
-    status VARCHAR(16) DEFAULT 'PENDING',         - PENDING / RUNNING / COMPLETED / FAILED
-    payload TEXT,                                 - JSON 任务参数
-    result_summary TEXT,                          - AI 生成摘要
+    task_type VARCHAR(32) NOT NULL,              -- BATCH_CREATE / MULTI_ACCOUNT_SYNC / AUTO_REFRESH
+    status VARCHAR(16) DEFAULT 'PENDING',         -- PENDING / RUNNING / COMPLETED / FAILED
+    payload TEXT,                                 -- JSON 任务参数
+    result_summary TEXT,                          -- AI 生成摘要
     error_message TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME,
@@ -543,11 +543,11 @@ CREATE TABLE IF NOT EXISTS ai_ops_task (
 CREATE TABLE IF NOT EXISTS ai_ops_suggestion (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER NOT NULL,
-    suggestion_type VARCHAR(32),                  - PRICE_ADJUST / REFRESH_TIME / LISTING_OPTIMIZE
+    suggestion_type VARCHAR(32),                  -- PRICE_ADJUST / REFRESH_TIME / LISTING_OPTIMIZE
     product_id INTEGER,
-    suggestion_content TEXT,                      - JSON AI 建议详情
+    suggestion_content TEXT,                      -- JSON AI 建议详情
     confidence REAL,
-    adopted BOOLEAN,                              - 运营是否采纳
+    adopted BOOLEAN,                              -- 运营是否采纳
     adopted_at DATETIME,
     expected_impact TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -559,10 +559,10 @@ CREATE TABLE IF NOT EXISTS ai_ops_suggestion (
 -- 运营知识库
 CREATE TABLE IF NOT EXISTS ai_ops_knowledge (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category VARCHAR(64),                         - 商品品类
-    knowledge_type VARCHAR(32),                   - PRICING / DESCRIPTION_STYLE / POSTING_TIME / KEYWORD
+    category VARCHAR(64),                         -- 商品品类
+    knowledge_type VARCHAR(32),                   -- PRICING / DESCRIPTION_STYLE / POSTING_TIME / KEYWORD
     content TEXT,
-    source VARCHAR(32),                           - AI_GENERATED / MANUAL / PLATFORM_RULE
+    source VARCHAR(32),                           -- AI_GENERATED / MANUAL / PLATFORM_RULE
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted INTEGER DEFAULT 0
 );
@@ -576,7 +576,7 @@ CREATE INDEX IF NOT EXISTS idx_ai_ops_suggestion_account ON ai_ops_suggestion(ac
 CREATE TABLE IF NOT EXISTS cloud_storage_account (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER NOT NULL,
-    provider VARCHAR(32) NOT NULL,                - BAIDU_NETDISK / QUARK_NETDISK / ALIYUN_DRIVE
+    provider VARCHAR(32) NOT NULL,                -- BAIDU_NETDISK / QUARK_NETDISK / ALIYUN_DRIVE
     access_token VARCHAR(512),
     refresh_token VARCHAR(512),
     token_expires_at DATETIME,
@@ -602,7 +602,7 @@ CREATE TABLE IF NOT EXISTS cloud_storage_file (
     share_link VARCHAR(1024),                    -- 分享链接
     extract_code VARCHAR(16),                     -- 提取码
     share_expires_at DATETIME,                    -- 分享过期时间
-    upload_status VARCHAR(32),                   - PENDING / UPLOADING / COMPLETED / FAILED
+    upload_status VARCHAR(32),                   -- PENDING / UPLOADING / COMPLETED / FAILED
     remote_file_id VARCHAR(128),                 -- 网盘侧 file_id
     extra_meta TEXT,                             -- JSON 扩展
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
