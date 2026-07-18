@@ -39,74 +39,84 @@ public class XianyuProductEditApiService {
         return apiClient.callMtop("mtop.taobao.idlehome.item.edit", toJson(data));
     }
 
-    /** 编辑商品详情图 — mtop.taobao.idlehome.item.detail.edit */
+    /**
+     * 编辑商品详情图 — 命名规律候选 mtop.taobao.idlemanage.item.detail.edit
+     * <p>未真抓验证（闲鱼 PC/H5 详情页未暴露编辑按钮入口，走内部 SPA 域）。
+     * 已真验同域接口：com.taobao.idle.item.delete v1.1（删除），
+     * 推测编辑类走 mtop.taobao.idlemanage.* 域，待后续真抓微调。</p>
+     */
     public JsonNode editProductDetails(String itemId, String images) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("itemId", itemId != null ? itemId : "");
         data.put("images", images != null ? images : "");
-        return apiClient.callMtop("mtop.taobao.idlehome.item.detail.edit", toJson(data));
+        return apiClient.callMtop("mtop.taobao.idlemanage.item.detail.edit", toJson(data));
     }
 
     // ==================== 完整上下架 ====================
 
-    /** 商品上架 — mtop.taobao.idlehome.item.status.update */
+    /**
+     * 商品上架 — 命名规律候选 mtop.taobao.idlemanage.item.upshelf
+     * <p>未真抓验证。已真验下架走 mtop.taobao.idle.item.downshelf v2.0（不是 idlemanage 域），
+     * 上架是下架的姊妹接口，命名规律候选 upshelf，待后续真抓微调。</p>
+     */
     public JsonNode shelfOn(String itemId) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("itemId", itemId != null ? itemId : "");
-        data.put("status", "onsale");
-        return apiClient.callMtop("mtop.taobao.idlehome.item.status.update", toJson(data));
+        // 上架是下架的姊妹接口，按真实下架接口同域命名：mtop.taobao.idle.item.upshelf v2.0
+        return apiClient.callMtop("mtop.taobao.idle.item.upshelf", "2.0", toJson(data));
     }
 
-    /** 商品下架 — mtop.taobao.idlehome.item.status.update */
+    /**
+     * 商品下架 — 真实接口 mtop.taobao.idle.item.downshelf v2.0
+     * <p>真实抓包验证（2026-07-19 CDP 抓详情页「下架」按钮 React onClick handler 源代码）。
+     * 与 XianyuProductApiService.updateProductStatus(offsale) 同接口，保留这个方法为兼容旧 facade 调用。</p>
+     */
     public JsonNode shelfOff(String itemId) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("itemId", itemId != null ? itemId : "");
-        data.put("status", "offshelf");
-        return apiClient.callMtop("mtop.taobao.idlehome.item.status.update", toJson(data));
+        return apiClient.callMtop("mtop.taobao.idle.item.downshelf", "2.0", toJson(data));
     }
 
-    /** 批量上架商品 — mtop.taobao.idlehome.item.batch.status.update */
+    /** 批量上架商品 — 命名规律候选 mtop.taobao.idle.item.batch.upshelf v2.0（未真抓） */
     public JsonNode batchShelfOn(String itemIds) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("itemIds", itemIds != null ? itemIds : "");
-        data.put("status", "onsale");
-        return apiClient.callMtop("mtop.taobao.idlehome.item.batch.status.update", toJson(data));
+        return apiClient.callMtop("mtop.taobao.idle.item.batch.upshelf", "2.0", toJson(data));
     }
 
-    /** 批量下架商品 — mtop.taobao.idlehome.item.batch.status.update */
+    /** 批量下架商品 — 命名规律候选 mtop.taobao.idle.item.batch.downshelf v2.0（未真抓） */
     public JsonNode batchShelfOff(String itemIds) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("itemIds", itemIds != null ? itemIds : "");
-        data.put("status", "offshelf");
-        return apiClient.callMtop("mtop.taobao.idlehome.item.batch.status.update", toJson(data));
+        return apiClient.callMtop("mtop.taobao.idle.item.batch.downshelf", "2.0", toJson(data));
     }
 
     // ==================== 价格调整 ====================
 
-    /** 调整商品价格 — mtop.taobao.idlehome.item.price.update */
+    /** 调整商品价格 — 命名规律候选 mtop.taobao.idlemanage.item.price.update（未真抓） */
     public JsonNode updatePrice(String itemId, String price) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("itemId", itemId != null ? itemId : "");
         data.put("price", price != null ? price : "");
-        return apiClient.callMtop("mtop.taobao.idlehome.item.price.update", toJson(data));
+        return apiClient.callMtop("mtop.taobao.idlemanage.item.price.update", toJson(data));
     }
 
-    /** 调整商品原价 — mtop.taobao.idlehome.item.originalprice.update */
+    /** 调整商品原价 — 命名规律候选 mtop.taobao.idlemanage.item.originalprice.update（未真抓） */
     public JsonNode updateOriginalPrice(String itemId, String originalPrice) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("itemId", itemId != null ? itemId : "");
         data.put("originalPrice", originalPrice != null ? originalPrice : "");
-        return apiClient.callMtop("mtop.taobao.idlehome.item.originalprice.update", toJson(data));
+        return apiClient.callMtop("mtop.taobao.idlemanage.item.originalprice.update", toJson(data));
     }
 
     // ==================== 库存管理 ====================
 
-    /** 调整商品库存 — mtop.taobao.idlehome.item.stock.update */
+    /** 调整商品库存 — 命名规律候选 mtop.taobao.idlemanage.item.stock.update（未真抓） */
     public JsonNode updateStock(String itemId, String stock) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("itemId", itemId != null ? itemId : "");
         data.put("stock", stock != null ? stock : "");
-        return apiClient.callMtop("mtop.taobao.idlehome.item.stock.update", toJson(data));
+        return apiClient.callMtop("mtop.taobao.idlemanage.item.stock.update", toJson(data));
     }
 
     // ==================== 商品分类 ====================
@@ -128,11 +138,18 @@ public class XianyuProductEditApiService {
 
     // ==================== 商品删除 ====================
 
-    /** 删除商品 — mtop.taobao.idlehome.item.delete */
+    /**
+     * 删除商品 — 真实接口 com.taobao.idle.item.delete v1.1
+     * <p>真实抓包验证（2026-07-19 CDP 抓详情页「删除」按钮 React onClick handler 源代码）：</p>
+     * <ul>
+     *   <li>源代码片段：ev.G({api:"com.taobao.idle.item.delete", v:"1.1", data:{itemId}}).then(()=>toast("删除成功"))</li>
+     *   <li>注意是 com.taobao.idle.* 域（不是 mtop.taobao.idlehome.*），版本 v1.1</li>
+     * </ul>
+     */
     public JsonNode deleteProduct(String itemId) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("itemId", itemId != null ? itemId : "");
-        return apiClient.callMtop("mtop.taobao.idlehome.item.delete", toJson(data));
+        return apiClient.callMtop("com.taobao.idle.item.delete", "1.1", toJson(data));
     }
 
     /** 批量删除商品 — mtop.taobao.idlehome.item.batch.delete */

@@ -11,13 +11,18 @@ import cn.net.rjnetwork.xianyu.manager.product.model.XianyuProduct;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class ProductService {
@@ -25,9 +30,43 @@ public class ProductService {
     private final ProductMapper productMapper;
     private final AccountService accountService;
 
+    @Value("${file.upload-dir:./data/uploads}")
+    private String uploadDir;
+
+    @Value("${file.upload-url-prefix:/uploads}")
+    private String uploadUrlPrefix;
+
     public ProductService(ProductMapper productMapper, AccountService accountService) {
         this.productMapper = productMapper;
         this.accountService = accountService;
+    }
+
+    /**
+     * 落盘上传文件并返回可访问 URL。
+     * 真实场景可替换为 OSS / 网盘直传，当前实现为本地落盘 + 静态资源映射。
+     */
+    public String storeFile(MultipartFile file) throws Exception {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("file is empty");
+        }
+        String original = file.getOriginalFilename() != null ? file.getOriginalFilename() : "file";
+        String ext = "";
+        int dot = original.lastIndexOf('.');
+        if (dot >= 0) ext = original.substring(dot).toLowerCase();
+        List<String> imgExts = List.of(".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp");
+        List<String> videoExts = List.of(".mp4", ".mov", ".avi", ".mkv", ".webm");
+        if (!imgExts.contains(ext) && !videoExts.contains(ext)) {
+            throw new IllegalArgumentException("unsupported file type: " + ext);
+        }
+
+        File dir = new File(uploadDir);
+        if (!dir.exists()) dir.mkdirs();
+        String storedName = UUID.randomUUID().toString().replace("-", "") + ext;
+        File target = new File(dir, storedName);
+        try (FileOutputStream fos = new FileOutputStream(target)) {
+            fos.write(file.getBytes());
+        }
+        return uploadUrlPrefix + "/" + storedName;
     }
 
     public Page<XianyuProduct> listPage(int pageNum, int pageSize, Long accountId, String keyword, String status) {

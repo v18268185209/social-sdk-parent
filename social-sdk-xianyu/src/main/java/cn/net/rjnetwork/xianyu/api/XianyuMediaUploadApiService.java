@@ -48,6 +48,13 @@ public class XianyuMediaUploadApiService {
 
     /**
      * 通过 MTOP 接口上传图片到闲鱼 CDN
+     * <p><b>未真抓验证</b>（闲鱼媒体上传走阿里云 oss multipart 域，不是 mtop base64）。
+     * 真实流程推测：①拿 oss 上传签名授权（mtop 拿 token）→ ②POST 到阿里云 oss 域 multipart 上传 →
+     * ③回调 mtop 通知上传完成。闲鱼 App WebView 域抓不到真实接口名，
+     * 四轮 SDK 探测共 85 个候选域全部 FAIL_SYS_API_NOT_FOUNDED。</p>
+     *
+     * <p>当前实现是 base64 body 候选探测（不可能真上传成功，因为闲鱼不接受 base64 inline body），
+     * 仅保留为 SDK 能力占位，真实上传需后续闲鱼 App WebView 真抓 oss multipart 流程后重写。</p>
      */
     public UploadResult uploadViaMtop(Path imagePath) {
         try {
@@ -56,19 +63,19 @@ public class XianyuMediaUploadApiService {
             String fileName = imagePath.getFileName().toString();
             String mimeType = detectMimeType(fileName);
 
-            // 依次尝试多个已知上传接口
-            UploadResult result = uploadViaApi("mtop.idle.pc.idleitem.media.upload", base64Image, fileName, mimeType);
+            // 候选上传接口名（命名规律候选，均未真验通过）
+            UploadResult result = uploadViaApi("mtop.idle.web.media.upload", base64Image, fileName, mimeType);
             if (result != null && result.success) return result;
 
-            result = uploadViaApi("mtop.idle.media.upload", base64Image, fileName, mimeType);
+            result = uploadViaApi("mtop.idle.web.publish.media.upload", base64Image, fileName, mimeType);
             if (result != null && result.success) return result;
 
-            result = uploadViaApi("mtop.idle.web.media.upload", base64Image, fileName, mimeType);
+            result = uploadViaApi("mtop.taobao.idle.media.upload", base64Image, fileName, mimeType);
             if (result != null && result.success) return result;
 
             UploadResult fail = new UploadResult();
             fail.success = false;
-            fail.message = "所有图片上传接口均失败，请通过 CDP 重新分析捕获实际接口";
+            fail.message = "图片上传接口均未真验通过（闲鱼走 oss multipart 域，待闲鱼 App WebView 真抓 oss 流程后重写）";
             return fail;
         } catch (Exception e) {
             UploadResult r = new UploadResult();

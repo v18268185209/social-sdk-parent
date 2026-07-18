@@ -7,6 +7,9 @@ import cn.net.rjnetwork.xianyu.manager.product.model.XianyuProduct;
 import cn.net.rjnetwork.xianyu.manager.product.service.ProductService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/products")
@@ -33,6 +36,22 @@ public class ProductController {
         XianyuProduct product = productService.getById(id);
         if (product == null) return ApiResponse.fail("NOT_FOUND", "Product not found");
         return ApiResponse.ok(product);
+    }
+
+    /**
+     * 上传图片/视频文件到本地存储，返回可访问 URL。
+     * 真实场景可替换为 OSS / 网盘直传，当前落盘到 data/uploads/ 对外开放 /uploads/**
+     */
+    @PostMapping("/upload")
+    public ApiResponse<Map<String, String>> upload(@RequestParam MultipartFile file) {
+        try {
+            String url = productService.storeFile(file);
+            return ApiResponse.ok(Map.of("url", url));
+        } catch (IllegalArgumentException e) {
+            return ApiResponse.fail("BAD_REQUEST", e.getMessage());
+        } catch (Exception e) {
+            return ApiResponse.fail("UPLOAD_FAILED", e.getMessage());
+        }
     }
 
     @PostMapping

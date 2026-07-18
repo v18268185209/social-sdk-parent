@@ -4,10 +4,14 @@ server:
 spring:
   application:
     name: xianyu-manager
+  web:
+    resources:
+      static-locations: classpath:/static/,file:./data/uploads/
   mvc:
     # 让未匹配的导航请求抛出 NoHandlerFoundException，交给 SpaFallbackAdvice 转发到 index.html
     # （已存在的静态资源仍由 ResourceHttpRequestHandler 正常返回，不受影响）
     throw-exception-if-no-handler-found: true
+    static-path-pattern: /**
   datasource:
     url: jdbc:sqlite:./data/xianyu-manager.db
     driver-class-name: org.sqlite.JDBC
@@ -39,7 +43,7 @@ mybatis-plus:
       logic-not-delete-value: 0
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
 
 # JWT Configuration
 jwt:

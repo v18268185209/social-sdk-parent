@@ -62,9 +62,11 @@ public class XianyuOrderApiService {
     }
 
     /**
-     * 获取订单详情 — 推测接口 mtop.idle.web.trade.order.detail
-     * <p>订单详情页 SPA 路由为 fleamarket://order_detail?id={orderId}，
-     * PC 端真实接口名未直接抓到，用 close-trade 命名规律的候选。</p>
+     * 获取订单详情 — 真实接口 mtop.idle.web.trade.order.detail v1.0
+     * <p>真实 SDK 探测验证（2026-07-19）：dummy orderId 触发 FAIL_BIZ_COMMON_SYSTEM_ERROR2 业务错误
+     * （而非 FAIL_SYS_API_NOT_FOUNDED），证明接口名真实存在，业务校验在风控侧。</p>
+     * <p>同域已真验：mtop.idle.web.trade.sold.list / mtop.idle.web.trade.bought.list（订单列表），
+     * 详情走 mtop.idle.web.trade.order.detail，命名规律对齐。</p>
      */
     public JsonNode getOrderDetail(String orderId) {
         Map<String, Object> data = new LinkedHashMap<>();
@@ -73,14 +75,16 @@ public class XianyuOrderApiService {
     }
 
     /**
-     * 自动发货 — 推测接口 mtop.idle.web.trade.delivery.send
-     * <p>真实接口名未直接抓到，按闲鱼命名规律候选。</p>
+     * 发货 — 命名规律候选 mtop.idle.web.trade.order.delivery
+     * <p>未真抓验证。已真验同域接口 mtop.idle.web.trade.order.detail（详情），
+     * 推测发货走同域 order.delivery，闲鱼 App WebView 域穷举全部 API_NOT_EXIST，
+     * 待后续真抓微调。</p>
      */
     public JsonNode delivery(String orderId, String trackingNo) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("orderId", orderId != null ? orderId : "");
         data.put("trackingNo", trackingNo != null ? trackingNo : "");
-        return apiClient.callMtop("mtop.idle.web.trade.delivery.send", toJson(data));
+        return apiClient.callMtop("mtop.idle.web.trade.order.delivery", toJson(data));
     }
 
     private static String toJson(Map<String, ?> map) {

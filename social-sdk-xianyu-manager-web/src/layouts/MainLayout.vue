@@ -41,6 +41,22 @@
           <el-icon><Star /></el-icon>
           <span>收藏关注</span>
         </el-menu-item>
+        <el-menu-item index="/ai">
+          <el-icon><Cpu /></el-icon>
+          <span>AI 厂商</span>
+        </el-menu-item>
+        <el-menu-item index="/ai-ops">
+          <el-icon><Promotion /></el-icon>
+          <span>AI 运营</span>
+        </el-menu-item>
+        <el-menu-item index="/virtual-ship">
+          <el-icon><Van /></el-icon>
+          <span>虚拟发货</span>
+        </el-menu-item>
+        <el-menu-item index="/cloud-storage">
+          <el-icon><UploadFilled /></el-icon>
+          <span>网盘存储</span>
+        </el-menu-item>
         <el-menu-item index="/monitor">
           <el-icon><Monitor /></el-icon>
           <span>监控面板</span>
@@ -147,6 +163,7 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { DataAnalysis, User, Goods, ChatDotRound, List, Operation, Money, Star, Cpu, Promotion, Van, UploadFilled, Monitor, Document, Bell, UserFilled, ArrowDown } from '@element-plus/icons-vue'
 import * as notify from '@/api/notification'
 
 const route = useRoute()
@@ -162,6 +179,10 @@ const titleMap = {
   '/rules': '规则管理',
   '/wallet': '钱包资产',
   '/collect': '收藏关注',
+  '/ai': 'AI 厂商',
+  '/ai-ops': 'AI 运营',
+  '/virtual-ship': '虚拟发货',
+  '/cloud-storage': '网盘存储',
   '/monitor': '监控面板',
   '/audit': '审计日志',
   '/notify': '消息通知'

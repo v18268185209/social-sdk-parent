@@ -17,7 +17,7 @@
         </el-form-item>
         <el-form-item label="AI 模型">
           <el-select v-model="batchForm.modelId" placeholder="选择 AI 模型（可选）" clearable style="width: 250px;">
-            <el-option v-for="m in aiModels" :key="m.id" :label="`${m.modelName} (${m.providerName})`" :value="m.id" />
+            <el-option v-for="m in aiModels" :key="m.id" :label="`${m.displayName} (${m.modelName})`" :value="m.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="商品种子">
@@ -155,14 +155,14 @@ const taskAlertType = s => ({ COMPLETED: 'success', RUNNING: 'warning', FAILED: 
 const loadAccounts = async () => {
   try {
     const res = await api.get('/accounts')
-    accounts.value = (res.data || []).filter(a => a.status === 'ACTIVE')
+    accounts.value = res.data?.records?.filter(a => a.status === 'ACTIVE') || []
   } catch {}
 }
 
 const loadAiModels = async () => {
   try {
-    const res = await api.get('/ai/models', { params: { active: true } })
-    aiModels.value = res.data || []
+    const res = await api.get('/ai/models', { params: { size: 100 } })
+    aiModels.value = (res.data?.records || []).filter(m => m.enabled !== false)
   } catch {}
 }
 

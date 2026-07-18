@@ -33,6 +33,7 @@ public class AiCsPolicy extends BaseEntity {
     private Integer maxAutoRepliesPerHour;
 
     /** 转人工意图 JSON: ["售后", "投诉"] */
+    @com.baomidou.mybatisplus.annotation.TableField("transfer_to_human_intents")
     private String transferToIntents;
 
     /** FRIENDLY / PROFESSIONAL / CASUAL / HUMOROUS */

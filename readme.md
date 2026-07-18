@@ -166,6 +166,18 @@ social-sdk-parent/                      # 父 POM
 - 多模型管理（TEXT / IMAGE / VIDEO）
 - 能力标签（streaming / tools / thinking / image_input）
 
+### 15. 🌐 开放平台 OpenAPI
+- 完整 API 鉴权机制（appKey + appSecret → Bearer 令牌，2h 有效期）
+- 账号维度白名单限流（按应用粒度，每分钟可配限额）
+- 统一响应信封（`code/message/data/timestamp`）
+- 标准错误码（`OPEN_` 前缀，区分业务与系统错误）
+- 内置 Swagger UI（`/openapi/v1/docs`）
+- 已开放账号域接口，商品 / 消息 / 订单 / 钱包 / AI / 通知域持续对接中
+
+> 📖 **完整接口文档**：[docs/openapi.md](./docs/openapi.md)  
+> 🔗 **Swagger UI**：`http://localhost:8080/openapi/v1/docs`  
+> 📋 **OpenAPI JSON**：`http://localhost:8080/openapi/v1/openapi.json`
+
 ---
 
 ## 🚀 快速开始

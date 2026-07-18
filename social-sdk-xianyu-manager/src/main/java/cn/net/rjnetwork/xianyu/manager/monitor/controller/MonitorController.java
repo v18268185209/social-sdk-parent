@@ -21,6 +21,11 @@ public class MonitorController {
         return ApiResponse.ok(monitorService.getDashboardStats());
     }
 
+    @GetMapping("/accounts")
+    public ApiResponse<java.util.List<java.util.Map<String, Object>>> accounts() {
+        return ApiResponse.ok(monitorService.getAccountStats());
+    }
+
     @PostMapping("/cache/clear")
     public ApiResponse<Void> clearCache() {
         monitorService.invalidateCache();

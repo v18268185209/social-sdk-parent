@@ -134,6 +134,54 @@ public class MonitorService {
     }
 
     /**
+     * 各账号运营指标（独立接口，供 monitor/accounts 调用）
+     */
+    public List<Map<String, Object>> getAccountStats() {
+        List<XianyuAccount> allAccounts = accountMapper.selectList(null);
+        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+
+        List<Map<String, Object>> accountRows = new ArrayList<>();
+        for (XianyuAccount acc : allAccounts) {
+            Long accountId = acc.getId();
+
+            List<XianyuProduct> products = productMapper.selectList(
+                    new LambdaQueryWrapper<XianyuProduct>().eq(XianyuProduct::getAccountId, accountId)
+            );
+            int productCount = products.size();
+            int onSale = (int) products.stream().filter(p -> "ON_SALE".equals(p.getStatus())).count();
+            int offSale = (int) products.stream().filter(p -> "OFF_SALE".equals(p.getStatus())).count();
+            int draft = (int) products.stream().filter(p -> "DRAFT".equals(p.getStatus())).count();
+            int views = products.stream().mapToInt(p -> p.getViewCount() != null ? p.getViewCount() : 0).sum();
+            int favorites = products.stream().mapToInt(p -> p.getFavoriteCount() != null ? p.getFavoriteCount() : 0).sum();
+
+            int replies = (int) messageMapper.selectList(
+                    new LambdaQueryWrapper<XianyuMessage>()
+                            .eq(XianyuMessage::getAccountId, accountId)
+                            .eq(XianyuMessage::getDirection, "OUTGOING")
+                            .ge(XianyuMessage::getMessageTime, todayStart)
+            ).size();
+
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("accountId", accountId);
+            row.put("accountName", acc.getAccountName());
+            row.put("displayName", acc.getDisplayName());
+            row.put("avatar", acc.getAvatar());
+            row.put("status", acc.getStatus());
+            row.put("isOnline", "ACTIVE".equals(acc.getStatus()));
+            row.put("cookieExpiresAt", acc.getCookieExpiresAt());
+            row.put("productCount", productCount);
+            row.put("onSaleCount", onSale);
+            row.put("offSaleCount", offSale);
+            row.put("draftCount", draft);
+            row.put("viewCount", views);
+            row.put("favoriteCount", favorites);
+            row.put("todayReplies", replies);
+            accountRows.add(row);
+        }
+        return accountRows;
+    }
+
+    /**
      * 构建近 N 天订单趋势，用于折线图
      */
     private List<Map<String, Object>> buildOrderTrend(List<XianyuAccount> allAccounts) {

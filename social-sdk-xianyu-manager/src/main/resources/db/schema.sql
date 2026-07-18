@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS xianyu_product (
     deliver_type VARCHAR(16), -- CARD / ACCOUNT / LINK / FILE (虚拟商品用)
     deliver_content_template TEXT, -- 发货内容模板(虚拟商品用)
     detail_url VARCHAR(512),
+    image_url VARCHAR(512), -- 主图 URL（商品列表返回的首图）
     view_count INTEGER DEFAULT 0,
     favorite_count INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -132,6 +133,7 @@ CREATE TABLE IF NOT EXISTS xianyu_auto_reply_config (
     ai_api_key VARCHAR(512),
     api_url VARCHAR(512),
     ai_model VARCHAR(64),
+    ai_model_id BIGINT, -- 关联的 AI 模型 ID（ai_model.id），对应实体 aiModelId
     ai_system_prompt TEXT,
     ai_temperature REAL DEFAULT 0.7,
     -- 兜底自动回复
@@ -399,6 +401,7 @@ CREATE TABLE IF NOT EXISTS virtual_ship_task (
     retry_count INTEGER DEFAULT 0,
     error_message TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     processed_at DATETIME,
     deleted INTEGER DEFAULT 0,
     FOREIGN KEY (order_id) REFERENCES xianyu_order(id),
@@ -535,6 +538,7 @@ CREATE TABLE IF NOT EXISTS ai_ops_task (
     error_message TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted INTEGER DEFAULT 0,
     FOREIGN KEY (account_id) REFERENCES xianyu_account(id)
 );
@@ -551,6 +555,7 @@ CREATE TABLE IF NOT EXISTS ai_ops_suggestion (
     adopted_at DATETIME,
     expected_impact TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted INTEGER DEFAULT 0,
     FOREIGN KEY (account_id) REFERENCES xianyu_account(id),
     FOREIGN KEY (product_id) REFERENCES xianyu_product(id)

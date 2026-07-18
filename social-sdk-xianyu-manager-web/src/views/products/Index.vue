@@ -59,6 +59,7 @@
         <el-table-column prop="favoriteCount" label="收藏" width="70" />
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
+            <el-button size="small" @click="viewDetail(row)">详情</el-button>
             <el-button size="small" @click="editPrice(row)">改价</el-button>
             <el-button size="small" @click="editStock(row)">改库存</el-button>
             <el-button v-if="row.status !== 'ON_SALE'" size="small" type="success" @click="shelfOn(row)">上架</el-button>
@@ -128,7 +129,7 @@
     </el-dialog>
 
     <!-- 创建商品对话框 -->
-    <el-dialog v-model="showCreateDialog" title="创建商品" width="500px">
+    <el-dialog v-model="showCreateDialog" title="创建商品" width="600px">
       <el-form :model="createForm" label-width="80px">
         <el-form-item label="账号">
           <el-select v-model="createForm.accountId" placeholder="选择账号" style="width: 100%;">
@@ -150,6 +151,39 @@
         <el-form-item label="描述">
           <el-input v-model="createForm.description" type="textarea" :rows="3" />
         </el-form-item>
+        <el-form-item label="图片">
+          <el-upload
+            :file-list="imageFileList"
+            list-type="picture-card"
+            :limit="9"
+            :on-change="(file, list) => handleUploadChange(list, 'images')"
+            :on-remove="(file, list) => handleUploadRemove(list, 'images')"
+            :http-request="(opts) => customUpload(opts, 'images')"
+            accept="image/*"
+          >
+            <el-icon><Plus /></el-icon>
+            <template #tip>
+              <div style="font-size: 12px; color: #909399;">最多 9 张图片，单张不超过 10MB</div>
+            </template>
+          </el-upload>
+        </el-form-item>
+        <el-form-item label="视频">
+          <el-upload
+            :file-list="videoFileList"
+            :limit="3"
+            :on-change="(file, list) => handleUploadChange(list, 'videos')"
+            :on-remove="(file, list) => handleUploadRemove(list, 'videos')"
+            :http-request="(opts) => customUpload(opts, 'videos')"
+            accept="video/*"
+          >
+            <el-button type="primary" plain>
+              <el-icon><UploadFilled /></el-icon> 上传视频
+            </el-button>
+            <template #tip>
+              <div style="font-size: 12px; color: #909399;">最多 3 个视频，单个不超过 10MB</div>
+            </template>
+          </el-upload>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showCreateDialog = false">取消</el-button>
@@ -157,12 +191,80 @@
       </template>
     </el-dialog>
   </div>
+
+  <!-- 商品详情抽屉 -->
+  <el-drawer v-model="showDetailDrawer" title="商品详情" size="50%" direction="rtl">
+    <div v-if="detail" style="padding: 0 20px 20px;">
+      <!-- 主图 + 视频预览 -->
+      <el-carousel v-if="detail.images && detail.images.length" height="260px" style="margin-bottom: 16px; border-radius: 8px; overflow: hidden;">
+        <el-carousel-item v-for="(img, idx) in detail.images" :key="idx">
+          <el-image :src="img" fit="contain" style="width: 100%; height: 100%;" :preview-src-list="detail.images" />
+        </el-carousel-item>
+      </el-carousel>
+
+      <el-descriptions :column="2" border>
+        <el-descriptions-item label="ID">{{ detail.id }}</el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag :type="statusType(detail.status)">{{ statusLabel(detail.status) }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="标题" :span="2">{{ detail.title }}</el-descriptions-item>
+        <el-descriptions-item label="价格">¥{{ detail.price }}</el-descriptions-item>
+        <el-descriptions-item label="原价">¥{{ detail.originalPrice || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="库存">{{ detail.stock }}</el-descriptions-item>
+        <el-descriptions-item label="浏览">{{ detail.viewCount || 0 }}</el-descriptions-item>
+        <el-descriptions-item label="收藏">{{ detail.favoriteCount || 0 }}</el-descriptions-item>
+        <el-descriptions-item label="商品类型">
+          <el-tag size="small">{{ goodsTypeLabel(detail.goodsType) }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="发货类型">
+          <el-tag size="small" v-if="detail.deliverType">{{ deliverTypeLabel(detail.deliverType) }}</el-tag>
+          <span v-else style="color:#909399;">-</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="闲鱼 ID">{{ detail.itemId || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="品类">{{ detail.categoryId || '-' }}</el-descriptions-item>
+      </el-descriptions>
+
+      <!-- 描述 -->
+      <el-card style="margin-top: 16px;" v-if="detail.description">
+        <template #header><span>📝 商品描述</span></template>
+        <div style="white-space: pre-wrap; line-height: 1.6;">{{ detail.description }}</div>
+      </el-card>
+
+      <!-- 发货模板 -->
+      <el-card style="margin-top: 16px;" v-if="detail.deliverContentTemplate">
+        <template #header><span>📦 发货内容模板</span></template>
+        <div style="white-space: pre-wrap; line-height: 1.6; font-family: monospace;">{{ detail.deliverContentTemplate }}</div>
+      </el-card>
+
+      <!-- 视频列表 -->
+      <el-card style="margin-top: 16px;" v-if="detail.videos && detail.videos.length">
+        <template #header><span>🎥 视频列表</span></template>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div v-for="(v, idx) in detail.videos" :key="idx" style="display: flex; align-items: center; gap: 12px;">
+            <span style="color: #909399; min-width: 50px;">视频 {{ idx + 1 }}</span>
+            <el-link :href="v" target="_blank" type="primary" :underline="false">
+              <el-icon><VideoPlay /></el-icon> {{ v }}
+            </el-link>
+          </div>
+        </div>
+      </el-card>
+
+      <!-- 详情页链接 -->
+      <el-card style="margin-top: 16px;" v-if="detail.detailUrl">
+        <template #header><span>🔗 闲鱼详情</span></template>
+        <el-link :href="detail.detailUrl" target="_blank" type="primary">
+          <el-icon><Link /></el-icon> 在闲鱼打开
+        </el-link>
+      </el-card>
+    </div>
+    <el-empty v-else description="加载中..." />
+  </el-drawer>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, MagicStick } from '@element-plus/icons-vue'
+import { Refresh, MagicStick, VideoPlay, Link, Plus, UploadFilled } from '@element-plus/icons-vue'
 import api from '@/api/request'
 import { optimizeTitle as optimizeTitleApi, optimizeDescription as optimizeDescriptionApi, extractKeywords as extractKeywordsApi } from '@/api/ai'
 
@@ -174,6 +276,10 @@ const submitting = ref(false)
 const syncing = ref(false)
 const showCreateDialog = ref(false)
 const showAiOptimizeDialog = ref(false)
+const showDetailDrawer = ref(false)
+const detail = ref(null)
+const imageFileList = ref([])
+const videoFileList = ref([])
 const aiLoading = ref(false)
 const aiActiveTab = ref('title')
 const filters = ref({ accountId: null, keyword: '', status: '' })
@@ -183,6 +289,9 @@ const aiForm = ref({ modelId: null, productTitle: '', keywordsRaw: '', condition
 const aiResult = ref({ title: '', description: '', keywords: [] })
 
 const statusType = (s) => ({ ON_SALE: 'success', OFF_SALE: 'warning', DRAFT: 'info' }[s] || 'info')
+const statusLabel = (s) => ({ ON_SALE: '在售', OFF_SALE: '下架', DRAFT: '草稿' }[s] || s)
+const goodsTypeLabel = (s) => ({ PHYSICAL: '实物', VIRTUAL: '虚拟' }[s] || s || '实物')
+const deliverTypeLabel = (s) => ({ CARD: '卡密', ACCOUNT: '账号', LINK: '链接', FILE: '网盘文件' }[s] || s)
 
 async function loadAccounts() {
   try {
@@ -234,13 +343,22 @@ async function handleCreate() {
     ElMessage.warning('请选择账号并填写标题')
     return
   }
+  const images = imageFileList.value
+    .filter(f => f.status === 'success' && f.url)
+    .map(f => f.url)
+  const videos = videoFileList.value
+    .filter(f => f.status === 'success' && f.url)
+    .map(f => f.url)
   submitting.value = true
   try {
-    const res = await api.post('/products', createForm.value)
+    const payload = { ...createForm.value, images, videos }
+    const res = await api.post('/products', payload)
     if (res.success) {
       ElMessage.success('商品创建成功')
       showCreateDialog.value = false
       createForm.value = { accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '' }
+      imageFileList.value = []
+      videoFileList.value = []
       await loadProducts()
     }
   } catch (e) { /* ignore */ }
@@ -361,9 +479,78 @@ function useAiResult() {
 
 async function loadAiModels() {
   try {
-    const res = await api.get('/ai/models', { params: { active: true } })
-    if (res.success) aiModels.value = res.data || []
+    const res = await api.get('/ai/models', { params: { size: 100 } })
+    aiModels.value = (res.data?.records || []).filter(m => m.enabled !== false)
   } catch {}
+}
+
+async function viewDetail(row) {
+  detail.value = null
+  showDetailDrawer.value = true
+  try {
+    const res = await api.get(`/products/${row.id}`)
+    if (res.success) {
+      const p = res.data
+      detail.value = {
+        ...p,
+        images: parseJsonArray(p.images),
+        videos: parseJsonArray(p.videos)
+      }
+    }
+  } catch {}
+}
+
+function parseJsonArray(raw) {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw
+  try { return JSON.parse(raw) } catch { return [] }
+}
+
+function handleUploadChange(fileList, field) {
+  if (field === 'images') imageFileList.value = fileList
+  else videoFileList.value = fileList
+}
+
+function handleUploadRemove(fileList, field) {
+  if (field === 'images') imageFileList.value = fileList
+  else videoFileList.value = fileList
+}
+
+async function customUpload(options, field) {
+  const file = options.file
+  if (!file) return options.onError(new Error('文件为空'))
+  const maxSize = 10 * 1024 * 1024
+  if (file.size > maxSize) {
+    ElMessage.error('文件大小不能超过 10MB')
+    if (field === 'images') imageFileList.value = imageFileList.value.filter(f => f.uid !== file.uid)
+    else videoFileList.value = videoFileList.value.filter(f => f.uid !== file.uid)
+    return options.onError(new Error('文件过大'))
+  }
+  const formData = new FormData()
+  formData.append('file', file)
+  try {
+    const res = await api.post('/products/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    if (res.success) {
+      const url = res.data.url
+      if (field === 'images') {
+        const target = imageFileList.value.find(f => f.uid === file.uid)
+        if (target) { target.url = url; target.status = 'success' }
+      } else {
+        const target = videoFileList.value.find(f => f.uid === file.uid)
+        if (target) { target.url = url; target.status = 'success' }
+      }
+      options.onSuccess(url)
+    } else {
+      throw new Error(res.message || '上传失败')
+    }
+  } catch (err) {
+    ElMessage.error('上传失败：' + (err.message || '未知错误'))
+    if (field === 'images') imageFileList.value = imageFileList.value.filter(f => f.uid !== file.uid)
+    else videoFileList.value = videoFileList.value.filter(f => f.uid !== file.uid)
+    options.onError(err)
+  }
 }
 
 onMounted(() => { loadAccounts(); loadProducts(); loadAiModels() })

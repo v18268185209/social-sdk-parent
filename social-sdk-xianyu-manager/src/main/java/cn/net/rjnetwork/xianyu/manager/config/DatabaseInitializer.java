@@ -53,6 +53,8 @@ public class DatabaseInitializer {
                 logger.info("Database schema initialized successfully");
             }
             ensureNotifyRetryColumns();
+            ensureProductColumns();
+            ensureAiColumns();
         } catch (Exception e) {
             logger.warn("Database initialization skipped (may already exist): {}", e.getMessage());
         }
@@ -88,6 +90,64 @@ public class DatabaseInitializer {
             }
         } catch (Exception e) {
             logger.warn("ensureNotifyRetryColumns skipped: {}", e.getMessage());
+        }
+    }
+
+    /** 兼容旧库：xianyu_product 早期 DDL 缺 image_url 列，这里手动补齐 */
+    private void ensureProductColumns() {
+        try (java.sql.Connection conn = dataSource.getConnection()) {
+            boolean hasImageUrl = false;
+            try (java.sql.PreparedStatement ps = conn.prepareStatement("PRAGMA table_info(xianyu_product)")) {
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        if ("image_url".equalsIgnoreCase(rs.getString("name"))) {
+                            hasImageUrl = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!hasImageUrl) {
+                try (java.sql.Statement st = conn.createStatement()) {
+                    st.execute("ALTER TABLE xianyu_product ADD COLUMN image_url VARCHAR(512)");
+                    logger.info("Added column image_url to xianyu_product");
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("ensureProductColumns skipped: {}", e.getMessage());
+        }
+    }
+
+    /** 兼容旧库：补齐 AI 相关表缺失列（实体字段 ↔ DDL 列不匹配会导致 selectList 500） */
+    private void ensureAiColumns() {
+        // xianyu_auto_reply_config.ai_model_id（实体 aiModelId 映射目标）
+        ensureColumn("xianyu_auto_reply_config", "ai_model_id", "BIGINT");
+        // ai_ops_task / ai_ops_suggestion 缺 BaseEntity 的 updated_at
+        ensureColumn("ai_ops_task", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+        ensureColumn("ai_ops_suggestion", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+    }
+
+    private void ensureColumn(String table, String column, String ddl) {
+        try (java.sql.Connection conn = dataSource.getConnection()) {
+            boolean has = false;
+            try (java.sql.PreparedStatement ps = conn.prepareStatement("PRAGMA table_info(" + table + ")")) {
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        if (column.equalsIgnoreCase(rs.getString("name"))) {
+                            has = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!has) {
+                try (java.sql.Statement st = conn.createStatement()) {
+                    st.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + ddl);
+                    logger.info("Added column {} to {}", column, table);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("ensureColumn {} on {} skipped: {}", column, table, e.getMessage());
         }
     }
 }

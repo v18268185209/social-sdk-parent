@@ -74,22 +74,16 @@ const routes = [
         meta: { title: '收藏关注' }
       },
       {
+        path: 'ai',
+        name: 'Ai',
+        component: () => import('@/views/ai/Index.vue'),
+        meta: { title: 'AI 厂商' }
+      },
+      {
         path: 'ai-ops',
         name: 'AiOps',
         component: () => import('@/views/aiOps/Index.vue'),
         meta: { title: 'AI 运营' }
-      },
-      {
-        path: 'monitor',
-        name: 'Monitor',
-        component: () => import('@/views/monitor/Index.vue'),
-        meta: { title: '监控面板' }
-      },
-      {
-        path: 'audit',
-        name: 'Audit',
-        component: () => import('@/views/audit/Index.vue'),
-        meta: { title: '审计日志' }
       },
       {
         path: 'cloud-storage',
@@ -102,6 +96,18 @@ const routes = [
         name: 'VirtualShip',
         component: () => import('@/views/virtualShip/Index.vue'),
         meta: { title: '虚拟发货' }
+      },
+      {
+        path: 'monitor',
+        name: 'Monitor',
+        component: () => import('@/views/monitor/Index.vue'),
+        meta: { title: '监控面板' }
+      },
+      {
+        path: 'audit',
+        name: 'Audit',
+        component: () => import('@/views/audit/Index.vue'),
+        meta: { title: '审计日志' }
       },
       {
         path: 'notify',

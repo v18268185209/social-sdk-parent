@@ -18,7 +18,7 @@ import java.util.Map;
  * 虚拟商品 / 自动发货管理 API
  */
 @RestController
-@RequestMapping("/api/virtual")
+@RequestMapping("/api/virtual-ship")
 public class VirtualShipController {
 
     private final VirtualShipService shipService;
