@@ -93,6 +93,9 @@ async function loadAccounts() {
 
 async function loadSessions() {
   if (!selectedAccount.value) return
+  sessions.value = []
+  selectedSession.value = ''
+  messages.value = []
   try {
     const res = await api.get('/messages/sessions', { params: { accountId: selectedAccount.value } })
     if (res.success) sessions.value = res.data

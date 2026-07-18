@@ -10,6 +10,14 @@
         </div>
       </template>
 
+      <el-form inline style="margin-bottom: 16px;">
+        <el-form-item label="账号">
+          <el-select v-model="selectedAccountId" @change="loadRules" placeholder="选择账号" style="width: 200px;">
+            <el-option v-for="a in accounts" :key="a.id" :label="a.accountName" :value="a.id" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+
       <el-table :data="rules" stripe>
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="ruleName" label="规则名称" width="150" />
@@ -72,13 +80,23 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/request'
 
+const accounts = ref([])
 const rules = ref([])
+const selectedAccountId = ref(null)
 const showCreateDialog = ref(false)
 const form = ref({ ruleName: '', keyword: '', matchType: 'CONTAINS', replyText: '', priority: 100 })
 
-async function loadRules() {
+async function loadAccounts() {
   try {
-    const res = await api.get('/rules?accountId=1')
+    const res = await api.get('/accounts')
+    if (res.success) accounts.value = res.data
+  } catch (e) {}
+}
+
+async function loadRules() {
+  if (!selectedAccountId.value) return
+  try {
+    const res = await api.get('/rules', { params: { accountId: selectedAccountId.value } })
     if (res.success) rules.value = res.data
   } catch (e) {}
 }
@@ -88,6 +106,7 @@ async function handleCreate() {
     ElMessage.warning('请填写规则名称和关键词')
     return
   }
+  form.value.accountId = selectedAccountId.value
   try {
     const res = await api.post('/rules', form.value)
     if (res.success) {
@@ -126,5 +145,5 @@ async function deleteRule(id) {
   try { await api.delete(`/rules/${id}`); ElMessage.success('已删除'); await loadRules() } catch (e) {}
 }
 
-onMounted(loadRules)
+onMounted(() => { loadAccounts() })
 </script>

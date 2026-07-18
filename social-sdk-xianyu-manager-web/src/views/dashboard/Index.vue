@@ -95,7 +95,7 @@ onMounted(async () => {
 
   try {
     const res3 = await api.get('/system/info')
-    if (res3.success) javaVersion.value = res3.data.data?.javaVersion || ''
+    if (res3.success) javaVersion.value = res3.data?.javaVersion || ''
   } catch (e) { /* ignore */ }
 })
 </script>

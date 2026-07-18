@@ -28,7 +28,7 @@
         <el-table-column prop="accountName" label="账号名称" />
         <el-table-column prop="status" label="状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="{ ACTIVE: 'success', DISABLED: 'info', FROZEN: 'danger' }[row.status]">{{ row.status }}</el-tag>
+            <el-tag :type="{ ACTIVE: 'success', DISABLED: 'info', FROZEN: 'danger', COOKIE_EXPIRED: 'warning' }[row.status]">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="productCount" label="商品数" width="100" />
@@ -46,10 +46,6 @@ import api from '@/api/request'
 const stats = ref({})
 const accountStats = ref([])
 const statCards = ref([])
-
-function statusType(s) {
-  return { ACTIVE: 'success', DISABLED: 'info', FROZEN: 'danger', COOKIE_EXPIRED: 'warning' }[s] || 'info'
-}
 
 async function loadDashboard() {
   try {

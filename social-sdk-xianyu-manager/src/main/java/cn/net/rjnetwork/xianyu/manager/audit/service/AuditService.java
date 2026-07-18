@@ -3,6 +3,7 @@ package cn.net.rjnetwork.xianyu.manager.audit.service;
 import cn.net.rjnetwork.xianyu.manager.audit.mapper.AuditLogMapper;
 import cn.net.rjnetwork.xianyu.manager.audit.model.AuditLog;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import org.springframework.stereotype.Service;
 
 import java.util.List;
 

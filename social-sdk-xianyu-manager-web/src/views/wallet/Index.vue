@@ -4,7 +4,7 @@
       <template #header><span>钱包资产</span></template>
       <el-form inline>
         <el-form-item label="账号">
-          <el-select v-model="selectedAccountId" @change="loadWallet" style="width: 200px;">
+          <el-select v-model="selectedAccountId" @change="loadWallet" placeholder="选择账号" style="width: 200px;">
             <el-option v-for="a in accounts" :key="a.id" :label="a.accountName" :value="a.id" />
           </el-select>
         </el-form-item>
@@ -15,6 +15,7 @@
         <el-descriptions-item label="支付宝">{{ wallet.alipayAccount || '-' }}</el-descriptions-item>
         <el-descriptions-item label="银行卡">{{ wallet.bankCard || '-' }}</el-descriptions-item>
       </el-descriptions>
+      <el-empty v-else description="请选择账号查看钱包信息" />
     </el-card>
 
     <el-card style="margin-top: 16px;">
@@ -56,15 +57,19 @@ async function loadAccounts() {
 }
 
 async function loadWallet() {
-  if (!selectedAccountId.value) return
+  if (!selectedAccountId.value) {
+    wallet.value = null
+    transactions.value = []
+    return
+  }
   try {
     const r1 = await api.get(`/wallet/${selectedAccountId.value}`)
     if (r1.success) wallet.value = r1.data
-  } catch (e) {}
+  } catch (e) { wallet.value = null }
   try {
     const r2 = await api.get(`/wallet/${selectedAccountId.value}/recent?limit=20`)
     if (r2.success) transactions.value = r2.data
-  } catch (e) {}
+  } catch (e) { transactions.value = [] }
 }
 
 onMounted(() => { loadAccounts() })

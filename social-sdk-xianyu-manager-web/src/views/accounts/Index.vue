@@ -35,7 +35,7 @@
     <el-dialog v-model="showLoginDialog" title="添加账号" width="400px">
       <el-form :model="loginForm" label-width="80px">
         <el-form-item label="账号名称">
-          <el-input v-model="loginForm.accountName" placeholder="如: 账号A" />
+          <el-input v-model="loginForm.accountName" placeholder="如：账号A" />
         </el-form-item>
         <el-form-item label="Cookie">
           <el-input v-model="loginForm.cookieHeader" type="textarea" :rows="4" placeholder="粘贴 Cookie 字符串" />
@@ -59,6 +59,9 @@
             <el-option label="禁用" value="DISABLED" />
             <el-option label="冻结" value="FROZEN" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="statusForm.remark" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -118,7 +121,10 @@ function editStatus(row) {
 
 async function handleStatusUpdate() {
   try {
-    const res = await api.put(`/accounts/${statusForm.value.id}/status`, statusForm.value)
+    const res = await api.put(`/accounts/${statusForm.value.id}/status`, {
+      status: statusForm.value.status,
+      remark: statusForm.value.remark
+    })
     if (res.success) {
       ElMessage.success('状态已更新')
       showStatusDialog.value = false
@@ -130,9 +136,11 @@ async function handleStatusUpdate() {
 async function deleteAccount(id) {
   await ElMessageBox.confirm('确认删除该账号？', '提示', { type: 'warning' })
   try {
-    await api.delete(`/accounts/${id}`)
-    ElMessage.success('已删除')
-    await loadAccounts()
+    const res = await api.delete(`/accounts/${id}`)
+    if (res.success) {
+      ElMessage.success('已删除')
+      await loadAccounts()
+    }
   } catch (e) { /* ignore */ }
 }
 

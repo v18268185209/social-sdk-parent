@@ -1,158 +1,106 @@
-# 闲鱼多账号管理平台 — 快速参考索引
+# 闲鱼多账号管理平台 - 快速参考索引
 
-> 基于 `social-sdk-parent` 架构，新建 Spring Boot 子模块 `social-sdk-xianyu-manager` + Vue 3 前端
-> **轻量级架构**：SQLite3 + In-Memory Cache，单管理员多账号管理
-
----
-
-## 一、项目结构
-
+## 项目结构
 ```
 social-sdk-parent/
-├── plan/
-│   ├── requirements.md  ← 详细需求文档
-│   └── index.md         ← 本文件（快速参考）
-├── social-sdk-core/
-├── social-sdk-xianyu/
-├── social-sdk-spring-boot-starter/
-├── social-sdk-xianyu-manager/          ← 后端（Spring Boot）
-│   ├── pom.xml
-│   ├── README.md
-│   └── src/main/java/cn/net/rjnetwork/xianyu/manager/
-│       ├── XianyuManagerApplication.java
-│       ├── config/          Security/MyBatis/WebSocket/Cache/DB Init
-│       ├── common/          ApiResponse/ExceptionHandler/BaseEntity
-│       ├── auth/            认证授权
-│       ├── account/         账号管理 + 健康检查定时任务
-│       ├── product/         商品管理
-│       ├── message/         消息管理 + WebSocket STOMP
-│       ├── order/           订单管理
-│       ├── rule/            规则引擎
-│       ├── wallet/          钱包/资产
-│       ├── collect/         收藏关注
-│       ├── monitor/         监控告警 + 仪表盘统计
-│       ├── audit/           审计日志 + AOP
-│       └── system/          系统信息 + 健康检查
-└── social-sdk-xianyu-manager-web/    ← 前端（Vue 3 + Element Plus）
-    ├── package.json
-    ├── vite.config.js
-    ├── index.html
-    └── src/
-        ├── main.js              入口
-        ├── App.vue              根组件
-        ├── api/                 Axios 封装
-        ├── store/               Pinia 状态管理
-        ├── router/              Vue Router
-        ├── layouts/             MainLayout（侧边栏 + 头部）
-        └── views/               页面组件
-            ├── login/           登录页
-            ├── dashboard/       仪表盘
-            ├── accounts/        账号管理
-            ├── products/        商品管理
-            ├── messages/        消息管理
-            ├── orders/          订单管理
-            ├── rules/           规则管理
-            ├── wallet/          钱包资产
-            ├── collect/         收藏关注
-            ├── monitor/         监控面板
-            └── audit/           审计日志
+├── social-sdk-xianyu/           # 核心SDK层（纯HTTP/MTOP API调用）
+├── social-sdk-spring-boot-starter/  # Spring Boot Starter（集成层）
+├── social-sdk-xianyu-manager/   # 管理后台（Spring Boot + SQLite3 + In-Memory Cache）
+└── social-sdk-xianyu-manager-web/  # 管理后台前端（Vue 3 + Element Plus）
 ```
 
----
+## 后端 API 端点总览
 
-## 二、全部已完成 ✅
+| 模块 | 方法 | 路径 | 说明 |
+|------|------|------|------|
+| Auth | POST | /api/auth/login | 管理员登录 |
+| Auth | GET | /api/auth/profile | 获取当前用户信息 |
+| Account | GET | /api/accounts | 账号列表 |
+| Account | GET | /api/accounts/{id} | 账号详情 |
+| Account | POST | /api/accounts/login | 添加账号 |
+| Account | PUT | /api/accounts/{id}/status | 更新账号状态 |
+| Account | DELETE | /api/accounts/{id} | 删除账号 |
+| Product | GET | /api/products | 商品列表（分页） |
+| Product | GET | /api/products/{id} | 商品详情 |
+| Product | POST | /api/products | 创建商品 |
+| Product | PUT | /api/products/{id} | 更新商品 |
+| Product | DELETE | /api/products/{id} | 删除商品 |
+| Product | POST | /api/products/{id}/shelf-on | 上架 |
+| Product | POST | /api/products/{id}/shelf-off | 下架 |
+| Product | PUT | /api/products/{id}/price | 修改价格 |
+| Product | PUT | /api/products/{id}/stock | 修改库存 |
+| Message | GET | /api/messages/sessions | 会话列表 |
+| Message | GET | /api/messages/history | 消息历史 |
+| Message | POST | /api/messages/send | 发送消息 |
+| Rule | GET | /api/rules | 规则列表 |
+| Rule | POST | /api/rules | 创建规则 |
+| Rule | PUT | /api/rules/{id} | 更新规则 |
+| Rule | DELETE | /api/rules/{id} | 删除规则 |
+| Rule | POST | /api/rules/{id}/toggle | 启用/禁用规则 |
+| Rule | POST | /api/rules/test | 测试规则匹配 |
+| Rule | POST | /api/rules/auto-reply | 自动回复 |
+| Order | GET | /api/orders | 订单列表（分页） |
+| Order | GET | /api/orders/{id} | 订单详情 |
+| Order | POST | /api/orders/{id}/delivery | 发货 |
+| Audit | GET | /api/audit/logs | 审计日志 |
+| Wallet | GET | /api/wallet/{accountId} | 钱包信息 |
+| Wallet | GET | /api/wallet/{accountId}/transactions | 交易记录 |
+| Wallet | GET | /api/wallet/{accountId}/recent | 最近交易 |
+| Collect | GET | /api/collect | 收藏列表 |
+| Collect | POST | /api/collect | 添加收藏 |
+| Collect | DELETE | /api/collect/{id} | 移除收藏 |
+| Monitor | GET | /api/monitor/dashboard | 仪表盘统计 |
+| Monitor | GET | /api/monitor/accounts | 账号维度统计 |
+| Monitor | POST | /api/monitor/cache/clear | 清除缓存 |
+| System | GET | /api/system/info | 系统信息 |
+| System | GET | /api/system/health | 健康检查 |
 
-### 后端（60+ Java 源文件）
+## 前端页面路由
 
-| Phase | 模块 | 状态 |
-|-------|------|------|
-| P1 | 认证授权 | ✅ |
-| P1 | 账号管理 | ✅ |
-| P1 | 商品管理 | ✅ |
-| P1 | 消息管理 | ✅ |
-| P1 | 规则引擎 | ✅ |
-| P1 | 订单管理 | ✅ |
-| P1 | 审计日志 | ✅ |
-| P2 | 钱包/资产 | ✅ |
-| P2 | 收藏关注 | ✅ |
-| P2 | 监控告警 | ✅ |
-| P2 | WebSocket 推送 | ✅ |
-| P2 | 系统管理 | ✅ |
+| 路由 | 页面 | 对应 API |
+|------|------|----------|
+| /login | 登录 | POST /api/auth/login |
+| /dashboard | 仪表盘 | GET /api/monitor/dashboard, /api/monitor/accounts, /api/system/info |
+| /accounts | 账号管理 | CRUD /api/accounts |
+| /products | 商品管理 | CRUD /api/products + shelf/price/stock |
+| /messages | 消息管理 | Sessions/History/Send /api/messages |
+| /rules | 规则管理 | CRUD /api/rules + test/auto-reply |
+| /orders | 订单管理 | List/Delivery /api/orders |
+| /wallet | 钱包资产 | GET /api/wallet |
+| /collect | 收藏关注 | CRUD /api/collect |
+| /monitor | 监控面板 | GET /api/monitor |
+| /audit | 审计日志 | GET /api/audit/logs |
 
-### 前端（20+ Vue 组件）
-
-| 页面 | 功能 |
-|------|------|
-| 登录页 | 用户名密码登录 |
-| 主布局 | 侧边栏导航 + 顶部用户信息 |
-| 仪表盘 | 8 项统计卡片 + 账号状态表格 |
-| 账号管理 | 添加账号(Cookie) + 切换状态 + 删除 |
-| 商品管理 | 搜索/筛选 + 创建 + 上架/下架 + 改价/改库存 |
-| 消息管理 | 会话列表 + 消息历史(时间线) + 发送消息 |
-| 规则管理 | 规则 CRUD + 开关 + 测试匹配 |
-| 订单管理 | Tab 切换(卖出/买到) + 发货 |
-| 钱包资产 | 余额 + 交易记录 |
-| 收藏关注 | 列表 + 添加/移除 |
-| 监控面板 | 统计卡片 + 账号维度表格 |
-| 审计日志 | 操作日志列表 |
-
----
-
-## 三、快速启动
+## 启动方式
 
 ### 后端
-
 ```bash
-cd E:\codes\social-sdk-parent
-mvn clean install -DskipTests
 cd social-sdk-xianyu-manager
 mvn spring-boot:run
-# 访问: http://localhost:8080
+# 默认端口: 8080
 # 默认管理员: admin / admin123
 ```
 
 ### 前端
-
 ```bash
 cd social-sdk-xianyu-manager-web
 npm install
 npm run dev
+# 默认端口: 3000
 # 访问: http://localhost:3000
 ```
 
-Vite 开发服务器自动代理 `/api` 到后端 `localhost:8080`。
+## 技术栈
+- **后端**: Spring Boot 3.5 + Java 17 + MyBatis-Plus + SQLite3 + JWT + Caffeine + WebSocket(STOMP)
+- **前端**: Vue 3 + Vite + Element Plus + Pinia + Vue Router + Axios
 
----
-
-## 四、API 端点总览
-
-| 模块 | 路径 | 方法 |
-|------|------|------|
-| 认证 | `/api/auth/login` | POST |
-| 账号 | `/api/accounts` | GET/POST/DELETE |
-| 账号 | `/api/accounts/{id}/status` | PUT |
-| 商品 | `/api/products` | GET/POST |
-| 商品 | `/api/products/{id}` | PUT/DELETE |
-| 商品 | `/api/products/{id}/shelf-on/off` | POST |
-| 商品 | `/api/products/{id}/price` | PUT |
-| 商品 | `/api/products/{id}/stock` | PUT |
-| 消息 | `/api/messages/sessions` | GET |
-| 消息 | `/api/messages/history` | GET |
-| 消息 | `/api/messages/send` | POST |
-| 消息 | `/ws/messages` | WebSocket(STOMP) |
-| 订单 | `/api/orders` | GET |
-| 订单 | `/api/orders/{id}/delivery` | POST |
-| 规则 | `/api/rules` | GET/POST |
-| 规则 | `/api/rules/{id}` | PUT/DELETE |
-| 规则 | `/api/rules/{id}/toggle` | POST |
-| 规则 | `/api/rules/test` | POST |
-| 规则 | `/api/rules/auto-reply` | POST |
-| 钱包 | `/api/wallet/{id}` | GET |
-| 钱包 | `/api/wallet/{id}/transactions` | GET |
-| 收藏 | `/api/collect` | GET/POST |
-| 收藏 | `/api/collect/{id}` | DELETE |
-| 监控 | `/api/monitor/dashboard` | GET |
-| 监控 | `/api/monitor/accounts` | GET |
-| 审计 | `/api/audit/logs` | GET |
-| 系统 | `/api/system/info` | GET |
-| 系统 | `/api/system/health` | GET |
+## 已修复问题
+1. ✅ 缺失 JWT 认证过滤器 - 新增 JwtAuthenticationFilter
+2. ✅ SecurityConfig 未注册 JWT Filter - 已添加
+3. ✅ schema.sql 缺少 wallet/collect 表 - 已补充
+4. ✅ AuditService 缺少 @Service 注解 - 已修复
+5. ✅ AuditLogAspect resourceType 赋值错误 - 已修正
+6. ✅ Dashboard 双 .data 访问错误 - 已修正
+7. ✅ Rules 页面硬编码 accountId=1 - 已改为下拉选择
+8. ✅ 前端各页面 API 调用对齐 - 已全部修正
+9. ✅ @EnableScheduling 缺失 - 已添加到启动类

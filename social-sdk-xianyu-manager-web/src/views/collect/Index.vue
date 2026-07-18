@@ -4,12 +4,12 @@
       <template #header><span>收藏关注</span></template>
       <el-form inline style="margin-bottom: 16px;">
         <el-form-item label="账号">
-          <el-select v-model="selectedAccountId" @change="loadCollects" style="width: 200px;">
+          <el-select v-model="selectedAccountId" @change="loadCollects" placeholder="选择账号" style="width: 200px;">
             <el-option v-for="a in accounts" :key="a.id" :label="a.accountName" :value="a.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="类型">
-          <el-select v-model="selectedType" @change="loadCollects" style="width: 120px;">
+          <el-select v-model="selectedType" @change="loadCollects" placeholder="全部" style="width: 120px;" clearable>
             <el-option label="全部" value="" />
             <el-option label="商品" value="ITEM" />
             <el-option label="用户" value="USER" />
@@ -89,6 +89,10 @@ async function loadCollects() {
 }
 
 async function handleAdd() {
+  if (!addForm.value.targetId) {
+    ElMessage.warning('请填写目标ID')
+    return
+  }
   try {
     addForm.value.accountId = selectedAccountId.value
     const res = await api.post('/collect', addForm.value)
@@ -102,7 +106,13 @@ async function handleAdd() {
 }
 
 async function handleRemove(id) {
-  try { await api.delete(`/collect/${id}`); ElMessage.success('已移除'); await loadCollects() } catch (e) {}
+  try {
+    const res = await api.delete(`/collect/${id}`)
+    if (res.success) {
+      ElMessage.success('已移除')
+      await loadCollects()
+    }
+  } catch (e) {}
 }
 
 onMounted(loadAccounts)

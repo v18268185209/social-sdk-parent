@@ -156,28 +156,58 @@ async function handleCreate() {
 }
 
 async function shelfOn(row) {
-  try { await api.post(`/products/${row.id}/shelf-on`); ElMessage.success('已上架'); await loadProducts() } catch (e) {}
+  try {
+    const res = await api.post(`/products/${row.id}/shelf-on`)
+    if (res.success) {
+      ElMessage.success('已上架')
+      await loadProducts()
+    }
+  } catch (e) {}
 }
 
 async function shelfOff(row) {
-  try { await api.post(`/products/${row.id}/shelf-off`); ElMessage.success('已下架'); await loadProducts() } catch (e) {}
+  try {
+    const res = await api.post(`/products/${row.id}/shelf-off`)
+    if (res.success) {
+      ElMessage.success('已下架')
+      await loadProducts()
+    }
+  } catch (e) {}
 }
 
 function editPrice(row) {
-  ElMessageBox.prompt('输入新价格', '修改价格', { inputValue: row.price }).then(({ value }) => {
-    api.put(`/products/${row.id}/price?price=${value}`).then(r => { if (r.success) { ElMessage.success('价格已更新'); loadProducts() } })
-  })
+  ElMessageBox.prompt('输入新价格', '修改价格', { inputValue: String(row.price) }).then(async ({ value }) => {
+    try {
+      const res = await api.put(`/products/${row.id}/price?price=${value}`)
+      if (res.success) {
+        ElMessage.success('价格已更新')
+        await loadProducts()
+      }
+    } catch (e) {}
+  }).catch(() => {})
 }
 
 function editStock(row) {
-  ElMessageBox.prompt('输入新库存', '修改库存', { inputValue: row.stock }).then(({ value }) => {
-    api.put(`/products/${row.id}/stock?stock=${parseInt(value)}`).then(r => { if (r.success) { ElMessage.success('库存已更新'); loadProducts() } })
-  })
+  ElMessageBox.prompt('输入新库存', '修改库存', { inputValue: String(row.stock) }).then(async ({ value }) => {
+    try {
+      const res = await api.put(`/products/${row.id}/stock?stock=${parseInt(value)}`)
+      if (res.success) {
+        ElMessage.success('库存已更新')
+        await loadProducts()
+      }
+    } catch (e) {}
+  }).catch(() => {})
 }
 
 async function deleteProduct(id) {
   await ElMessageBox.confirm('确认删除该商品？', '提示', { type: 'warning' })
-  try { await api.delete(`/products/${id}`); ElMessage.success('已删除'); await loadProducts() } catch (e) {}
+  try {
+    const res = await api.delete(`/products/${id}`)
+    if (res.success) {
+      ElMessage.success('已删除')
+      await loadProducts()
+    }
+  } catch (e) {}
 }
 
 onMounted(() => { loadAccounts(); loadProducts() })
