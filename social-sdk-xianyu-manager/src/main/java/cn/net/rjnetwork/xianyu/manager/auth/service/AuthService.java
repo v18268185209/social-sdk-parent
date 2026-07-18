@@ -1,6 +1,7 @@
 package cn.net.rjnetwork.xianyu.manager.auth.service;
 
 import cn.net.rjnetwork.xianyu.manager.auth.dto.JwtResponse;
+import cn.net.rjnetwork.xianyu.manager.auth.dto.JwtResponse.AdminUserInfo;
 import cn.net.rjnetwork.xianyu.manager.auth.dto.LoginRequest;
 import cn.net.rjnetwork.xianyu.manager.auth.mapper.AdminUserMapper;
 import cn.net.rjnetwork.xianyu.manager.auth.model.AdminUser;
@@ -42,23 +43,25 @@ public class AuthService {
         }
 
         String token = jwtUtils.generateToken(user.getUsername());
-        return JwtResponse.of(token, jwtUtils.getExpiration(), user);
+        AdminUserInfo info = new AdminUserInfo();
+        info.setId(user.getId());
+        info.setUsername(user.getUsername());
+        info.setDisplayName(user.getDisplayName());
+        info.setRoleLevel(user.getRoleLevel());
+        return JwtResponse.of(token, jwtUtils.getExpiration(), info);
     }
 
-    /**
-     * 初始化默认管理员账户（首次启动时调用）
-     */
     @Transactional
     public void initDefaultAdmin(String username, String password) {
         if (findByUsername(username).isPresent()) {
-            return; // 已存在则跳过
+            return;
         }
 
         AdminUser user = new AdminUser();
         user.setUsername(username);
         user.setPasswordHash(passwordEncoder.encode(password));
         user.setDisplayName("管理员");
-        user.setRoleLevel(9); // 超级管理员
+        user.setRoleLevel(9);
         adminUserMapper.insert(user);
     }
 }

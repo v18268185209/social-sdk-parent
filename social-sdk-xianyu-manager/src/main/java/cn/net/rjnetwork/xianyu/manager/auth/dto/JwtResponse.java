@@ -17,17 +17,12 @@ public class JwtResponse {
         private Integer roleLevel;
     }
 
-    public static JwtResponse of(String token, long expiresIn, AdminUser user) {
+    public static JwtResponse of(String token, long expiresIn, AdminUserInfo user) {
         JwtResponse response = new JwtResponse();
         response.setToken(token);
         response.setTokenType("Bearer");
         response.setExpiresIn(expiresIn);
-        AdminUserInfo info = new AdminUserInfo();
-        info.setId(user.getId());
-        info.setUsername(user.getUsername());
-        info.setDisplayName(user.getDisplayName());
-        info.setRoleLevel(user.getRoleLevel());
-        response.setUser(info);
+        response.setUser(user);
         return response;
     }
 }

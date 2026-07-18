@@ -17,155 +17,183 @@ social-sdk-parent/
 ├── social-sdk-spring-boot-starter/
 └── social-sdk-xianyu-manager/  ← 新建模块
     ├── pom.xml
-    ├── src/
-    │   ├── main/
-    │   │   ├── java/cn/net/rjnetwork/xianyu/manager/
-    │   │   │   ├── XianyuManagerApplication.java
-    │   │   │   ├── config/
-    │   │   │   ├── common/
-    │   │   │   ├── account/
-    │   │   │   ├── product/
-    │   │   │   ├── message/
-    │   │   │   ├── order/
-    │   │   │   ├── rule/
-    │   │   │   ├── auth/
-    │   │   │   ├── wallet/
-    │   │   │   ├── collect/
-    │   │   │   ├── monitor/
-    │   │   │   ├── audit/
-    │   │   │   └── system/
-    │   │   └── resources/
-    │   │       ├── application.yml
-    │   │       └── mapper/
-    │   └── test/
-    └── docker/
+    ├── src/main/java/cn/net/rjnetwork/xianyu/manager/
+    │   ├── XianyuManagerApplication.java
+    │   ├── config/                          # 配置类
+    │   │   ├── SecurityConfig.java          # 安全配置 (JWT)
+    │   │   ├── MybatisPlusConfig.java       # MyBatis-Plus 配置
+    │   │   ├── WebSocketConfig.java         # WebSocket STOMP 配置
+    │   │   ├── CacheConfig.java             # Caffeine 内存缓存
+    │   │   └── DatabaseInitializer.java     # 数据库初始化
+    │   ├── common/                          # 公共组件
+    │   │   ├── ApiResponse.java             # 统一响应
+    │   │   ├── GlobalExceptionHandler.java  # 全局异常
+    │   │   └── BaseEntity.java              # 基础实体
+    │   ├── auth/                            # 认证授权 ✅
+    │   │   ├── controller/AuthController.java
+    │   │   ├── service/AuthService.java
+    │   │   ├── model/AdminUser.java
+    │   │   ├── security/JwtUtils.java
+    │   │   └── dto/
+    │   ├── account/                         # 账号管理 ✅
+    │   │   ├── controller/AccountController.java
+    │   │   ├── service/AccountService.java
+    │   │   ├── mapper/AccountMapper.java
+    │   │   ├── model/XianyuAccount.java
+    │   │   ├── dto/
+    │   │   └── task/AccountHealthTask.java  # 健康检查定时任务
+    │   ├── product/                         # 商品管理 ✅
+    │   │   ├── controller/ProductController.java
+    │   │   ├── service/ProductService.java
+    │   │   ├── mapper/ProductMapper.java
+    │   │   ├── model/XianyuProduct.java
+    │   │   └── dto/
+    │   ├── message/                         # 消息管理 ✅
+    │   │   ├── controller/MessageController.java
+    │   │   ├── service/MessageService.java
+    │   │   ├── mapper/MessageMapper.java
+    │   │   ├── model/XianyuMessage.java
+    │   │   ├── dto/
+    │   │   └── websocket/
+    │   │       ├── MessageBroadcaster.java
+    │   │       ├── MessageHandler.java
+    │   │       └── MessageWebSocketHandler.java
+    │   ├── order/                           # 订单管理 ✅
+    │   │   ├── controller/OrderController.java
+    │   │   ├── service/OrderService.java
+    │   │   ├── mapper/OrderMapper.java
+    │   │   └── model/XianyuOrder.java
+    │   ├── rule/                            # 规则引擎 ✅
+    │   │   ├── controller/RuleController.java
+    │   │   ├── service/RuleService.java
+    │   │   ├── mapper/RuleMapper.java
+    │   │   ├── model/XianyuKeywordRule.java
+    │   │   ├── engine/KeywordRuleEngine.java
+    │   │   └── dto/
+    │   ├── wallet/                          # 钱包/资产 ✅
+    │   │   ├── controller/WalletController.java
+    │   │   ├── service/WalletService.java
+    │   │   ├── mapper/
+    │   │   └── model/
+    │   ├── collect/                         # 收藏关注 ✅
+    │   │   ├── controller/CollectController.java
+    │   │   ├── service/CollectService.java
+    │   │   ├── mapper/CollectMapper.java
+    │   │   └── model/XianyuCollect.java
+    │   ├── monitor/                         # 监控告警 ✅
+    │   │   ├── controller/MonitorController.java
+    │   │   └── service/MonitorService.java
+    │   ├── audit/                           # 审计日志 ✅
+    │   │   ├── controller/AuditController.java
+    │   │   ├── service/AuditService.java
+    │   │   ├── mapper/AuditLogMapper.java
+    │   │   ├── model/AuditLog.java
+    │   │   ├── annotation/Audit.java
+    │   │   └── aspect/AuditLogAspect.java
+    │   └── system/                          # 系统管理 ✅
+    │       └── controller/SystemController.java
+    ├── src/main/resources/
+    │   ├── application.yml
+    │   └── db/schema.sql
+    └── README.md
 ```
 
 ---
 
-## 二、已完成工作
+## 二、已完成工作 ✅
 
-| 序号 | 文件 | 状态 |
-|------|------|------|
-| 1 | `plan/requirements.md` | ✅ 已更新（SQLite3 + In-Memory Cache） |
-| 2 | `social-sdk-xianyu-manager/pom.xml` | ✅ 已创建 |
-| 3 | `XianyuManagerApplication.java` | ✅ 已创建 |
-| 4 | `application.yml` | ✅ 已创建 |
-| 5 | `ApiResponse.java` | ✅ 已创建 |
-| 6 | `GlobalExceptionHandler.java` | ✅ 已创建 |
-| 7 | `BaseEntity.java` | ✅ 已创建 |
-| 8 | `MyMetaObjectHandler.java` | ✅ 已创建 |
-| 9 | `MybatisPlusConfig.java` | ✅ 已创建 |
-| 10 | `XianyuAccount.java` (Entity) | ✅ 已创建 |
-| 11 | `AccountMapper.java` | ✅ 已创建 |
-| 12 | `AccountLoginRequest.java` (DTO) | ✅ 已创建 |
-| 13 | `AccountStatusUpdateRequest.java` (DTO) | ✅ 已创建 |
-| 14 | `AccountService.java` | ✅ 已创建 |
-| 15 | 父 POM 更新 | ✅ 已添加新模块 |
-| 16 | 编译验证 | ✅ 全部通过 |
+### Phase 1 — 核心功能（P0）
 
----
-
-## 三、下一步计划
-
-### Phase 1 — 核心模块（P0）
-
-| 模块 | 待创建文件 | 优先级 |
-|------|-----------|--------|
-| 认证授权 | `AuthController.java`, `AuthService.java`, `AdminUser.java`, `JwtUtils.java`, `SecurityConfig.java` | P0 |
-| 账号管理 | `AccountController.java` | P0 |
-| 商品管理 | `ProductController.java`, `ProductService.java`, `ProductMapper.java`, `XianyuProduct.java`, DTOs | P0 |
-| 消息管理 | `MessageController.java`, `MessageService.java`, `MessageMapper.java`, `XianyuMessage.java`, DTOs | P0 |
-| 规则引擎 | `RuleController.java`, `RuleService.java`, `RuleMapper.java`, `XianyuKeywordRule.java`, `KeywordRuleEngine.java`, DTOs | P0 |
-| 审计日志 | `AuditController.java`, `AuditService.java`, `AuditLogMapper.java`, `AuditLog.java`, `AuditLogAspect.java` | P0 |
+| 模块 | 状态 | 文件数 |
+|------|------|--------|
+| 认证授权 | ✅ 完成 | 6 |
+| 账号管理 | ✅ 完成 | 7 |
+| 商品管理 | ✅ 完成 | 7 |
+| 消息管理 | ✅ 完成 | 6 |
+| 规则引擎 | ✅ 完成 | 7 |
+| 订单管理 | ✅ 完成 | 5 |
+| 审计日志 | ✅ 完成 | 6 |
+| 基础设施 | ✅ 完成 | 5 |
 
 ### Phase 2 — 增强功能（P1）
 
-| 模块 | 待创建文件 | 优先级 |
-|------|-----------|--------|
-| 订单管理 | `OrderController.java`, `OrderService.java`, `OrderMapper.java`, `XianyuOrder.java`, DTOs | P1 |
-| 钱包/资产 | `WalletController.java`, `WalletService.java`, DTOs | P1 |
-| 收藏关注 | `CollectController.java`, `CollectService.java`, DTOs | P1 |
-| 监控告警 | `MonitorController.java`, `MonitorService.java`, 定时任务 | P1 |
-| WebSocket | `MessageWebSocketHandler.java`, `WebSocketConfig.java` | P1 |
+| 模块 | 状态 | 文件数 |
+|------|------|--------|
+| 钱包/资产 | ✅ 完成 | 5 |
+| 收藏关注 | ✅ 完成 | 4 |
+| 监控告警 | ✅ 完成 | 2 |
+| WebSocket 实时推送 | ✅ 完成 | 3 |
+| 系统管理 | ✅ 完成 | 1 |
 
-### Phase 3 — 高级功能（P2/P3）
+### 总计
 
-| 模块 | 待创建文件 | 优先级 |
-|------|-----------|--------|
-| 数据统计 | Dashboard 相关 Controller/Service | P2 |
-| 前端集成 | Vue 3 + Element Plus 管理后台 | P3 |
-| Docker 部署 | `Dockerfile`, `docker-compose.yml` | P3 |
-
----
-
-## 四、关键技术点
-
-### 4.1 数据库配置
-
-- **SQLite3**：嵌入式数据库，单文件存储，无需额外安装
-- **MyBatis-Plus**：提供 CRUD 操作和分页插件
-- **逻辑删除**：使用 `@TableLogic` 注解实现软删除
-
-### 4.2 缓存策略
-
-- **In-Memory Cache**：使用 `ConcurrentHashMap` 或 Caffeine
-- **缓存内容**：账号信息、商品列表、规则引擎结果
-- **过期策略**：根据业务需求设置 TTL
-
-### 4.3 安全设计
-
-- **JWT 认证**：单管理员登录，Token 有效期 24 小时
-- **Cookie 加密**：AES-256-GCM 加密存储闲鱼 Cookie
-- **操作审计**：全量记录管理操作日志
-
-### 4.4 SDK 集成
-
-- **复用 `social-sdk-xianyu`**：所有闲鱼 API 调用通过 `XianyuSdk` 门面类
-- **异步处理**：消息自动回复、账号健康检测使用异步线程池
-- **WebSocket**：单实例无需 Redis Pub/Sub，直接使用 Spring WebSocket
+- **Java 源文件**: 60+
+- **配置文件**: 3
+- **SQL 脚本**: 1
+- **编译状态**: ✅ 全部通过
 
 ---
 
-## 五、常用命令
+## 三、API 端点总览
+
+| 模块 | 路径 | 方法 | 说明 |
+|------|------|------|------|
+| 认证 | `/api/auth/login` | POST | 管理员登录 |
+| 认证 | `/api/auth/profile` | GET | 获取当前用户 |
+| 账号 | `/api/accounts` | GET/POST/DELETE | 账号 CRUD |
+| 账号 | `/api/accounts/{id}/status` | PUT | 更新状态 |
+| 商品 | `/api/products` | GET/POST | 商品列表/创建 |
+| 商品 | `/api/products/{id}` | PUT/DELETE | 商品编辑/删除 |
+| 商品 | `/api/products/{id}/shelf-on/off` | POST | 上下架 |
+| 商品 | `/api/products/{id}/price/stock` | PUT | 价格/库存 |
+| 消息 | `/api/messages/sessions` | GET | 会话列表 |
+| 消息 | `/api/messages/history` | GET | 消息历史 |
+| 消息 | `/api/messages/send` | POST | 发送消息 |
+| 消息 | `/ws/messages` | WS | WebSocket 推送 |
+| 订单 | `/api/orders` | GET | 订单列表 |
+| 订单 | `/api/orders/{id}` | GET | 订单详情 |
+| 订单 | `/api/orders/{id}/delivery` | POST | 发货 |
+| 规则 | `/api/rules` | GET/POST | 规则列表/创建 |
+| 规则 | `/api/rules/{id}` | PUT/DELETE | 规则编辑/删除 |
+| 规则 | `/api/rules/{id}/toggle` | POST | 启用/禁用 |
+| 规则 | `/api/rules/test` | POST | 测试匹配 |
+| 规则 | `/api/rules/auto-reply` | POST | 自动回复 |
+| 钱包 | `/api/wallet/{accountId}` | GET | 钱包余额 |
+| 钱包 | `/api/wallet/{accountId}/transactions` | GET | 交易记录 |
+| 钱包 | `/api/wallet/{accountId}/recent` | GET | 最近交易 |
+| 收藏 | `/api/collect` | GET/POST | 收藏列表/添加 |
+| 收藏 | `/api/collect/{id}` | DELETE | 取消收藏 |
+| 监控 | `/api/monitor/dashboard` | GET | 仪表盘统计 |
+| 监控 | `/api/monitor/accounts` | GET | 账号维度统计 |
+| 监控 | `/api/monitor/cache/clear` | POST | 清除缓存 |
+| 审计 | `/api/audit/logs` | GET | 审计日志 |
+| 系统 | `/api/system/info` | GET | 系统信息 |
+| 系统 | `/api/system/health` | GET | 健康检查 |
+
+---
+
+## 四、快速启动
 
 ```bash
-# 编译整个项目
-mvn clean compile -DskipTests
+# 1. 编译
+cd E:\codes\social-sdk-parent
+mvn clean install -DskipTests
 
-# 打包
-mvn clean package -DskipTests
-
-# 运行管理平台
+# 2. 运行
 cd social-sdk-xianyu-manager
 mvn spring-boot:run
 
-# 测试 SQLite 数据库
-# 数据文件位于: ./data/xianyu-manager.db
+# 3. 访问
+# 管理员登录: admin / admin123
+# API: http://localhost:8080
+# WebSocket: ws://localhost:8080/ws/messages
 ```
 
 ---
 
-## 六、API 端点预览
+## 五、待扩展（Phase 3）
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/auth/login` | 管理员登录 |
-| GET | `/api/accounts` | 账号列表 |
-| POST | `/api/accounts/login` | Cookie 登录 |
-| PUT | `/api/accounts/{id}/status` | 更新账号状态 |
-| GET | `/api/products` | 商品列表 |
-| POST | `/api/products` | 创建商品 |
-| GET | `/api/messages/sessions` | 会话列表 |
-| POST | `/api/messages/send` | 发送消息 |
-| GET | `/api/rules` | 规则列表 |
-| POST | `/api/rules` | 创建规则 |
-
----
-
-## 七、注意事项
-
-1. **SQLite 并发限制**：SQLite 使用文件锁，并发写入能力有限，建议单实例部署
-2. **Cookie 安全**：所有 Cookie 数据必须加密存储，密钥通过环境变量注入
-3. **SDK 依赖**：确保 `social-sdk-xianyu` 已正确安装到本地 Maven 仓库
-4. **前端集成**：Phase 1 先完成后端 API，前端可后续独立开发或通过 git submodule 引用
+- [ ] 前端管理界面（Vue 3 + Element Plus）
+- [ ] Docker 部署配置
+- [ ] 数据导出（CSV/Excel）
+- [ ] 更多运营分析报表

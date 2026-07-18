@@ -12,9 +12,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * 闲鱼账号 Service
- */
 @Service
 public class AccountService {
 
@@ -24,9 +21,6 @@ public class AccountService {
         this.accountMapper = accountMapper;
     }
 
-    /**
-     * 登录账号
-     */
     @Transactional
     public XianyuAccount login(AccountLoginRequest request) {
         String cookie = request.getCookieHeader();
@@ -47,9 +41,6 @@ public class AccountService {
         return account;
     }
 
-    /**
-     * 更新账号状态
-     */
     @Transactional
     public XianyuAccount updateStatus(Long id, AccountStatusUpdateRequest request) {
         XianyuAccount account = accountMapper.selectById(id);
@@ -65,20 +56,23 @@ public class AccountService {
         return account;
     }
 
-    /**
-     * 获取所有账号
-     */
     public List<XianyuAccount> listAll() {
         return accountMapper.selectList(null);
     }
 
-    /**
-     * 根据名称获取账号
-     */
     public Optional<XianyuAccount> findByName(String accountName) {
         LambdaQueryWrapper<XianyuAccount> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(XianyuAccount::getAccountName, accountName);
         XianyuAccount account = accountMapper.selectOne(wrapper);
         return Optional.ofNullable(account);
+    }
+
+    public XianyuAccount getById(Long id) {
+        return accountMapper.selectById(id);
+    }
+
+    @Transactional
+    public void removeById(Long id) {
+        accountMapper.deleteById(id);
     }
 }
