@@ -10,6 +10,7 @@ import cn.net.rjnetwork.xianyu.manager.notify.model.NotifyChannel;
 import cn.net.rjnetwork.xianyu.manager.notify.model.NotifyLog;
 import cn.net.rjnetwork.xianyu.manager.notify.model.NotifyRetry;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +21,7 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 通知重试队列。发送失败或触发限频时入队（enqueue），
@@ -35,6 +37,7 @@ public class RetryService {
     private final NotifyLogMapper logMapper;
     private final CryptoUtil cryptoUtil;
     private final List<ChannelAdapter> adapters;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     @Value("${notify.retry.enabled:true}") private boolean enabled;
     @Value("${notify.retry.max-attempts:5}") private int maxAttempts;
@@ -70,6 +73,12 @@ public class RetryService {
             r.setRecipient(recipients == null || recipients.isEmpty() ? "(通道默认)" : String.join(",", recipients));
             r.setTitle(title);
             r.setBody(body);
+            try {
+                r.setVarsJson(event != null && event.getVars() != null
+                        ? mapper.writeValueAsString(event.getVars()) : "{}");
+            } catch (Exception ignore) {
+                r.setVarsJson("{}");
+            }
             r.setRetryCount(0);
             r.setMaxRetry(maxAttempts);
             long delay = initialDelaySeconds > 0 ? initialDelaySeconds : initialDelay;
@@ -121,7 +130,14 @@ public class RetryService {
             if (adapter == null) {
                 throw new IllegalStateException("无对应通道适配器： " + channel.getType());
             }
-            adapter.send(channel, r.getTitle(), r.getBody(), recipients);
+            Map<String, Object> vars = Collections.emptyMap();
+            if (r.getVarsJson() != null && !r.getVarsJson().isBlank()) {
+                try {
+                    vars = mapper.readValue(r.getVarsJson(),
+                            new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+                } catch (Exception ignore) {}
+            }
+            adapter.send(channel, r.getTitle(), r.getBody(), recipients, vars);
             r.setStatus("DONE");
             retryMapper.updateById(r);
             writeLog(r, "SENT", null);

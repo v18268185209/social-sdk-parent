@@ -19,6 +19,7 @@ public class NotifyRetry {
     private String recipient;
     private String title;
     private String body;
+    private String varsJson;            // 触发事件的模板变量 JSON（用于重试时结构化重发）
     private Integer retryCount = 0;     // 已重试次数
     private Integer maxRetry = 5;       // 最大重试次数
     private LocalDateTime nextRetryAt;  // 下次重试时间

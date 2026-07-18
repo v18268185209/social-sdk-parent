@@ -52,6 +52,7 @@ public class DatabaseInitializer {
                 ScriptUtils.executeSqlScript(dataSource.getConnection(), resource);
                 logger.info("Database schema initialized successfully");
             }
+            ensureNotifyRetryColumns();
         } catch (Exception e) {
             logger.warn("Database initialization skipped (may already exist): {}", e.getMessage());
         }
@@ -62,6 +63,31 @@ public class DatabaseInitializer {
             logger.info("Default admin account initialized (username: admin, password: admin123)");
         } catch (Exception e) {
             logger.warn("Admin initialization skipped: {}", e.getMessage());
+        }
+    }
+
+    /** 兼容旧库：schema 的 CREATE TABLE IF NOT EXISTS 不会给已存在的表补列，这里手动补齐 */
+    private void ensureNotifyRetryColumns() {
+        try (java.sql.Connection conn = dataSource.getConnection()) {
+            boolean hasCol = false;
+            try (java.sql.PreparedStatement ps = conn.prepareStatement("PRAGMA table_info(notify_retry)")) {
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        if ("vars_json".equalsIgnoreCase(rs.getString("name"))) {
+                            hasCol = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!hasCol) {
+                try (java.sql.Statement st = conn.createStatement()) {
+                    st.execute("ALTER TABLE notify_retry ADD COLUMN vars_json TEXT");
+                    logger.info("Added column vars_json to notify_retry");
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("ensureNotifyRetryColumns skipped: {}", e.getMessage());
         }
     }
 }
