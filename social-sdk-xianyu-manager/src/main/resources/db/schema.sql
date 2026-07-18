@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS xianyu_product (
     category_id VARCHAR(64),
     images TEXT,
     description TEXT,
+    videos TEXT, -- 视频 URL 的 JSON 数组
     detail_url VARCHAR(512),
     view_count INTEGER DEFAULT 0,
     favorite_count INTEGER DEFAULT 0,

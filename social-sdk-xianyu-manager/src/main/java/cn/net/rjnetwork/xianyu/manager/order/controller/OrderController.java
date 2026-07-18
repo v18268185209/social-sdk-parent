@@ -37,6 +37,14 @@ public class OrderController {
         return ApiResponse.ok(result);
     }
 
+    /**
+     * 调试：查看 API 原始返回（开发诊断用）
+     */
+    @GetMapping("/accounts/{accountId}/debug")
+    public ApiResponse<java.util.Map<String, Object>> debug(@PathVariable Long accountId) {
+        return ApiResponse.ok(orderSyncService.debugRawResponse(accountId));
+    }
+
     @GetMapping("/{id}")
     public ApiResponse<XianyuOrder> getById(@PathVariable Long id) {
         XianyuOrder order = orderService.getById(id);

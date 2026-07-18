@@ -60,8 +60,9 @@ public class ProductService {
         product.setOriginalPrice(request.getOriginalPrice());
         product.setStock(request.getStock());
         product.setCategoryId(request.getCategoryId());
-        product.setImages(request.getImages());
         product.setDescription(request.getDescription());
+        product.setImages(toJsonArray(request.getImages()));
+        product.setVideos(toJsonArray(request.getVideos()));
         product.setStatus("DRAFT");
         product.setViewCount(0);
         product.setFavoriteCount(0);
@@ -82,8 +83,9 @@ public class ProductService {
         if (request.getOriginalPrice() != null) product.setOriginalPrice(request.getOriginalPrice());
         if (request.getStock() != 0) product.setStock(request.getStock());
         if (request.getCategoryId() != null) product.setCategoryId(request.getCategoryId());
-        if (request.getImages() != null) product.setImages(request.getImages());
         if (request.getDescription() != null) product.setDescription(request.getDescription());
+        if (request.getImages() != null) product.setImages(toJsonArray(request.getImages()));
+        if (request.getVideos() != null) product.setVideos(toJsonArray(request.getVideos()));
         product.setUpdatedAt(LocalDateTime.now());
         productMapper.updateById(product);
         return product;
@@ -333,5 +335,18 @@ public class ProductService {
             this.inserted = inserted;
             this.updated = updated;
         }
+    }
+
+
+
+    /** 将 URL 列表序列化为 JSON 数组字符串，null/空列表返回 null */
+    private String toJsonArray(List<String> urls) {
+        if (urls == null || urls.isEmpty()) return null;
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < urls.size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append("\"").append(urls.get(i).replace("\"", "\\\"")).append("\"");
+        }
+        return sb.append("]").toString();
     }
 }

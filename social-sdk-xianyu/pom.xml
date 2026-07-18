@@ -7,7 +7,7 @@
     <parent>
         <groupId>cn.net.rjnetwork</groupId>
         <artifactId>social-sdk-parent</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <version>0.0.1</version>
     </parent>
 
     <artifactId>social-sdk-xianyu</artifactId>

@@ -22,6 +22,7 @@ public class XianyuProduct extends BaseEntity {
     private String categoryId;
     private String images; // JSON array of image URLs
     private String description;
+    private String videos; // JSON array of video URLs
     private String detailUrl;
     private Integer viewCount;
     private Integer favoriteCount;
