@@ -13,10 +13,12 @@ import java.math.BigDecimal;
 public class XianyuOrder extends BaseEntity {
 
     private Long accountId;
+    private String type; // SOLD, BOUGHT
     private String orderId;
     private String itemTitle;
-    private String buyerName;
+    private String counterpartyName;
     private BigDecimal amount;
     private String status; // PENDING, PAID, SHIPPED, COMPLETED, REFUNDING
     private String trackingNo;
+    private java.time.LocalDateTime orderTime;
 }

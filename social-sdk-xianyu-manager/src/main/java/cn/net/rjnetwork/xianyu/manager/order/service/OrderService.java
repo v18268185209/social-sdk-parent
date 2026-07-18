@@ -17,16 +17,16 @@ public class OrderService {
         this.orderMapper = orderMapper;
     }
 
-    public Page<XianyuOrder> listPage(int pageNum, int pageSize, Long accountId, String tab) {
+    public Page<XianyuOrder> listPage(int pageNum, int pageSize, Long accountId, String type) {
         Page<XianyuOrder> page = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<XianyuOrder> wrapper = new LambdaQueryWrapper<>();
         if (accountId != null) {
             wrapper.eq(XianyuOrder::getAccountId, accountId);
         }
-        if ("sold".equals(tab)) {
-            wrapper.eq(XianyuOrder::getStatus, "PAID");
-        } else if ("bought".equals(tab)) {
-            wrapper.eq(XianyuOrder::getStatus, "PENDING");
+        if ("SOLD".equals(type)) {
+            wrapper.eq(XianyuOrder::getType, "SOLD");
+        } else if ("BOUGHT".equals(type)) {
+            wrapper.eq(XianyuOrder::getType, "BOUGHT");
         }
         wrapper.orderByDesc(XianyuOrder::getUpdatedAt);
         orderMapper.selectPage(page, wrapper);

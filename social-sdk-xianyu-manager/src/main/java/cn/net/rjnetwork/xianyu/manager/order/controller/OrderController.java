@@ -3,6 +3,7 @@ package cn.net.rjnetwork.xianyu.manager.order.controller;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import cn.net.rjnetwork.xianyu.manager.order.model.XianyuOrder;
 import cn.net.rjnetwork.xianyu.manager.order.service.OrderService;
+import cn.net.rjnetwork.xianyu.manager.order.service.OrderSyncService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.web.bind.annotation.*;
 
@@ -11,9 +12,11 @@ import org.springframework.web.bind.annotation.*;
 public class OrderController {
 
     private final OrderService orderService;
+    private final OrderSyncService orderSyncService;
 
-    public OrderController(OrderService orderService) {
+    public OrderController(OrderService orderService, OrderSyncService orderSyncService) {
         this.orderService = orderService;
+        this.orderSyncService = orderSyncService;
     }
 
     @GetMapping
@@ -21,8 +24,17 @@ public class OrderController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) Long accountId,
-            @RequestParam(required = false) String tab) {
-        return ApiResponse.ok(orderService.listPage(page, size, accountId, tab));
+            @RequestParam(required = false) String type) {
+        return ApiResponse.ok(orderService.listPage(page, size, accountId, type));
+    }
+
+    @PostMapping("/accounts/{accountId}/sync")
+    public ApiResponse<OrderSyncService.SyncResult> sync(@PathVariable Long accountId) {
+        OrderSyncService.SyncResult result = orderSyncService.syncOrders(accountId);
+        if (!result.success) {
+            return ApiResponse.fail("SYNC_FAILED", result.message);
+        }
+        return ApiResponse.ok(result);
     }
 
     @GetMapping("/{id}")

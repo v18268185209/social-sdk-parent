@@ -88,12 +88,14 @@ CREATE TABLE IF NOT EXISTS xianyu_message (
 CREATE TABLE IF NOT EXISTS xianyu_order (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER NOT NULL,
+    type VARCHAR(16) DEFAULT 'BOUGHT', -- SOLD, BOUGHT
     order_id VARCHAR(64),
     item_title VARCHAR(256),
-    buyer_name VARCHAR(128),
+    counterparty_name VARCHAR(128), -- 买方名字(bought)或卖方名字(sold)
     amount REAL,
     status VARCHAR(32) DEFAULT 'PENDING',
     tracking_no VARCHAR(64),
+    order_time DATETIME, -- 订单创建时间(来自闲鱼 API)
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted INTEGER DEFAULT 0

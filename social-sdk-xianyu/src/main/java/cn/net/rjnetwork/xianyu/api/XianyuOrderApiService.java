@@ -20,6 +20,27 @@ public class XianyuOrderApiService {
     }
 
     /**
+     * 获取我卖出的订单列表 — 真实接口 mtop.idle.web.trade.sold.list
+     * <p>真实抓包验证（2026-07-18 CDP 导航到 https://www.goofish.com/sold）：</p>
+     * <ul>
+     *   <li>POST https://h5api.m.goofish.com/h5/mtop.idle.web.trade.sold.list/1.0/</li>
+     *   <li>data: {} （无业务参数，按 cookie 解身份）</li>
+     *   <li>返回 data.items[] → 每项含 commonData.orderId/itemId/peerUserId/buyer/tradeStatusEnum/orderDetailUrl</li>
+     *   <li>  content.data.detailInfo.{auctionTitle,auctionPic} / content.data.priceInfo.{price,buyAmount}</li>
+     *   <li>  head.data.{createTime,statusViewMsg,userInfo.userNick,userIcon,userId}</li>
+     * </ul>
+     *
+     * @param pageNumber 页码（从 1 开始），可选
+     * @param pageSize 每页条数，可选
+     */
+    public JsonNode getSoldOrderList(String pageNumber, String pageSize) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        if (pageNumber != null && !pageNumber.isBlank()) data.put("pageNumber", pageNumber);
+        if (pageSize != null && !pageSize.isBlank()) data.put("pageSize", pageSize);
+        return apiClient.callMtop("mtop.idle.web.trade.sold.list", toJson(data));
+    }
+
+    /**
      * 获取我买到的订单列表 — 真实接口 mtop.idle.web.trade.bought.list
      * <p>真实抓包验证（2026-07-18 CDP 导航到 https://www.goofish.com/bought）：</p>
      * <ul>
