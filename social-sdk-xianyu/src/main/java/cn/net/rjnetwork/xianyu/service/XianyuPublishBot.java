@@ -45,16 +45,63 @@ public class XianyuPublishBot {
      * 因此需要先到首页再点「发布」入口进入真正的发布表单。
      * 返回是否成功进入发布表单（页面出现「发闲置」/「发布」相关文案）。
      */
+    /**
+     * 进入发布表单。
+     *
+     * <p>闲鱼是 SPA，{@code Page.navigate} 到 {@code /publish} URL 后浏览器只加载初始壳，
+     * 闲鱼前端路由判断未初始化就把 DOM 替换成首页（截图看到的"登录页"其实是首页含登录入口）。
+     * 因此放弃 URL 导航，改用 SPA 内部跳转：先确认在 goofish 域且已登录，
+     * 再点击首页右上角「发布」入口触发 SPA 路由跳转，等「宝贝图片/发闲置」文案出现再继续。</p>
+     *
+     * <p>若点击后文案未出现，说明 SPA 状态机丢失登录态——需要先刷新首页再重试点击。
+     * 整个流程带超时保活，最多 3 次重试。</p>
+     */
     public boolean enterPublishForm() {
-        bot.navigate(xianyuUrl);
-        bot.sleep(2000);
-        // 首页右上角「发布」入口
-        boolean clicked = bot.clickByText("发布", true);
-        if (!clicked) {
-            clicked = bot.clickByText("发闲置", true);
+        // 已在发布表单则直接返回
+        if (isInPublishForm()) return true;
+
+        // 确保在 goofish 域；不在则导航过去（域外导航有效，SPA 内导航才无效）
+        String url = bot.getUrl();
+        if (url == null || !url.contains("goofish.com")) {
+            bot.navigate(xianyuUrl);
+            bot.sleep(2500);
         }
-        bot.sleep(2500);
+
+        // 最多 3 轮：点击「发布」入口 → 等文案 → 没到则刷新首页重试
+        for (int attempt = 0; attempt < 3; attempt++) {
+            // 登录态保活：若首页含登录入口说明 SPA 状态机丢登录，刷新首页
+            String body = bot.getBodyText();
+            if (body != null && (body.contains("立即登录") || body.contains("扫码登录"))
+                    && !body.contains("发闲置") && !body.contains("我发布的")) {
+                bot.navigate(xianyuUrl);
+                bot.sleep(2500);
+            }
+
+            boolean clicked = bot.clickByText("发布", true)
+                    || bot.clickByText("发闲置", true);
+            if (!clicked) {
+                bot.sleep(800);
+                continue;
+            }
+            // 等发布表单文案出现（轮询 8s）
+            if (waitForPublishForm(8000)) {
+                return true;
+            }
+            // 点击后没进表单，刷新首页再重试
+            bot.navigate(xianyuUrl);
+            bot.sleep(2500);
+        }
         return isInPublishForm();
+    }
+
+    /** �轮询直到进入发布表单或超时。 */
+    private boolean waitForPublishForm(long timeoutMs) {
+        long end = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < end) {
+            if (isInPublishForm()) return true;
+            bot.sleep(500);
+        }
+        return false;
     }
 
     /** 判定是否已进入发布表单（页面出现宝贝图片/描述/价格等核心字段文案）。 */
@@ -234,24 +281,27 @@ public class XianyuPublishBot {
             String tag = n.get("tag").asText();
             // 点击聚焦
             client.click(x, y);
-            bot.sleep(300);
-            // 清空：选中全删
-            client.send("Input.dispatchKeyEvent", jsonNode("type", "keyDown").put("key", "ControlLeft")).get(3, TimeUnit.SECONDS);
-            client.send("Input.dispatchKeyEvent", jsonNode("type", "keyDown").put("key", "A").put("modifiers", 2)).get(3, TimeUnit.SECONDS);
-            client.send("Input.dispatchKeyEvent", jsonNode("type", "keyUp").put("key", "A").put("modifiers", 2)).get(3, TimeUnit.SECONDS);
-            client.send("Input.dispatchKeyEvent", jsonNode("type", "keyUp").put("key", "ControlLeft")).get(3, TimeUnit.SECONDS);
-            client.send("Input.dispatchKeyEvent", jsonNode("type", "keyDown").put("key", "Backspace")).get(3, TimeUnit.SECONDS);
-            client.send("Input.dispatchKeyEvent", jsonNode("type", "keyUp").put("key", "Backspace")).get(3, TimeUnit.SECONDS);
-            // 输入文本（按字符插以兼容中文）
-            String val = text.length() > maxLength ? text.substring(0, maxLength) : text;
-            if ("INPUT".equals(tag) || "TEXTAREA".equals(tag)) {
-                client.type(val);
-            } else {
-                // contenteditable：用 insertText
-                client.send("Input.insertText", MAPPER.createObjectNode().put("text", val)).get(3, TimeUnit.SECONDS);
-            }
             bot.sleep(400);
-            return true;
+            // 清空：单次 JS 端 select+delete，避免 6 次 dispatchKeyEvent 串行 RTT 累加超时
+            bot.eval("(function(){var s=window.getSelection();if(s){s.removeAllRanges();}try{document.execCommand('selectAll');document.execCommand('delete');}catch(e){}})()");
+            bot.sleep(200);
+            // 输入文本：用 JS 直接设 value/dispatch input 事件（最稳，不卡 WebSocket）
+            String val = text.length() > maxLength ? text.substring(0, maxLength) : text;
+            String setVal = "(function(){"
+                    + "var el=document.activeElement;"
+                    + "if(!el) return 'no-focus';"
+                    + "if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){"
+                    + "  el.value=" + bot.js(val) + ";"
+                    + "  el.dispatchEvent(new Event('input',{bubbles:true}));"
+                    + "  el.dispatchEvent(new Event('change',{bubbles:true}));"
+                    + "} else {"
+                    + "  el.innerText=" + bot.js(val) + ";"
+                    + "  el.dispatchEvent(new InputEvent('input',{bubbles:true}));"
+                    + "}"
+                    + "return 'ok';})()";
+            String ok = bot.eval(setVal);
+            bot.sleep(500);
+            return "ok".equals(ok);
         } catch (Exception e) {
             return false;
         }

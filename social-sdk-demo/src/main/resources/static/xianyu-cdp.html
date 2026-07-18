@@ -113,6 +113,149 @@
       <pre id="recvPre"></pre>
     </div>
 
+    <!-- 7. 商品发布 -->
+    <div class="card">
+      <h2><span class="n">7</span>商品发布</h2>
+      <div class="row"><button id="btnPubForm">检测是否在发布表单</button></div>
+      <div class="hint">先点「检测」确认进入发布表单；若不在表单会自动尝试从首页点「发布」进入。</div>
+      <div class="row">
+        <input id="pubTitle" placeholder="标题(必填)" />
+        <input id="pubPrice" placeholder="价格(元)" />
+      </div>
+      <div class="row">
+        <input id="pubDesc" placeholder="描述(可选)" />
+        <input id="pubCategory" placeholder="分类(可选)" />
+        <input id="pubStock" placeholder="库存(默认1)" />
+      </div>
+      <div class="row">
+        <input id="pubImages" placeholder="本地图片路径,逗号分隔(可选)" />
+        <input id="pubSuccessKw" placeholder="成功关键字(默认用标题)" />
+      </div>
+      <div class="row">
+        <button id="btnDraft">仅填草稿(不发布)</button>
+        <button id="btnPublish">填写并发布</button>
+      </div>
+      <div id="pubImg" class="qr" style="display:none"></div>
+      <pre id="pubPre"></pre>
+    </div>
+
+    <!-- 8. 交易闭环 -->
+    <div class="card">
+      <h2><span class="n">8</span>交易闭环</h2>
+      <div class="row"><button id="btnSold">加载我卖出的订单</button></div>
+      <div class="row">
+        <input id="soldKw" placeholder="订单/商品关键字" />
+        <button id="btnOrderDetail">查订单详情</button>
+        <button id="btnBatchShip" class="ghost">批量发货</button>
+        <input id="batchShipNo" placeholder="物流单号(可选)" />
+      </div>
+      <div class="row">
+        <input id="reviewKw" placeholder="订单关键字" />
+        <input id="reviewComment" placeholder="评价内容(可选)" />
+        <input id="reviewStars" placeholder="星级1-5(默认5)" />
+        <button id="btnReview">提交评价</button>
+      </div>
+      <div class="row">
+        <input id="replyFilter" placeholder="会话过滤(可选)" />
+        <input id="replyText" placeholder="自动回复内容" />
+        <button id="btnAutoReply">对所有会话自动回复</button>
+      </div>
+      <pre id="tradePre"></pre>
+    </div>
+
+    <!-- 9. 账户管理 -->
+    <div class="card">
+      <h2><span class="n">9</span>账户管理</h2>
+      <div class="row"><button id="btnAcctVerify">验证登录态+昵称</button></div>
+      <div class="row"><button id="btnAcctInfo">读取个人信息</button></div>
+      <div class="row">
+        <button id="btnAcctLogout">登出当前账号</button>
+        <button id="btnAcctSwitch">切换账号(登出+扫码)</button>
+      </div>
+      <pre id="acctPre"></pre>
+    </div>
+
+    <!-- 10. 商品能力聚合 -->
+    <div class="card">
+      <h2><span class="n">10</span>商品能力</h2>
+      <div class="row">
+        <input id="editKw" placeholder="商品关键字" />
+        <button id="btnEdit">编辑商品(下方填新值)</button>
+      </div>
+      <div class="row">
+        <input id="editTitle" placeholder="新标题(留空保留)" />
+        <input id="editPrice" placeholder="新价格(留空保留)" />
+        <input id="editDesc" placeholder="新描述(留空保留)" />
+      </div>
+      <div class="row">
+        <input id="batchKws" placeholder="上下架关键字,逗号分隔" />
+        <button id="btnBatchUp">批量上架</button>
+        <button id="btnBatchDown">批量下架</button>
+      </div>
+      <div class="row">
+        <input id="searchKw" placeholder="搜索关键字" />
+        <button id="btnSearch">搜索商品</button>
+        <input id="visitUrl" placeholder="商品详情URL" />
+        <button id="btnVisit">浏览</button>
+        <button id="btnLike">点赞</button>
+      </div>
+      <div class="row">
+        <input id="browseKw" placeholder="自动浏览搜索词" />
+        <input id="browseMax" placeholder="最多N个(默认5)" />
+        <button id="btnBrowse">自动浏览+点赞</button>
+      </div>
+      <div id="prodImg" class="qr" style="display:none"></div>
+      <pre id="prodPre"></pre>
+    </div>
+
+    <!-- 11. 消息能力聚合 -->
+    <div class="card">
+      <h2><span class="n">11</span>消息能力</h2>
+      <div class="row">
+        <input id="msgKwKw" placeholder="消息关键字" />
+        <input id="msgKwReply" placeholder="回复内容" />
+        <button id="btnMsgKw">关键词回复</button>
+      </div>
+      <div class="row">
+        <input id="msgRules" placeholder='自定义词规则JSON如{"在吗":"在的","邮费":"包邮"}' style="width:60%" />
+        <button id="btnMsgRules">自定义词回复</button>
+      </div>
+      <div class="row">
+        <input id="msgAiUrl" placeholder="AI接口URL(留空用兜底回复)" style="width:50%" />
+        <input id="msgAiToken" placeholder="AI Token(可选)" />
+        <button id="btnMsgAi">AI接管回复</button>
+      </div>
+      <div class="row">
+        <input id="msgBroadcast" placeholder="群发文案" />
+        <button id="btnMsgBroadcast">群发所有会话</button>
+      </div>
+      <pre id="msgPre"></pre>
+    </div>
+
+    <!-- 12. 订单能力聚合 -->
+    <div class="card">
+      <h2><span class="n">12</span>订单能力</h2>
+      <div class="row">
+        <button id="btnOrdSold">待发货订单</button>
+        <button id="btnOrdBought">待收货订单</button>
+      </div>
+      <div class="row">
+        <input id="ordKw" placeholder="订单关键字" />
+        <button id="btnOrdDetail">查详情</button>
+        <button id="btnOrdBatchShip">批量发货</button>
+        <input id="ordShipNo" placeholder="物流单号(可选)" />
+        <button id="btnOrdBatchAccept">批量确认收货</button>
+      </div>
+      <div class="row">
+        <input id="ordReviewKw" placeholder="评价订单关键字" />
+        <input id="ordReviewComment" placeholder="评价内容(可选)" />
+        <input id="ordReviewStars" placeholder="星级1-5(默认5)" />
+        <button id="btnOrdReview">提交评价</button>
+      </div>
+      <div id="ordImg" class="qr" style="display:none"></div>
+      <pre id="ordPre"></pre>
+    </div>
+
   </div>
 
   <div id="imageModal" class="image-modal" aria-hidden="true">
@@ -123,10 +266,13 @@
 <script>
 const API = "/api/xianyu/cdp";
 function show(pre, data){ pre.textContent = typeof data==="string" ? data : JSON.stringify(data,null,2); }
-async function call(method, path, params){
+async function call(method, path, params, jsonBody){
   let url = API+path;
   const opt = { method, headers:{} };
-  if(method==="POST" && params){
+  if(jsonBody){
+    opt.headers["Content-Type"]="application/json";
+    opt.body = JSON.stringify(jsonBody);
+  } else if(method==="POST" && params){
     url += "?" + new URLSearchParams(params).toString();
   }
   const r = await fetch(url, opt);
@@ -267,6 +413,168 @@ document.getElementById("btnAccept").onclick = async ()=>{
   const r = await call("POST","/receipt/accept",{keyword:document.getElementById("recvKw").value});
   show(document.getElementById("recvPre"), r.data||r.message);
 };
+
+// ===== 7. 商品发布 =====
+function buildPublishItem(publish){
+  const item = {
+    title: document.getElementById("pubTitle").value,
+    description: document.getElementById("pubDesc").value,
+    category: document.getElementById("pubCategory").value,
+    stock: parseInt(document.getElementById("pubStock").value || "1", 10),
+    images: document.getElementById("pubImages").value
+      ? document.getElementById("pubImages").value.split(/[,，]/).map(s=>s.trim()).filter(Boolean) : [],
+    publish: publish
+  };
+  const price = parseFloat(document.getElementById("pubPrice").value);
+  if(!isNaN(price)) item.price = price;
+  const sk = document.getElementById("pubSuccessKw").value.trim();
+  if(sk) item.successKeyword = sk;
+  return item;
+}
+document.getElementById("btnPubForm").onclick = async ()=>{
+  const r = await call("GET","/publish/form");
+  show(document.getElementById("pubPre"), r.data||r.message);
+  if(r.data && r.data.image){
+    const img = document.getElementById("pubImg");
+    img.style.display="block";
+    img.onclick = ()=>openImagePreview("data:image/png;base64,"+r.data.image);
+    img.title="点击放大预览";
+    img.innerHTML = '<img src="data:image/png;base64,'+r.data.image+'" style="max-width:220px;border-radius:8px;background:#fff"/>';
+  }
+};
+document.getElementById("btnDraft").onclick = async ()=>{
+  const item = buildPublishItem(false);
+  if(!item.title){ show(document.getElementById("pubPre"), "标题必填"); return; }
+  const r = await call("POST","/publish/draft", null, item);
+  show(document.getElementById("pubPre"), r.data||r.message);
+  if(r.data && r.data.screenshot){
+    const img = document.getElementById("pubImg");
+    img.style.display="block";
+    img.innerHTML = '<img src="data:image/png;base64,'+r.data.screenshot+'" style="max-width:220px;border-radius:8px;background:#fff"/>';
+    img.onclick = ()=>openImagePreview("data:image/png;base64,"+r.data.screenshot);
+  }
+};
+document.getElementById("btnPublish").onclick = async ()=>{
+  const item = buildPublishItem(true);
+  if(!item.title){ show(document.getElementById("pubPre"), "标题必填"); return; }
+  const r = await call("POST","/publish/submit", null, item);
+  show(document.getElementById("pubPre"), r.data||r.message);
+  if(r.data && r.data.screenshot){
+    const img = document.getElementById("pubImg");
+    img.style.display="block";
+    img.innerHTML = '<img src="data:image/png;base64,'+r.data.screenshot+'" style="max-width:220px;border-radius:8px;background:#fff"/>';
+    img.onclick = ()=>openImagePreview("data:image/png;base64,"+r.data.screenshot);
+  }
+};
+
+// ===== 8. 交易闭环 =====
+document.getElementById("btnSold").onclick = async ()=>{
+  const r = await call("GET","/trade/sold"); show(document.getElementById("tradePre"), r.data||r.message);
+};
+document.getElementById("btnOrderDetail").onclick = async ()=>{
+  const r = await call("GET","/trade/order/detail", {keyword: document.getElementById("soldKw").value});
+  show(document.getElementById("tradePre"), r.data||r.message);
+};
+document.getElementById("btnBatchShip").onclick = async ()=>{
+  const r = await call("POST","/trade/ship/batch", {
+    keyword: document.getElementById("soldKw").value,
+    logisticsNo: document.getElementById("batchShipNo").value
+  });
+  show(document.getElementById("tradePre"), r.data||r.message);
+};
+document.getElementById("btnReview").onclick = async ()=>{
+  const r = await call("POST","/trade/review", {
+    keyword: document.getElementById("reviewKw").value,
+    comment: document.getElementById("reviewComment").value,
+    stars: document.getElementById("reviewStars").value || "5"
+  });
+  show(document.getElementById("tradePre"), r.data||r.message);
+};
+document.getElementById("btnAutoReply").onclick = async ()=>{
+  const r = await call("POST","/trade/message/auto-reply", {
+    filter: document.getElementById("replyFilter").value,
+    reply: document.getElementById("replyText").value
+  });
+  show(document.getElementById("tradePre"), r.data||r.message);
+};
+
+// ===== 9. 账户管理 =====
+function showAcct(r){ show(document.getElementById("acctPre"), r.data||r.message); }
+document.getElementById("btnAcctVerify").onclick = async ()=>{ showAcct(await call("GET","/account/verify")); };
+document.getElementById("btnAcctInfo").onclick = async ()=>{ showAcct(await call("GET","/account/personal")); };
+document.getElementById("btnAcctLogout").onclick = async ()=>{ showAcct(await call("POST","/account/logout")); };
+document.getElementById("btnAcctSwitch").onclick = async ()=>{ showAcct(await call("POST","/account/switch")); };
+
+// ===== 10. 商品能力 =====
+function showProd(r){ show(document.getElementById("prodPre"), r.data||r.message);
+  const d=r.data||{}; const img=d.screenshot||d.image;
+  if(img){ const e=document.getElementById("prodImg"); e.style.display="block";
+    e.innerHTML='<img src="data:image/png;base64,'+img+'" style="max-width:220px;border-radius:8px;background:#fff"/>';
+    e.onclick=()=>openImagePreview("data:image/png;base64,"+img); }
+}
+document.getElementById("btnEdit").onclick = async ()=>{
+  const item={};
+  const t=document.getElementById("editTitle").value; if(t) item.title=t;
+  const p=parseFloat(document.getElementById("editPrice").value); if(!isNaN(p)) item.price=p;
+  const d2=document.getElementById("editDesc").value; if(d2) item.description=d2;
+  const r=await call("POST","/product/edit?keyword="+encodeURIComponent(document.getElementById("editKw").value), null, item);
+  showProd(r);
+};
+document.getElementById("btnBatchUp").onclick = async ()=>{
+  showProd(await call("POST","/product/batch-shelf", {keywords:document.getElementById("batchKws").value, action:"上架"}));
+};
+document.getElementById("btnBatchDown").onclick = async ()=>{
+  showProd(await call("POST","/product/batch-shelf", {keywords:document.getElementById("batchKws").value, action:"下架"}));
+};
+document.getElementById("btnSearch").onclick = async ()=>{
+  showProd(await call("GET","/product/search?keyword="+encodeURIComponent(document.getElementById("searchKw").value)));
+};
+document.getElementById("btnVisit").onclick = async ()=>{
+  showProd(await call("GET","/product/visit?url="+encodeURIComponent(document.getElementById("visitUrl").value)));
+};
+document.getElementById("btnLike").onclick = async ()=>{
+  showProd(await call("GET","/product/like?url="+encodeURIComponent(document.getElementById("visitUrl").value)));
+};
+document.getElementById("btnBrowse").onclick = async ()=>{
+  const max=parseInt(document.getElementById("browseMax").value||"5",10);
+  showProd(await call("GET","/product/browse-and-like?keyword="+encodeURIComponent(document.getElementById("browseKw").value)+"&max="+max));
+};
+
+// ===== 11. 消息能力 =====
+function showMsg(r){ show(document.getElementById("msgPre"), r.data||r.message); }
+document.getElementById("btnMsgKw").onclick = async ()=>{
+  showMsg(await call("POST","/message/reply-by-keyword", {
+    keyword: document.getElementById("msgKwKw").value,
+    reply: document.getElementById("msgKwReply").value
+  }));
+};
+document.getElementById("btnMsgRules").onclick = async ()=>{
+  let rules={}; try{ rules=JSON.parse(document.getElementById("msgRules").value||"{}"); }catch(e){ showMsg("规则 JSON 解析失败"); return; }
+  showMsg(await call("POST","/message/reply-by-rules", null, rules));
+};
+document.getElementById("btnMsgAi").onclick = async ()=>{
+  showMsg(await call("POST","/message/reply-by-ai", {
+    aiUrl: document.getElementById("msgAiUrl").value||"",
+    token: document.getElementById("msgAiToken").value||""
+  }));
+};
+document.getElementById("btnMsgBroadcast").onclick = async ()=>{
+  showMsg(await call("POST","/message/broadcast", {text:document.getElementById("msgBroadcast").value}));
+};
+
+// ===== 12. 订单能力 =====
+function showOrd(r){ show(document.getElementById("ordPre"), r.data||r.message);
+  const d=r.data||{}; const img=d.screenshot||d.image;
+  if(img){ const e=document.getElementById("ordImg"); e.style.display="block";
+    e.innerHTML='<img src="data:image/png;base64,'+img+'" style="max-width:220px;border-radius:8px;background:#fff"/>';
+    e.onclick=()=>openImagePreview("data:image/png;base64,"+img); }
+}
+document.getElementById("btnOrdSold").onclick = async ()=>{ showOrd(await call("GET","/order/sold")); };
+document.getElementById("btnOrdBought").onclick = async ()=>{ showOrd(await call("GET","/order/bought")); };
+document.getElementById("btnOrdDetail").onclick = async ()=>{ showOrd(await call("GET","/order/detail?keyword="+encodeURIComponent(document.getElementById("ordKw").value))); };
+document.getElementById("btnOrdBatchShip").onclick = async ()=>{ showOrd(await call("POST","/order/ship/batch", {keyword:document.getElementById("ordKw").value, logisticsNo:document.getElementById("ordShipNo").value})); };
+document.getElementById("btnOrdBatchAccept").onclick = async ()=>{ showOrd(await call("POST","/order/accept/batch", {keyword:document.getElementById("ordKw").value})); };
+document.getElementById("btnOrdReview").onclick = async ()=>{ showOrd(await call("POST","/order/review", {keyword:document.getElementById("ordReviewKw").value, comment:document.getElementById("ordReviewComment").value, stars:document.getElementById("ordReviewStars").value||"5"})); };
 </script>
 </body>
 </html>

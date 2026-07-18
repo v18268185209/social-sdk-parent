@@ -949,6 +949,16 @@ public class XianyuCdpBot {
         return result;
     }
 
+    /** 简易登录态判定（cookie + 页面文案），供门面 {@code verifyLogin} 使用。 */
+    public boolean isLoggedIn() {
+        try {
+            Map<String, Object> s = loginStatus();
+            return Boolean.TRUE.equals(s.get("loggedIn"));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** 工具：直接执行任意 JS 表达式（供前端调试用）。 */
     public String evalExpression(String expression) {
         return eval(expression);
