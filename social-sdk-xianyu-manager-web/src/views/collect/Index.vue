@@ -63,6 +63,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/request'
+import { listCollects, addCollect, removeCollect } from '@/api/collect'
 
 const accounts = ref([])
 const collects = ref([])
@@ -83,7 +84,7 @@ async function loadCollects() {
   try {
     const params = { accountId: selectedAccountId.value }
     if (selectedType.value) params.targetType = selectedType.value
-    const res = await api.get('/collect', { params })
+    const res = await listCollects(params)
     if (res.success) collects.value = res.data
   } catch (e) {}
 }
@@ -95,7 +96,7 @@ async function handleAdd() {
   }
   try {
     addForm.value.accountId = selectedAccountId.value
-    const res = await api.post('/collect', addForm.value)
+    const res = await addCollect(addForm.value)
     if (res.success) {
       ElMessage.success('已添加')
       showAddDialog.value = false
@@ -107,7 +108,7 @@ async function handleAdd() {
 
 async function handleRemove(id) {
   try {
-    const res = await api.delete(`/collect/${id}`)
+    const res = await removeCollect(id)
     if (res.success) {
       ElMessage.success('已移除')
       await loadCollects()

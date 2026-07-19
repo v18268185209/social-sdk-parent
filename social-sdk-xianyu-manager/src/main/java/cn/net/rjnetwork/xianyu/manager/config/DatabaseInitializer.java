@@ -59,6 +59,7 @@ public class DatabaseInitializer {
             ensureProductColumns();
             ensureAiColumns();
             ensureOrderColumns();
+            ensureMessageColumns();
         } catch (Exception e) {
             logger.warn("Database initialization skipped (may already exist): {}", e.getMessage());
         }

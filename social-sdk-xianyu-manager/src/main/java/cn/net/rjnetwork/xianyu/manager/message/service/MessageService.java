@@ -11,6 +11,7 @@ import cn.net.rjnetwork.xianyu.manager.notify.NotifyEvent;
 import cn.net.rjnetwork.xianyu.manager.rule.service.RuleService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -120,7 +121,7 @@ public class MessageService {
     }
 
     /** 定时任务：每 30 秒拉取一次所有活跃账号的消息 */
-    @javax.annotation.PostConstruct
+    @PostConstruct
     public void init() {
         // 无需额外初始化
     }
