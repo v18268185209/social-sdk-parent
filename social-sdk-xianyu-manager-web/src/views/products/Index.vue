@@ -131,7 +131,7 @@
     <el-dialog v-model="showCreateDialog" title="创建商品" width="600px">
       <el-form :model="createForm" label-width="80px">
         <el-form-item label="账号">
-          <el-select v-model="createForm.accountId" placeholder="选择账号" style="width: 100%;">
+          <el-select v-model="createForm.accountId" placeholder="选择账号" style="width: 100%;" @change="onAccountChange">
             <el-option v-for="a in accounts" :key="a.id" :label="a.accountName" :value="a.id" />
           </el-select>
         </el-form-item>
@@ -151,8 +151,17 @@
           <el-input v-model="createForm.description" type="textarea" :rows="3" />
         </el-form-item>
         <el-form-item label="分类">
-          <el-input v-model="createForm.categoryId" placeholder="留空让闲鱼 AI 按标题自动推荐分类" />
-          <div style="font-size: 12px; color: #909399; margin-top: 4px;">填闲鱼分类 ID（数字），留空走 AI 推荐</div>
+          <el-cascader
+            v-model="createForm.categoryIdPath"
+            :options="categoryTree"
+            :props="{ value: 'catId', label: 'catName', children: 'children', checkStrictly: true, emitPath: false }"
+            placeholder="留空让闲鱼 AI 按标题自动推荐分类"
+            clearable
+            filterable
+            style="width: 100%;"
+            :loading="categoryTreeLoading"
+          />
+          <div style="font-size: 12px; color: #909399; margin-top: 4px;">从闲鱼拉分类树选择，留空走 AI 推荐</div>
         </el-form-item>
         <el-form-item label="运费">
           <el-select v-model="createForm.deliveryChoice" style="width: 100%;">
@@ -302,7 +311,10 @@ const aiLoading = ref(false)
 const aiActiveTab = ref('title')
 const filters = ref({ accountId: null, keyword: '', status: '' })
 const pagination = ref({ page: 1, size: 20, total: 0 })
-const createForm = ref({ accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '', categoryId: '', deliveryChoice: '按距离计费', postPrice: 0, location: '' })
+const createForm = ref({ accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '', categoryId: '', categoryIdPath: null, deliveryChoice: '按距离计费', postPrice: 0, location: '' })
+const categoryTree = ref([])
+const categoryTreeLoading = ref(false)
+const categoryTreeLoadedAccountId = ref(null)
 const aiForm = ref({ modelId: null, productTitle: '', keywordsRaw: '', condition: '九成新' })
 const aiResult = ref({ title: '', description: '', keywords: [] })
 
@@ -316,6 +328,40 @@ async function loadAccounts() {
     const res = await api.get('/accounts')
     if (res.success) accounts.value = res.data
   } catch (e) { /* ignore */ }
+}
+
+// 拉闲鱼分类树 — 创建商品表单分类下拉用，按 accountId 缓存避免重复拉
+async function loadCategoryTree(accountId) {
+  if (!accountId) { categoryTree.value = []; return }
+  if (categoryTreeLoadedAccountId.value === accountId && categoryTree.value.length > 0) return
+  categoryTreeLoading.value = true
+  try {
+    const res = await api.get('/products/category-tree', { params: { accountId } })
+    if (res.success) {
+      // 闲鱼返回 data.children[] 或 data[] 形式的嵌套树，前端按 catId/catName/children 渲染
+      // 兼容多种返回结构：data.children / data / 顶层数组
+      let tree = res.data
+      if (tree && tree.children) tree = tree.children
+      else if (tree && Array.isArray(tree.data)) tree = tree.data
+      else if (tree && Array.isArray(tree)) /* ok */
+      else tree = []
+      categoryTree.value = tree
+      categoryTreeLoadedAccountId.value = accountId
+    } else {
+      categoryTree.value = []
+    }
+  } catch (e) {
+    categoryTree.value = []
+  } finally {
+    categoryTreeLoading.value = false
+  }
+}
+
+// 账号切换时清已选分类 + 重拉分类树
+async function onAccountChange() {
+  createForm.value.categoryIdPath = null
+  createForm.value.categoryId = ''
+  await loadCategoryTree(createForm.value.accountId)
 }
 
 async function loadProducts() {
@@ -369,12 +415,16 @@ async function handleCreate() {
     .map(f => f.url)
   submitting.value = true
   try {
-    const payload = { ...createForm.value, images, videos }
+    // el-cascader 选中节点对象（checkStrictly + emitPath:false 时 v-model 拿到 catId 值）
+    // 但 el-cascader 的 v-model 在 checkStrictly 模式下拿到的是选中节点 value（catId），不是 path
+    const catId = createForm.value.categoryIdPath || ''
+    const payload = { ...createForm.value, categoryId: catId, images, videos }
+    delete payload.categoryIdPath
     const res = await api.post('/products', payload)
     if (res.success) {
       ElMessage.success('商品创建成功')
       showCreateDialog.value = false
-      createForm.value = { accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '', categoryId: '', deliveryChoice: '按距离计费', postPrice: 0, location: '' }
+      createForm.value = { accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '', categoryId: '', categoryIdPath: null, deliveryChoice: '按距离计费', postPrice: 0, location: '' }
       imageFileList.value = []
       videoFileList.value = []
       await loadProducts()
@@ -410,8 +460,12 @@ function editPrice(row) {
       if (res.success) {
         ElMessage.success('价格已更新')
         await loadProducts()
+      } else {
+        ElMessage.error(res.message || '改价失败')
       }
-    } catch (e) {}
+    } catch (e) {
+      ElMessage.error('改价失败：' + (e?.response?.data?.message || e?.message || '请重试'))
+    }
   }).catch(() => {})
 }
 
@@ -422,8 +476,12 @@ function editStock(row) {
       if (res.success) {
         ElMessage.success('库存已更新')
         await loadProducts()
+      } else {
+        ElMessage.error(res.message || '改库存失败')
       }
-    } catch (e) {}
+    } catch (e) {
+      ElMessage.error('改库存失败：' + (e?.response?.data?.message || e?.message || '请重试'))
+    }
   }).catch(() => {})
 }
 

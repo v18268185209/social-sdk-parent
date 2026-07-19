@@ -11,6 +11,10 @@
           <el-button type="primary" size="small" :loading="syncing" @click="handleSyncNow">
             同步消息
           </el-button>
+          <el-tag v-if="syncMsg" size="small" :type="syncMsg.includes('成功') ? 'success' : (syncMsg.includes('中') ? 'info' : 'error')" effect="plain">
+            {{ syncMsg }}
+          </el-tag>
+          <el-tag size="small" type="success" effect="plain">实时监听运行中（30s 轮询）</el-tag>
           <el-button type="warning" size="small" @click="openCaptchaPage" v-if="accounts.length > 0">
             打开滑块验证
           </el-button>
@@ -133,12 +137,31 @@ async function loadSessions() {
   selectedSession.value = ''
   selectedSessionData.value = { counterpartyName: '', lastContent: '' }
   try {
-    const res = await api.get('/messages/sessions', { params: { accountId: selectedAccount.value } })
-    if (res.success) {
-      sessions.value = Array.isArray(res.data) ? res.data : []
+    // 调新 /messages/list 按 accountId 拉本地已同步消息，前端按 sessionId 二次分组渲染会话卡片
+    const res = await api.get('/messages/list', { params: { accountId: selectedAccount.value, limit: 200 } })
+    if (res.success && Array.isArray(res.data)) {
+      // 按 sessionId 分组 + 拿每会话最新消息作为 session 摘要
+      // 后端返回按 messageTime 倒序，所以遍历时第一次遇到的 sessionId 就是该会话最新消息
+      const sessionMap = new Map()
+      for (const msg of res.data) {
+        const sid = msg.sessionId
+        if (!sessionMap.has(sid)) {
+          sessionMap.set(sid, {
+            sessionId: sid,
+            counterpartyName: msg.direction === 'OUTGOING' ? (msg.senderName || '对方') : (msg.senderName || msg.senderId || '对方'),
+            lastContent: msg.content || '',
+            lastTime: msg.messageTime || '',
+            direction: msg.direction,
+            unread: 0
+          })
+        }
+      }
+      sessions.value = Array.from(sessionMap.values())
       if (sessions.value.length > 0 && !selectedSession.value) {
         selectSession(sessions.value[0])
       }
+    } else {
+      sessions.value = []
     }
   } catch (e) {
     sessions.value = []
@@ -178,16 +201,26 @@ async function handleSyncNow() {
     return
   }
   syncing.value = true
-  syncMsg.value = ''
+  syncMsg.value = '同步中...'
   try {
-    await api.post('/messages/syncNow')
-    syncMsg.value = '同步成功！'
-    await loadSessions()
-    if (selectedSession.value) await loadHistory()
+    // 调单账号同步接口（比 syncNow 全账号更轻量）
+    const res = await api.post('/messages/sync', null, { params: { accountId: selectedAccount.value } })
+    if (res.success) {
+      syncMsg.value = '同步成功'
+      ElMessage.success('同步完成')
+      await loadSessions()
+      if (selectedSession.value) await loadHistory()
+    } else {
+      syncMsg.value = '同步失败：' + (res.message || '请重试')
+      ElMessage.error(syncMsg.value)
+    }
   } catch (e) {
-    syncMsg.value = '错误: ' + e.message
+    syncMsg.value = '错误: ' + (e?.response?.data?.message || e?.message || '请重试')
+    ElMessage.error('同步失败：' + syncMsg.value)
   } finally {
     syncing.value = false
+    // 3 秒后清同步状态提示
+    setTimeout(() => { syncMsg.value = '' }, 3000)
   }
 }
 

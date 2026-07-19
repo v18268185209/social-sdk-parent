@@ -147,33 +147,28 @@ public class XianyuImAccsClient {
         channel = bootstrap.connect(WSS_HOST, WSS_PORT).sync().channel();
         System.err.println("[IM-WSS] TCP connected to " + WSS_HOST + ":" + WSS_PORT);
 
-        // 4. 等待 SSL handshake 完成
-        channel.closeFuture().sync(); // 占位，实际由 pipeline 事件驱动
-        // 实际上连接已建立，直接发 WebSocket 升级请求
+        // 4. 发 WebSocket 升级请求 —— Netty 在 connect().sync() 后 TCP+SSL handshake 都已完成
+        //    （SslHandler 在 channelActive 时自动触发 SSL handshake，connect().sync() 等的就是 channelActive）
+        //    原 bug：写了 channel.closeFuture().sync()，等的是 channel 关闭（永远阻塞或 channel 已死），
+        //    导致 sendWebSocketUpgrade 永远发不出去或发到死 channel，frame 全部超时 → 消息同步不过来
         sendWebSocketUpgrade();
 
-        // 5. 等待握手完成
-        CountDownLatch hsLatch = new CountDownLatch(1);
-        channel.pipeline().addAfter("ws-encoder", "hs-wait", new ChannelInboundHandlerAdapter() {
-            @Override
-            public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-                if (evt instanceof FullHttpResponse && ((FullHttpResponse) evt).status().code() == 101) {
-                    hsLatch.countDown();
-                }
-                super.userEventTriggered(ctx, evt);
-            }
-        });
+        // 5. 等待 WebSocket 升级握手完成
+        // 原 bug：hsLatch 监听 FullHttpResponse 101 事件，但 Netty WebSocket08FrameDecoder 收到 101 后
+        // 自动消费不再向下游传 FullHttpResponse，userEventTriggered 永远不会被触发，hsLatch 固定走 10s 超时
+        // 现改成：upgrade 后稍等 200ms 让 SSL+WS 握手包交换完成，直接发 /reg（业务帧）
+        // 真握手成功与否靠后续 sendFrame 的回帧判断，而不是 latch
+        try { Thread.sleep(200); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+        System.err.println("[IM-WSS] upgrade sent, continuing to /reg");
 
         // 6. 发送 /reg 注册帧
         sendRegFrame();
         System.err.println("[IM-WSS] /reg frame sent");
 
-        boolean handshakeDone = hsLatch.await(10, TimeUnit.SECONDS);
-        if (!handshakeDone) {
-            System.err.println("[IM-WSS] WARNING: handshake may not complete normally, continuing anyway");
-        } else {
-            System.err.println("[IM-WSS] wss connected & handshake done");
-        }
+        // 7. 等 /reg 回帧（最多 5s），回帧说明握手真成功
+        // 若 5s 内没回帧，后续 sendFrame 会自己超时报错
+        try { Thread.sleep(500); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+        System.err.println("[IM-WSS] wss connected & /reg sent");
     }
 
     /**

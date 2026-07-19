@@ -71,6 +71,27 @@ public class ProductController {
         return ApiResponse.ok(null);
     }
 
+    /**
+     * 拉闲鱼商品分类树 — 供前端创建商品表单的下拉选择
+     * <p>不让用户手输 catId，从闲鱼拉分类树按 children[] 嵌套渲染下拉。
+     * 需要账号已扫码登录且 cookie 有效。</p>
+     *
+     * @param accountId 账号 id
+     * @return 闲鱼分类树 JSON（节点含 catId/catName/channelCatId/tbCatId/children[]）
+     */
+    @GetMapping("/category-tree")
+    public ApiResponse<Object> getCategoryTree(@RequestParam Long accountId) {
+        try {
+            return ApiResponse.ok(productService.getCategoryTree(accountId));
+        } catch (IllegalArgumentException e) {
+            return ApiResponse.fail("INVALID_ARGUMENT", e.getMessage());
+        } catch (IllegalStateException e) {
+            return ApiResponse.fail("COOKIE_EXPIRED", e.getMessage());
+        } catch (Exception e) {
+            return ApiResponse.fail("CATEGORY_TREE_FAILED", "Failed to fetch category tree: " + e.getMessage());
+        }
+    }
+
     @PostMapping("/{id}/shelf-on")
     public ApiResponse<XianyuProduct> shelfOn(@PathVariable Long id) {
         return ApiResponse.ok(productService.shelfOn(id));

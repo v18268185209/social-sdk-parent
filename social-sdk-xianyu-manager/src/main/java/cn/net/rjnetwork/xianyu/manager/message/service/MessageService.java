@@ -109,6 +109,17 @@ public class MessageService {
         }
     }
 
+    /**
+     * 实时监听定时任务 — 每 30 秒按账号拉新增消息推入本地
+     * <p>这是「实时监听」的核心：定时轮询所有活跃账号的最新会话，
+     * saveIncomingFromLwp 按 msgId 去重，已有消息不重复插，所以每次只增量存新消息。
+     * saveIncomingFromLwp 第 447 行有「eventPublisher.publishEvent(NEW_MESSAGE)」，
+     * 新消息会触发 NotifyEvent，实时推送给 AI 自动回复 / WebSocket 广播。</p>
+     *
+     * <p>「实时」= 30 秒粒度的轮询实时，不是 WSS 长连接推送实时。
+     * 闲鱼 LWP frame 拉消息比 WSS 推送更稳定（不依赖长连接保活），30s 延迟可接受。
+     * 若后续要秒级实时，可改用 {@link XianyuImAccsClient#addPushListener} 监听推送帧。</p>
+     */
     @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 30000)
     public void pullAllAccountsScheduled() {
         syncAllAccounts();
@@ -130,6 +141,47 @@ public class MessageService {
                 log.warn("[MESSAGE] syncAllAccounts failed for account {}: {}", acc.getId(), e.getMessage());
             }
         }
+    }
+
+    /**
+     * 单账号手动同步消息 — 真调闲鱼按 accountId 拉最新会话推入本地
+     * <p>供 MessageController.syncByAccount 调，前端「手动同步」按钮触发，
+     * 比 syncAllAccounts（全账号循环）更轻量，专拉一个账号。</p>
+     */
+    public void syncSingleAccount(Long accountId) {
+        XianyuAccount acc;
+        try {
+            acc = accountMapper.selectById(accountId);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Account not found: " + accountId);
+        }
+        if (acc == null) {
+            throw new IllegalArgumentException("Account not found: " + accountId);
+        }
+        if (acc.getCookieHeader() == null || acc.getCookieHeader().isBlank()) {
+            throw new IllegalStateException("Account has no cookie, please re-login: " + accountId);
+        }
+        try {
+            pullMessages(acc);
+        } catch (Exception e) {
+            log.warn("[MESSAGE] syncSingleAccount failed for account {}: {}", accountId, e.getMessage());
+            throw new IllegalStateException("Sync failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 按账号拉本地已同步的消息列表 — 前端消息页面渲染用
+     * <p>不再只按 sessionId 拉单会话，而是按 accountId 拉该账号所有消息，
+     * 前端按 sessionId 二次分组渲染会话卡片，每个账号一个 tab。
+     * 按 messageTime 倒序排（最新消息在前），limit 控制返回条数。</p>
+     */
+    public List<XianyuMessage> listByAccount(Long accountId, int limit) {
+        if (limit <= 0 || limit > 500) limit = 100;
+        LambdaQueryWrapper<XianyuMessage> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(XianyuMessage::getAccountId, accountId)
+               .orderByDesc(XianyuMessage::getMessageTime)
+               .last("LIMIT " + limit);
+        return messageMapper.selectList(wrapper);
     }
 
     /** 定时任务：每 30 秒拉取一次所有活跃账号的消息 */
@@ -251,12 +303,16 @@ public class MessageService {
      */
     private void solveCaptchaAndRetry(XianyuAccount acc, XianyuMtopApiClient mtopClient) {
         try {
+            // 风控信息可能出现在：1.MTOP lastErrorResponse；2.当前异常消息本身（LWP/WebSocket层）
             String rawError = mtopClient.getLastErrorResponse();
+            if (rawError == null || rawError.isEmpty()) {
+                rawError = "";
+            }
 
             log.info("[CDP-AUTH] Raw error: {}", truncate(rawError, 400));
 
-            // 1. JSON data.url
-            String url = extractJsonPunishUrl(rawError);
+            // 从 JSON data.url 提取，也支持从异常消息里的明文 JSON 串正则提取
+            String url = extractPunishUrlFromRaw(rawError);
 
             if (url == null || url.isEmpty()) {
                 log.warn("[MESSAGE] No punish URL found in error");
@@ -283,6 +339,43 @@ public class MessageService {
         } catch (Exception e) {
             log.error("[MESSAGE] Failed to solve captcha and retry: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * 从原始错误信息中提取 punish URL。支持两种格式：
+     * 1) JSON data.url: {"ret": [...], "data": {"url": "..."}}
+     * 2) 异常消息中内嵌的明文 JSON 字符串，如 resp={"ret":[...],"data":{"url":"..."}}
+     */
+    private String extractPunishUrlFromRaw(String raw) {
+        if (raw == null || raw.isEmpty()) return null;
+
+        // 1. 直接是 JSON
+        String json = extractJsonPunishUrl(raw);
+        if (json != null && !json.isEmpty()) return json;
+
+        // 2. 消息里包含 resp= 或类似 JSON 片段
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("resp=(\\{.*?\\})")
+                .matcher(raw);
+        while (m.find()) {
+            String jsonStr = m.group(1);
+            try {
+                JsonNode node = MAPPER.readTree(jsonStr);
+                if (node.has("data") && node.path("data").has("url")) {
+                    return node.path("data").path("url").asText();
+                }
+            } catch (Exception e) {
+                // skip
+            }
+        }
+
+        // 3. 兜底：直接在任意位置找 h5api.m.goofish.com:443/h5/mtop.*/punish?...
+        java.util.regex.Matcher urlMatcher = java.util.regex.Pattern.compile("(https?://[^\"]+punish[^\"]+)")
+                .matcher(raw);
+        if (urlMatcher.find()) {
+            return urlMatcher.group(1).trim().replaceAll("[\\s]+$", "");
+        }
+
+        return null;
     }
 
     /**
@@ -377,11 +470,17 @@ public class MessageService {
         entity.setSenderId(msg.path("senderId").asText(""));
         entity.setSenderName(msg.path("senderNickName").asText(msg.path("senderNick").asText("")));
 
-        // direction: senderId == selfId 是 OUTGOING，否则 INCOMING
-        entity.setDirection("INCOMING");
+        // direction: senderId == selfId（账号 cookie 里的 userId）是 OUTGOING，否则 INCOMING
+        // 原 bug：写死 INCOMING，导致自己发的消息被当进来消息，会话列表全是自己回自己的怪状
+        String selfUserId = extractSelfUserId(accountId);
+        String senderId = entity.getSenderId();
+        boolean isOutgoing = !selfUserId.isEmpty() && selfUserId.equals(senderId);
+        entity.setDirection(isOutgoing ? "OUTGOING" : "INCOMING");
         entity.setMsgType("TEXT");
         entity.setAutoReply(false);
-        entity.setMessageTime(LocalDateTime.now());
+        // messageTime: 用闲鱼返回的真实时间（msgTime / createTime / timestamp 字段，毫秒级 Unix）
+        // 原 bug：写死 LocalDateTime.now()，导致所有消息时间戳错位（同步历史消息时间全是当下）
+        entity.setMessageTime(parseMessageTime(msg));
 
         // content.custom.data base64 -> JSON -> text
         JsonNode content = msg.path("content");
@@ -406,7 +505,55 @@ public class MessageService {
         if ("INCOMING".equals(entity.getDirection())) {
             eventPublisher.publishEvent(new NotifyEvent(this, entity, "NEW_MESSAGE"));
         }
-        log.info("[MESSAGE] pulled lwp msg {} in session {} from account {}", msgId, cid, accountId);
+        log.info("[MESSAGE] pulled lwp msg {} in session {} from account {} (dir={})", msgId, cid, accountId, entity.getDirection());
+    }
+
+    /**
+     * 从账号 cookie 里提取 selfUserId（闲鱼 cookie 的 unb 字段或 userId 字段）
+     * 用于判消息 direction：senderId == selfId 则 OUTGOING（自己发的），否则 INCOMING（对方发的）
+     */
+    private String extractSelfUserId(Long accountId) {
+        try {
+            XianyuAccount acc = accountMapper.selectById(accountId);
+            if (acc == null || acc.getCookieHeader() == null) return "";
+            String cookie = acc.getCookieHeader();
+            // cookie 形如 "key1=val1; key2=val2; ..."，找 unb= 或 userId= 字段
+            for (String seg : cookie.split(";")) {
+                seg = seg.trim();
+                if (seg.startsWith("unb=")) return seg.substring(4).trim();
+                if (seg.startsWith("_m_h5_tk=")) {
+                    // _m_h5_tk 形如 "token_userid_timestamp"，第二个是 userId
+                    String val = seg.substring("_m_h5_tk=".length());
+                    String[] parts = val.split("_");
+                    if (parts.length >= 2) return parts[1];
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[MESSAGE] extractSelfUserId failed for account {}: {}", accountId, e.getMessage());
+        }
+        return "";
+    }
+
+    /**
+     * 从闲鱼 LWP 消息里解析真实时间戳，多个候选字段名兼容
+     * 候选：msgTime / createTime / timestamp / time（毫秒级 Unix），转 LocalDateTime
+     * 解析失败回退 LocalDateTime.now()（保留原 bug 行为不至于存不进 DB）
+     */
+    private LocalDateTime parseMessageTime(JsonNode msg) {
+        String[] candidates = {"msgTime", "createTime", "timestamp", "time", "createTimeInMs"};
+        for (String key : candidates) {
+            JsonNode v = msg.path(key);
+            if (v.isMissingNode() || v.isNull()) continue;
+            try {
+                long ms = v.asLong(0);
+                if (ms > 0) {
+                    // 13 位毫秒级 Unix 时间戳
+                    return LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(ms),
+                            java.time.ZoneId.systemDefault());
+                }
+            } catch (Exception ignored) {}
+        }
+        return LocalDateTime.now();
     }
 
     public XianyuMessage sendMessage(MessageSendRequest request) throws Exception {
