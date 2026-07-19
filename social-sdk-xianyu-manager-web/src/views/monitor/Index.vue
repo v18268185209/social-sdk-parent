@@ -41,7 +41,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import api from '@/api/request'
+import { getDashboard, getAccountStats, clearCache } from '@/api/monitor'
 
 const stats = ref({})
 const accountStats = ref([])
@@ -49,7 +49,7 @@ const statCards = ref([])
 
 async function loadDashboard() {
   try {
-    const r1 = await api.get('/monitor/dashboard')
+    const r1 = await getDashboard()
     if (r1.success) {
       stats.value = r1.data
       const s = r1.data
@@ -67,12 +67,14 @@ async function loadDashboard() {
   } catch (e) {}
 
   try {
-    const r2 = await api.get('/monitor/accounts')
+    const r2 = await getAccountStats()
     if (r2.success) accountStats.value = r2.data
   } catch (e) {}
 }
 
 function handleRefresh() { loadDashboard() }
+
+function handleClearCache() { clearCache().then(() => loadDashboard()) }
 
 onMounted(loadDashboard)
 </script>

@@ -15,13 +15,13 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import api from '@/api/request'
+import { listAuditLogs } from '@/api/audit'
 
 const logs = ref([])
 
 onMounted(async () => {
   try {
-    const res = await api.get('/audit/logs')
+    const res = await listAuditLogs({})
     if (res.success) logs.value = res.data
   } catch (e) {}
 })

@@ -30,7 +30,7 @@ import io.netty.handler.timeout.IdleStateHandler;
  * 闲鱼 IM accs 长连接客户端（Netty 实现，真实抓包验证 2026-07-19 CDP）。
  * <p>闲鱼 IM 复用了钉钉的 IM PaaS 基础设施，长连接走：</p>
  * <ul>
- *   <li>wss://wss-goofish.dingtalk.com/ — 业务帧（发消息/拉历史/会话同步）</li>
+ *   <li>wss://wss-cntaobao.dingtalk.com/ — 业务帧（发消息/拉历史/会话同步）</li>
  *   <li>wss://msgacs.m.taobao.com/accs/auth?token=... — 阿里 accs 鉴权 + 心跳（type=ACK protocol=HEARTBEAT_ACCS_H5）</li>
  *   <li>帧格式：{"lwp":"/r/MessageSend/sendByReceiverScope","headers":{"mid":"... 0"},"body":[...]}</li>
  *   <li>鉴权：先调 mtop.taobao.idlemessage.pc.login.token 拿 accessToken</li>
@@ -49,8 +49,8 @@ import io.netty.handler.timeout.IdleStateHandler;
 public class XianyuImAccsClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final String WSS_HOST = "wss-goofish.dingtalk.com";
-    private static final String WSS_URL = "wss://wss-goofish.dingtalk.com/";
+    private static final String WSS_HOST = "wss-cntaobao.dingtalk.com";
+    private static final String WSS_URL = "wss://wss-cntaobao.dingtalk.com/";
     private static final int HEARTBEAT_IDLE_SECONDS = 30;
 
     private final XianyuMtopApiClient apiClient;
@@ -76,6 +76,13 @@ public class XianyuImAccsClient {
         if (channel != null && channel.isActive()) return;
         closed = false;
 
+        // 禁用 JVM 代理（避免 Netty 通过 HTTP 代理连 WSS 时拿到 301）
+        System.setProperty("https.proxyHost", "");
+        System.setProperty("http.proxyHost", "");
+        System.clearProperty("https.proxyPort");
+        System.clearProperty("http.proxyPort");
+        System.clearProperty("proxySet");
+        
         // 1. MTOP 拿 IM accessToken（真实抓包 2026-07-19 CDP：data 需带 appKey + deviceId，否则 FAIL_SYS_BIZPARAM_MISSED）
         //    deviceId 格式 = "<固定 UUID>-<userId>"，userId 从 cookie 的 unb 字段解析
         String userId = extractUserIdFromCookie();
@@ -99,13 +106,15 @@ public class XianyuImAccsClient {
         }
         System.err.println("[IM-ACCS] got accessToken len=" + accessToken.length());
 
-        // 2. Netty Bootstrap 连 wss-goofish.dingtalk.com
+        // 2. Netty Bootstrap 直连 wss-cntaobao.dingtalk.com（禁用代理，避免 301）
         if (group == null || group.isShuttingDown()) group = new NioEventLoopGroup(1);
-
+        
         URI uri = URI.create(WSS_URL);
         WebSocketClientHandshaker handshaker = WebSocketClientHandshakerFactory.newHandshaker(
                 uri, WebSocketVersion.V13, null, true,
-                new DefaultHttpHeaders().add("Origin", "https://www.goofish.com"),
+                new DefaultHttpHeaders()
+                        .add("Origin", "https://www.goofish.com")
+                        .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"),
                 65536);
 
         Bootstrap bootstrap = new Bootstrap();
@@ -123,19 +132,14 @@ public class XianyuImAccsClient {
                                 WebSocketClientProtocolConfig.newBuilder()
                                         .handleCloseFrames(true)
                                         .dropPongFrames(true)
+                                        .webSocketUri(uri)
                                         .build()));
                         p.addLast("im", new ImFrameHandler());
                     }
                 });
 
-        ChannelFuture cf = bootstrap.connect(uri.getHost(), uri.getPort() == -1 ? 443 : uri.getPort()).sync();
-        cf.channel().closeFuture().addListener(f -> {
-            if (!closed) {
-                System.err.println("[IM-ACCS] channel closed, will retry on next call");
-                channel = null;
-            }
-        });
-        channel = cf.channel();
+        // 直连目标 host:port，不走 JVM 代理
+        channel = bootstrap.connect(uri.getHost(), uri.getPort() == -1 ? 443 : uri.getPort()).sync().channel();
         // 等握手完成 — Netty 4.1.x 没有 WebSocketClientProtocolHandler.handshakeFuture()，
         // 改在 pipeline 上加一个 handler 监听 HANDSHAKE_COMPLETE 事件
         final CountDownLatch hsLatch = new CountDownLatch(1);

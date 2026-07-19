@@ -9,7 +9,7 @@
             size="small"
             :loading="syncing"
             :disabled="!selectedAccountId"
-            @click="syncWallet">同步钱包</el-button>
+            @click="syncWalletFn">同步钱包</el-button>
         </div>
       </template>
       <el-form inline>
@@ -101,7 +101,7 @@ async function loadWallet() {
   } catch (e) { transactions.value = [] }
 }
 
-async function syncWallet() {
+async function syncWalletFn() {
   if (!selectedAccountId.value) return
   syncing.value = true
   syncMsg.value = ''
