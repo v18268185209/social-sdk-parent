@@ -127,4 +127,27 @@ public class AiDemoController {
                 "keywords", keywords
         ));
     }
+
+    /**
+     * AI 聊天测试
+     * POST /api/ai/chat/test
+     * {
+     *   "modelId": 1,
+     *   "systemPrompt": "...",
+     *   "userMessage": "你好"
+     * }
+     */
+    @PostMapping("/chat/test")
+    public ApiResponse<Map<String, Object>> testChat(
+            @RequestBody Map<String, Object> request) {
+        Long modelId = Long.valueOf(request.get("modelId").toString());
+        String systemPrompt = (String) request.getOrDefault("systemPrompt", "");
+        String userMessage = (String) request.getOrDefault("userMessage", "");
+
+        String reply = chatService.chat(modelId, systemPrompt, userMessage);
+        return ApiResponse.ok(Map.of(
+                "reply", reply,
+                "modelId", modelId.toString()
+        ));
+    }
 }

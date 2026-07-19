@@ -118,6 +118,16 @@ public class VirtualShipController {
         return ApiResponse.ok(null);
     }
 
+    /**
+     * 手动触发发货任务（仅 PENDING 状态）
+     * POST /api/virtual-ship/tasks/{id}/trigger
+     */
+    @PostMapping("/tasks/{id}/trigger")
+    public ApiResponse<Void> triggerTask(@PathVariable Long id) {
+        shipService.triggerTask(id);
+        return ApiResponse.ok(null);
+    }
+
     // ==================== 配置 ====================
 
     /**

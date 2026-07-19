@@ -172,6 +172,11 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import api from '@/api/request'
+import {
+  listRules, createRule, toggleRule as toggleRuleApi,
+  testRuleMatch, deleteRule as deleteRuleApi,
+  getRuleConfig, saveRuleConfig
+} from '@/api/rules'
 
 // ===== 账号选择 =====
 const accounts = ref([])
@@ -258,7 +263,7 @@ async function loadKeywordRules() {
   if (!selectedAccountId.value) return
   loading.value = true
   try {
-    const res = await api.get('/rules', { params: { accountId: selectedAccountId.value, replyType: 'KEYWORD' } })
+    const res = await listRules({ accountId: selectedAccountId.value, replyType: 'KEYWORD' })
     if (res.success) {
       keywordRules.value = Array.isArray(res.data) ? res.data : (res.data?.records || [])
     }
@@ -279,7 +284,7 @@ async function handleCreate() {
   form.value.accountId = selectedAccountId.value
   form.value.replyType = 'KEYWORD'
   try {
-    const res = await api.post('/rules', form.value)
+    const res = await createRule(form.value)
     if (res.success) {
       ElMessage.success('规则创建成功')
       showCreateDialog.value = false
@@ -290,14 +295,14 @@ async function handleCreate() {
 
 async function toggleRule(row) {
   try {
-    await api.post(`/rules/${row.id}/toggle?enabled=${row.enabled}`)
+    await toggleRuleApi(row.id, row.enabled)
     ElMessage.success('规则状态已更新')
   } catch (e) {}
 }
 
 async function testRule(row) {
   try {
-    const res = await api.post('/rules/test', {
+    const res = await testRuleMatch({
       matchType: row.matchType,
       keyword: row.keyword,
       message: '你好，请问这个还在吗？'
@@ -312,7 +317,7 @@ async function testRule(row) {
 
 async function deleteRule(id) {
   await ElMessageBox.confirm('确认删除该规则？', '提示', { type: 'warning' })
-  try { await api.delete(`/rules/${id}`); ElMessage.success('已删除'); await loadKeywordRules() } catch (e) {}
+  try { await deleteRule(id); ElMessage.success('已删除'); await loadKeywordRules() } catch (e) {}
 }
 
 // === AI 配置 ===
@@ -330,7 +335,7 @@ async function loadAiConfig() {
   if (!selectedAccountId.value) return
   await loadAiModels()
   try {
-    const res = await api.get(`/rules/config/${selectedAccountId.value}`)
+    const res = await getRuleConfig(selectedAccountId.value)
     if (res.success && res.data) {
       Object.assign(aiConfig, res.data)
     }
@@ -341,7 +346,7 @@ async function saveAiConfig() {
   if (!selectedAccountId.value) return
   saving.value = true
   try {
-    const res = await api.post(`/rules/config/${selectedAccountId.value}`, aiConfig)
+    const res = await saveRuleConfig(selectedAccountId.value, aiConfig)
     if (res.success) {
       ElMessage.success('AI 配置保存成功')
     }
@@ -353,7 +358,7 @@ async function saveAiConfig() {
 async function loadAutoConfig() {
   if (!selectedAccountId.value) return
   try {
-    const res = await api.get(`/rules/config/${selectedAccountId.value}`)
+    const res = await getRuleConfig(selectedAccountId.value)
     if (res.success && res.data) {
       Object.assign(autoConfig, res.data)
     }
@@ -364,7 +369,7 @@ async function saveAutoConfig() {
   if (!selectedAccountId.value) return
   saving.value = true
   try {
-    const res = await api.post(`/rules/config/${selectedAccountId.value}`, autoConfig)
+    const res = await saveRuleConfig(selectedAccountId.value, autoConfig)
     if (res.success) {
       ElMessage.success('自动回复配置保存成功')
     }

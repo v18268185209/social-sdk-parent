@@ -382,6 +382,21 @@ public class VirtualShipService {
         return shipTaskMapper.selectPage(p, wrapper).getRecords();
     }
 
+    /**
+     * 手动触发发货任务（从 PENDING 状态重新执行 processShipTask）
+     */
+    @Transactional
+    public void triggerTask(Long taskId) {
+        VirtualShipTask task = shipTaskMapper.selectById(taskId);
+        if (task == null) {
+            throw new IllegalArgumentException("Task not found: " + taskId);
+        }
+        if (!"PENDING".equals(task.getStatus())) {
+            throw new IllegalStateException("Task is not PENDING, current status: " + task.getStatus());
+        }
+        processShipTask(task);
+    }
+
     public List<VirtualCardPool> listCards(Long productId, String status) {
         LambdaQueryWrapper<VirtualCardPool> wrapper = new LambdaQueryWrapper<>();
         if (productId != null) wrapper.eq(VirtualCardPool::getProductId, productId);

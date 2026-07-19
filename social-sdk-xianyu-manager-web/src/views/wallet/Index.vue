@@ -67,6 +67,7 @@
 import { ref, onMounted } from 'vue'
 import api from '@/api/request'
 import { ElMessage } from 'element-plus'
+import { getWallet, getRecentTransactions, syncWallet } from '@/api/wallet'
 
 const accounts = ref([])
 const wallet = ref(null)
@@ -91,11 +92,11 @@ async function loadWallet() {
     return
   }
   try {
-    const r1 = await api.get(`/wallet/${selectedAccountId.value}`)
+    const r1 = await getWallet(selectedAccountId.value)
     if (r1.success) wallet.value = r1.data
   } catch (e) { wallet.value = null }
   try {
-    const r2 = await api.get(`/wallet/${selectedAccountId.value}/recent?limit=20`)
+    const r2 = await getRecentTransactions(selectedAccountId.value, 20)
     if (r2.success) transactions.value = r2.data
   } catch (e) { transactions.value = [] }
 }
@@ -105,7 +106,7 @@ async function syncWallet() {
   syncing.value = true
   syncMsg.value = ''
   try {
-    const res = await api.post(`/wallet/${selectedAccountId.value}/sync`)
+    const res = await syncWallet(selectedAccountId.value)
     if (res.success) {
       syncOk.value = true
       const d = res.data || {}

@@ -308,7 +308,7 @@ async function sendTest() {
   try {
     const res = await api.post('/ai/chat/test', testForm.value)
     if (res.success) {
-      testForm.value.reply = res.data || 'AI 未返回内容'
+      testForm.value.reply = res.data?.reply || 'AI 未返回内容'
     }
   } catch (e) {}
   finally { testing.value = false }

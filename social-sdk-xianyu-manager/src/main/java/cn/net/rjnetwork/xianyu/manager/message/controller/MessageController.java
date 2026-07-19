@@ -7,6 +7,7 @@ import cn.net.rjnetwork.xianyu.manager.message.service.MessageService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/messages")
@@ -19,8 +20,8 @@ public class MessageController {
     }
 
     @GetMapping("/sessions")
-    public ApiResponse<List<String>> sessions(@RequestParam Long accountId) {
-        return ApiResponse.ok(messageService.listSessions(accountId));
+    public ApiResponse<List<Map<String, Object>>> sessions(@RequestParam Long accountId) {
+        return ApiResponse.ok(messageService.listSessionSummaries(accountId));
     }
 
     @GetMapping("/history")
@@ -28,11 +29,19 @@ public class MessageController {
             @RequestParam Long accountId,
             @RequestParam String sessionId,
             @RequestParam(defaultValue = "50") int limit) {
+        messageService.pullHistoryIfEmpty(accountId, sessionId, limit);
         return ApiResponse.ok(messageService.getHistory(accountId, sessionId, limit));
     }
 
     @PostMapping("/send")
-    public ApiResponse<XianyuMessage> send(@RequestBody MessageSendRequest request) {
-        return ApiResponse.ok(messageService.sendMessage(request));
+    public ApiResponse<XianyuMessage> send(@RequestBody MessageSendRequest request) throws Exception {
+        XianyuMessage sent = messageService.sendMessage(request);
+        return ApiResponse.ok(sent);
+    }
+
+    @PostMapping("/syncNow")
+    public ApiResponse<String> syncNow() {
+        messageService.syncAllAccounts();
+        return ApiResponse.ok("OK");
     }
 }
