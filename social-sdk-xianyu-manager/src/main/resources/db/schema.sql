@@ -2,7 +2,7 @@
 
 -- 管理员用户表
 CREATE TABLE IF NOT EXISTS admin_user (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     username VARCHAR(64) UNIQUE NOT NULL,
     password_hash VARCHAR(256) NOT NULL,
     display_name VARCHAR(128),
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS admin_user (
 
 -- 闲鱼账号表
 CREATE TABLE IF NOT EXISTS xianyu_account (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_name VARCHAR(64) NOT NULL,
     user_id VARCHAR(64),
     display_name VARCHAR(128),
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS xianyu_account (
 
 -- 商品表
 CREATE TABLE IF NOT EXISTS xianyu_product (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL,
     item_id VARCHAR(64),
     title VARCHAR(256) NOT NULL,
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS xianyu_product (
 
 -- 消息表
 CREATE TABLE IF NOT EXISTS xianyu_message (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL,
     session_id VARCHAR(64) NOT NULL,
     msg_id VARCHAR(64),
@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS xianyu_message (
 
 -- 订单表
 CREATE TABLE IF NOT EXISTS xianyu_order (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL,
     type VARCHAR(16) DEFAULT 'BOUGHT', -- SOLD, BOUGHT
     order_id VARCHAR(64),
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS xianyu_order (
 
 -- 关键词/自动回复规则表
 CREATE TABLE IF NOT EXISTS xianyu_keyword_rule (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER,
     rule_name VARCHAR(128),
     reply_type VARCHAR(16) DEFAULT 'KEYWORD', -- KEYWORD, AI, AUTO
@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS xianyu_keyword_rule (
 
 -- 自动回复全局配置表（按账号）
 CREATE TABLE IF NOT EXISTS xianyu_auto_reply_config (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL UNIQUE,
     -- AI 配置
     ai_enabled BOOLEAN DEFAULT FALSE,
@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS xianyu_auto_reply_config (
 
 -- 审计日志表
 CREATE TABLE IF NOT EXISTS audit_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     operator_id INTEGER,
     operator_name VARCHAR(128),
     action VARCHAR(256),
@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 -- 钱包表
 CREATE TABLE IF NOT EXISTS xianyu_wallet (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL UNIQUE,
     balance REAL DEFAULT 0,
     frozen_amount REAL DEFAULT 0,
@@ -187,7 +187,7 @@ CREATE TABLE IF NOT EXISTS xianyu_wallet (
 
 -- 钱包交易记录表
 CREATE TABLE IF NOT EXISTS xianyu_wallet_transaction (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL,
     transaction_id VARCHAR(64),
     type VARCHAR(16) DEFAULT 'EXPENSE',
@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS xianyu_wallet_transaction (
 
 -- 收藏关注表
 CREATE TABLE IF NOT EXISTS xianyu_collect (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL,
     target_type VARCHAR(16) DEFAULT 'ITEM',
     target_id VARCHAR(64),
@@ -231,7 +231,7 @@ CREATE INDEX IF NOT EXISTS idx_xianyu_collect_account ON xianyu_collect(account_
 
 -- AI 厂商表（OpenAI 兼容协议：api_base_url + api_key 即可接入）
 CREATE TABLE IF NOT EXISTS ai_provider (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     name VARCHAR(64) NOT NULL UNIQUE,           -- 展示名（如 Agnes AI / OpenAI / DeepSeek）
     api_base_url VARCHAR(256) NOT NULL,          -- API 端点（如 https://apihub.agnes-ai.com/v1）
     api_key VARCHAR(512) NOT NULL,               -- API Key（明文存储，生产可加对称加密）
@@ -245,7 +245,7 @@ CREATE TABLE IF NOT EXISTS ai_provider (
 
 -- AI 模型表
 CREATE TABLE IF NOT EXISTS ai_model (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     provider_id INTEGER NOT NULL,
     model_name VARCHAR(128) NOT NULL,            -- 模型标识（如 agnes-2.0-flash）
     display_name VARCHAR(128),                   -- 展示名
@@ -268,7 +268,7 @@ CREATE INDEX IF NOT EXISTS idx_ai_model_type ON ai_model(model_type);
 -- ======================== 通知模块 ========================
 -- 通知通道（邮件 SMTP / Webhook 机器人）。config_json 密文存储敏感配置。
 CREATE TABLE IF NOT EXISTS notify_channel (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     type VARCHAR(16) NOT NULL,            -- EMAIL, WEBHOOK, SMS
     name VARCHAR(128) NOT NULL,
     enabled BOOLEAN DEFAULT TRUE,
@@ -280,7 +280,7 @@ CREATE TABLE IF NOT EXISTS notify_channel (
 
 -- 通知模板（按场景）。场景常量见 NotifyScenario。
 CREATE TABLE IF NOT EXISTS notify_template (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     scenario VARCHAR(64) NOT NULL UNIQUE,
     title_tpl TEXT,
     body_tpl TEXT,
@@ -292,7 +292,7 @@ CREATE TABLE IF NOT EXISTS notify_template (
 
 -- 订阅规则：场景 -> 通道 + 接收范围
 CREATE TABLE IF NOT EXISTS notify_subscription (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     scenario VARCHAR(64) NOT NULL,
     channel_id INTEGER NOT NULL,
     recipient_scope VARCHAR(16) DEFAULT 'ALL',  -- ALL / CUSTOM
@@ -307,7 +307,7 @@ CREATE TABLE IF NOT EXISTS notify_subscription (
 
 -- 投递日志
 CREATE TABLE IF NOT EXISTS notify_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     scenario VARCHAR(64),
     channel_id INTEGER,
     channel_type VARCHAR(16),
@@ -321,7 +321,7 @@ CREATE TABLE IF NOT EXISTS notify_log (
 
 -- 站内通知收件箱
 CREATE TABLE IF NOT EXISTS notify_message (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER,             -- 关联的闲鱼账号（可为空）
     scenario VARCHAR(64),
     title VARCHAR(256),
@@ -337,7 +337,7 @@ CREATE INDEX IF NOT EXISTS idx_notify_msg_created ON notify_message(created_at);
 
 -- 发送重试队列（失败/限频后入队，按退避重发）
 CREATE TABLE IF NOT EXISTS notify_retry (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     scenario VARCHAR(64),
     channel_id INTEGER,
     channel_type VARCHAR(16),
@@ -356,7 +356,7 @@ CREATE INDEX IF NOT EXISTS idx_notify_retry_due ON notify_retry(status, next_ret
 
 -- 每日摘要配置（单例 id=1）
 CREATE TABLE IF NOT EXISTS notify_digest_config (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     enabled BOOLEAN DEFAULT FALSE,
     channel_id INTEGER,
     recipients TEXT,
@@ -379,7 +379,7 @@ ALTER TABLE xianyu_order ADD COLUMN deliver_content TEXT;     -- 实际发货内
 
 -- 卡密池（Card / Account 类虚拟商品共用）
 CREATE TABLE IF NOT EXISTS virtual_card_pool (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     product_id INTEGER NOT NULL,
     card_code VARCHAR(256) NOT NULL,
     card_password VARCHAR(256),
@@ -394,7 +394,7 @@ CREATE TABLE IF NOT EXISTS virtual_card_pool (
 
 -- 自动发货任务（定时扫描执行）
 CREATE TABLE IF NOT EXISTS virtual_ship_task (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     order_id INTEGER NOT NULL UNIQUE,
     product_id INTEGER NOT NULL,
     status VARCHAR(16) DEFAULT 'PENDING', -- PENDING / PROCESSING / SHIPPED / FAILED / SKIPPED
@@ -410,7 +410,7 @@ CREATE TABLE IF NOT EXISTS virtual_ship_task (
 
 -- 自动发货全局配置（每账号一条）
 CREATE TABLE IF NOT EXISTS virtual_ship_config (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL UNIQUE,
     enabled BOOLEAN DEFAULT TRUE,
     delay_seconds INTEGER DEFAULT 30,           -- 支付成功后延时发货(防风控)
@@ -431,7 +431,7 @@ CREATE INDEX IF NOT EXISTS idx_xianyu_order_require_virtual_ship ON xianyu_order
 
 -- 客服会话表（按账号 + 买家分组，一个买家在一个账号下一个会话）
 CREATE TABLE IF NOT EXISTS ai_cs_session (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL,
     buyer_id VARCHAR(64) NOT NULL,
     buyer_nickname VARCHAR(64),
@@ -447,7 +447,7 @@ CREATE TABLE IF NOT EXISTS ai_cs_session (
 
 -- 客服消息表（完整记录买家消息 + AI/运营回复）
 CREATE TABLE IF NOT EXISTS ai_cs_message (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     session_id INTEGER NOT NULL,
     direction VARCHAR(16),                       -- INCOMING(买家) / OUTGOING(AI/运营)
     content TEXT,
@@ -462,7 +462,7 @@ CREATE TABLE IF NOT EXISTS ai_cs_message (
 
 -- AI 知识库（商品 FAQ、通用话术，按账号隔离）
 CREATE TABLE IF NOT EXISTS ai_cs_knowledge (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER,                          -- NULL = 全局共享
     product_id INTEGER,                          -- NULL = 通用知识
     question VARCHAR(256) NOT NULL,             -- 问题关键词 / 触发词
@@ -477,7 +477,7 @@ CREATE TABLE IF NOT EXISTS ai_cs_knowledge (
 
 -- AI 客服策略配置（按账号）
 CREATE TABLE IF NOT EXISTS ai_cs_policy (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL UNIQUE,
     mode VARCHAR(16) DEFAULT 'ASSIST',           -- AUTO(全自动) / ASSIST(AI建议) / HYBRID(闲聊自动，议价辅助)
     auto_reply_enabled BOOLEAN DEFAULT FALSE,    -- 是否启用自动回复（AUTO 模式）
@@ -501,7 +501,7 @@ CREATE TABLE IF NOT EXISTS ai_cs_policy (
 
 -- AI 客服统计表（按天汇总，用于运营查看效果）
 CREATE TABLE IF NOT EXISTS ai_cs_daily_stats (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL,
     stat_date DATE NOT NULL,
     total_sessions INTEGER DEFAULT 0,
@@ -529,7 +529,7 @@ CREATE INDEX IF NOT EXISTS idx_ai_cs_daily_stats_account ON ai_cs_daily_stats(ac
 
 -- AI 运营任务表（批量上品、多账号同步等）
 CREATE TABLE IF NOT EXISTS ai_ops_task (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL,
     task_type VARCHAR(32) NOT NULL,              -- BATCH_CREATE / MULTI_ACCOUNT_SYNC / AUTO_REFRESH
     status VARCHAR(16) DEFAULT 'PENDING',         -- PENDING / RUNNING / COMPLETED / FAILED
@@ -545,7 +545,7 @@ CREATE TABLE IF NOT EXISTS ai_ops_task (
 
 -- AI 建议执行记录
 CREATE TABLE IF NOT EXISTS ai_ops_suggestion (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL,
     suggestion_type VARCHAR(32),                  -- PRICE_ADJUST / REFRESH_TIME / LISTING_OPTIMIZE
     product_id INTEGER,
@@ -563,7 +563,7 @@ CREATE TABLE IF NOT EXISTS ai_ops_suggestion (
 
 -- 运营知识库
 CREATE TABLE IF NOT EXISTS ai_ops_knowledge (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     category VARCHAR(64),                         -- 商品品类
     knowledge_type VARCHAR(32),                   -- PRICING / DESCRIPTION_STYLE / POSTING_TIME / KEYWORD
     content TEXT,
@@ -579,7 +579,7 @@ CREATE INDEX IF NOT EXISTS idx_ai_ops_suggestion_account ON ai_ops_suggestion(ac
 
 -- 网盘账号表
 CREATE TABLE IF NOT EXISTS cloud_storage_account (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL,
     provider VARCHAR(32) NOT NULL,                -- BAIDU_NETDISK / QUARK_NETDISK / ALIYUN_DRIVE
     access_token VARCHAR(512),
@@ -597,7 +597,7 @@ CREATE TABLE IF NOT EXISTS cloud_storage_account (
 
 -- 网盘文件表
 CREATE TABLE IF NOT EXISTS cloud_storage_file (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     storage_account_id INTEGER NOT NULL,
     file_name VARCHAR(256),
     file_path VARCHAR(512),
@@ -623,7 +623,7 @@ CREATE INDEX IF NOT EXISTS idx_cloud_storage_file_account ON cloud_storage_file(
 
 -- 对外应用（调用方凭证）。app_secret_enc 为 AES 加密后的明文 secret，绝不落明文。
 CREATE TABLE IF NOT EXISTS open_app (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     app_name VARCHAR(128) NOT NULL,                 -- 应用展示名
     app_key VARCHAR(64) NOT NULL UNIQUE,            -- 公开标识（调用方传 appKey）
     app_secret_enc VARCHAR(512),                    -- AES 加密后的 appSecret（明文仅在创建时返回一次）

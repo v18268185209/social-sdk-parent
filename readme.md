@@ -58,6 +58,7 @@ social-sdk-parent/                      # 父 POM
 | 运行时 | **Java 17** (LTS) | 长期支持版本 |
 | 后端框架 | **Spring Boot 3.5.4** | 自动装配、WebSocket、调度任务 |
 | ORM / 数据库 | **SQLite3 + MyBatis-Plus 3.5** | 嵌入式数据库，开箱即用 |
+| 连接池 | **Druid 1.2.23** | SQLite 单连接最优（maxActive=1 + busy_timeout=30s）+ WAL 模式 |
 | 缓存 | **Caffeine** | 本地高性能内存缓存 |
 | 长连接 | **Netty 4.1.108** | IM 客户端，NIO + IdleStateHandler 心跳 + 自动重连 |
 | 前端 | **Vue 3 + Vite + Element Plus** | 现代 SPA 管理后台 |

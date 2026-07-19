@@ -71,6 +71,13 @@
             <artifactId>spring-boot-starter-cache</artifactId>
         </dependency>
 
+        <!-- Druid 连接池 -->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>druid-spring-boot-3-starter</artifactId>
+            <version>1.2.23</version>
+        </dependency>
+
         <!-- MyBatis-Plus (SQLite Support) -->
         <dependency>
             <groupId>com.baomidou</groupId>
