@@ -62,8 +62,7 @@
             <el-button size="small" @click="viewDetail(row)">详情</el-button>
             <el-button size="small" @click="editPrice(row)">改价</el-button>
             <el-button size="small" @click="editStock(row)">改库存</el-button>
-            <el-button v-if="row.status !== 'ON_SALE'" size="small" type="success" @click="shelfOn(row)">上架</el-button>
-            <el-button v-else size="small" type="warning" @click="shelfOff(row)">下架</el-button>
+            <el-button v-if="row.status === 'ON_SALE'" size="small" type="warning" @click="shelfOff(row)">下架</el-button>
             <el-button size="small" type="danger" @click="deleteProduct(row.id)">删除</el-button>
           </template>
         </el-table-column>
@@ -150,6 +149,25 @@
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="createForm.description" type="textarea" :rows="3" />
+        </el-form-item>
+        <el-form-item label="分类">
+          <el-input v-model="createForm.categoryId" placeholder="留空让闲鱼 AI 按标题自动推荐分类" />
+          <div style="font-size: 12px; color: #909399; margin-top: 4px;">填闲鱼分类 ID（数字），留空走 AI 推荐</div>
+        </el-form-item>
+        <el-form-item label="运费">
+          <el-select v-model="createForm.deliveryChoice" style="width: 100%;">
+            <el-option label="按距离计费（闲鱼默认）" value="按距离计费" />
+            <el-option label="包邮" value="包邮" />
+            <el-option label="一口价运费" value="一口价" />
+            <el-option label="无需邮寄（虚拟商品）" value="无需邮寄" />
+          </el-select>
+          <el-input-number v-if="createForm.deliveryChoice === '一口价'"
+            v-model="createForm.postPrice" :min="0" :precision="2"
+            style="width: 100%; margin-top: 8px;" placeholder="运费金额" />
+        </el-form-item>
+        <el-form-item label="所在地">
+          <el-input v-model="createForm.location" placeholder="留空走闲鱼账号默认所在地" />
+          <div style="font-size: 12px; color: #909399; margin-top: 4px;">填省市（如「杭州市」），留空走账号默认</div>
         </el-form-item>
         <el-form-item label="图片">
           <el-upload
@@ -284,7 +302,7 @@ const aiLoading = ref(false)
 const aiActiveTab = ref('title')
 const filters = ref({ accountId: null, keyword: '', status: '' })
 const pagination = ref({ page: 1, size: 20, total: 0 })
-const createForm = ref({ accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '' })
+const createForm = ref({ accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '', categoryId: '', deliveryChoice: '按距离计费', postPrice: 0, location: '' })
 const aiForm = ref({ modelId: null, productTitle: '', keywordsRaw: '', condition: '九成新' })
 const aiResult = ref({ title: '', description: '', keywords: [] })
 
@@ -356,7 +374,7 @@ async function handleCreate() {
     if (res.success) {
       ElMessage.success('商品创建成功')
       showCreateDialog.value = false
-      createForm.value = { accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '' }
+      createForm.value = { accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '', categoryId: '', deliveryChoice: '按距离计费', postPrice: 0, location: '' }
       imageFileList.value = []
       videoFileList.value = []
       await loadProducts()

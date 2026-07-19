@@ -1,7 +1,9 @@
 package cn.net.rjnetwork.xianyu.manager.message.service;
 
+import cn.net.rjnetwork.xianyu.api.XianyuImAccsClient;
 import cn.net.rjnetwork.xianyu.api.XianyuMtopApiClient;
 import cn.net.rjnetwork.xianyu.api.XianyuMessageApiService;
+import cn.net.rjnetwork.xianyu.captcha.service.XianyuCaptchaSolver;
 import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import cn.net.rjnetwork.xianyu.manager.message.dto.MessageSendRequest;
@@ -11,6 +13,7 @@ import cn.net.rjnetwork.xianyu.manager.notify.NotifyEvent;
 import cn.net.rjnetwork.xianyu.manager.rule.service.RuleService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +23,7 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,18 +32,22 @@ import java.util.Map;
 public class MessageService {
 
     private static final Logger log = LoggerFactory.getLogger(MessageService.class);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final MessageMapper messageMapper;
     private final RuleService ruleService;
     private final ApplicationEventPublisher eventPublisher;
     private final AccountMapper accountMapper;
+    private final XianyuCaptchaSolver captchaSolver;
 
     public MessageService(MessageMapper messageMapper, RuleService ruleService,
-                          ApplicationEventPublisher eventPublisher, AccountMapper accountMapper) {
+                          ApplicationEventPublisher eventPublisher, AccountMapper accountMapper,
+                          XianyuCaptchaSolver captchaSolver) {
         this.messageMapper = messageMapper;
         this.ruleService = ruleService;
         this.eventPublisher = eventPublisher;
         this.accountMapper = accountMapper;
+        this.captchaSolver = captchaSolver;
     }
 
     /** 返回会话摘要：sessionId、对方昵称、头像、最后消息时间、未读数（从缓存的 session 列表补） */
@@ -82,6 +90,10 @@ public class MessageService {
 
     public List<XianyuMessage> getHistory(Long accountId, String sessionId, int limit) {
         return messageMapper.selectBySession(accountId, sessionId, limit);
+    }
+
+    public XianyuMessage getById(Long id) {
+        return messageMapper.selectById(id);
     }
 
     /** 如果本会话没有本地历史，主动通过 IM 长连接拉取并合并入库 */
@@ -127,8 +139,8 @@ public class MessageService {
     }
 
     /**
-     * 轮询方式拉取消息（兼容 session.sync + accs IM 两种方式）。
-     * session.sync 只能拿到轻量会话快照，真正历史需要走 accs /r/MessageManager/listUserMessages。
+     * 轮询方式拉取消息。
+     * 先通过 WSS 获取会话列表，再逐条拉历史消息。
      */
     public void pullMessages(XianyuAccount acc) throws Exception {
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(acc.getCookieHeader());
@@ -136,7 +148,7 @@ public class MessageService {
 
         // 1. 先拿 IM accessToken / 建立长连接，才能拉真实历史
         try {
-            pullHistoryInternal(acc, null, 0);
+            pullHistoryInternal(acc, null, 50);
         } catch (Exception e) {
             log.warn("[MESSAGE] IM history pull failed for account {}: {}", acc.getId(), e.getMessage());
         }
@@ -171,15 +183,135 @@ public class MessageService {
     private void pullHistoryInternal(XianyuAccount acc, String targetCid, int limit) throws Exception {
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(acc.getCookieHeader());
         XianyuMessageApiService msgApi = new XianyuMessageApiService(mtopClient);
-        JsonNode historyData = msgApi.getMessageHistory(targetCid != null ? targetCid : "0", limit > 0 ? limit : 20);
-        if (historyData == null || !historyData.has("data")) return;
 
-        JsonNode data = historyData.path("data");
-        JsonNode msgsNode = data.has("messages") ? data.path("messages") : data.has("module") ? data.path("module").path("messages") : null;
+        try {
+            if (targetCid != null && !targetCid.isEmpty()) {
+                // 单会话拉取
+                JsonNode historyData = msgApi.getMessageHistory(targetCid, Math.max(1, limit));
+                if (historyData == null || !historyData.has("body")) return;
+                saveMessagesFromLwpResponse(acc.getId(), historyData.path("body").path("userMessageModels"));
+                return;
+            }
+
+            // 全量拉取：先获取会话列表，再逐条拉历史
+            JsonNode convList = msgApi.getConversationList(limit > 0 ? limit : 50);
+            if (convList == null || !convList.has("body")) {
+                log.warn("[MESSAGE] getConversationList has no body");
+                return;
+            }
+            JsonNode bodyNode = convList.path("body");
+            // 收集所有字段名用于调试
+            java.util.List<String> keys = new java.util.ArrayList<>();
+            for (java.util.Iterator<String> it = bodyNode.fieldNames(); it.hasNext(); ) {
+                keys.add(it.next());
+            }
+            log.info("[MESSAGE] conversation body keys: {}", keys);
+            JsonNode userConvs = bodyNode.path("userConvs");
+            if (!userConvs.isArray() || userConvs.size() == 0) {
+                log.warn("[MESSAGE] userConvs empty, full response: {}", convList.toString());
+                return;
+            }
+            log.info("[MESSAGE] found {} conversations", userConvs.size());
+
+            for (JsonNode conv : userConvs) {
+                String cid = conv.path("cid").asText();
+                if (cid.isEmpty()) {
+                    // 尝试其他可能的字段：userId, accountId, userConvId 等
+                    cid = conv.path("userId").asText();
+                    if (cid.isEmpty()) {
+                        log.warn("[MESSAGE] cannot find cid from conv: {}", conv.toString());
+                        continue;
+                    }
+                }
+                // listUserMessages 的 cid 不需要 @goofish 后缀，内部会自动拼接
+                try {
+                    JsonNode historyData = msgApi.getMessageHistory(cid, 20);
+                    if (historyData == null || !historyData.has("body")) continue;
+                    saveMessagesFromLwpResponse(acc.getId(), historyData.path("body").path("userMessageModels"));
+                } catch (Exception e) {
+                    log.warn("[MESSAGE] failed to pull history for cid={}: {}", cid, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[MESSAGE] full history pull failed for account {}: {}", acc.getId(), e.getMessage());
+            
+            // 检测风控并自动解决
+            String errorMessage = e.getMessage();
+            if (errorMessage != null && (errorMessage.contains("FAIL_SYS_USER_VALIDATE") || 
+                errorMessage.contains("punish") || errorMessage.contains("captcha"))) {
+                
+                log.warn("[MESSAGE] Risk control detected! Attempting automatic slider captcha...");
+                solveCaptchaAndRetry(acc, mtopClient);
+            }
+        }
+    }
+
+    /**
+     * 自动解决滑块验证码并刷新 cookie
+     */
+    private void solveCaptchaAndRetry(XianyuAccount acc, XianyuMtopApiClient mtopClient) {
+        try {
+            String rawError = mtopClient.getLastErrorResponse();
+
+            log.info("[CDP-AUTH] Raw error: {}", truncate(rawError, 400));
+
+            // 1. JSON data.url
+            String url = extractJsonPunishUrl(rawError);
+
+            if (url == null || url.isEmpty()) {
+                log.warn("[MESSAGE] No punish URL found in error");
+                return;
+            }
+
+            log.info("[CDP-AUTH] Punish URL: {}", truncate(url, 250));
+            cn.net.rjnetwork.xianyu.captcha.model.CaptchaResult result = captchaSolver.solve(url);
+
+            if (result.isSuccess()) {
+                log.info("[MESSAGE] Slider captcha solved successfully!");
+
+                // 更新账号 cookie
+                acc.setCookieHeader(result.getNewCookie());
+                accountMapper.updateById(acc);
+
+                // 重新同步消息
+                log.info("[MESSAGE] Retrying message sync with new cookie...");
+                pullMessages(acc);
+
+            } else {
+                log.error("[MESSAGE] Slider captcha failed: {}", result.getError());
+            }
+        } catch (Exception e) {
+            log.error("[MESSAGE] Failed to solve captcha and retry: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 从 JSON 字符串中解析 data.url 字段的 punish URL
+     */
+    private String extractJsonPunishUrl(String jsonStr) {
+        if (jsonStr == null || jsonStr.isEmpty()) return null;
+        try {
+            JsonNode node = MAPPER.readTree(jsonStr);
+            JsonNode data = node.path("data");
+            if (data.has("url")) {
+                return data.path("url").asText();
+            }
+        } catch (Exception e) {
+            log.warn("[CDP-AUTH] Failed to parse error body as JSON: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "null";
+        return s.length() > max ? s.substring(0, max) + "..." : s;
+    }
+
+    /** 从 LWP 响应体中保存消息（userMessageModels） */
+    private void saveMessagesFromLwpResponse(Long accountId, JsonNode msgsNode) {
         if (msgsNode == null || !msgsNode.isArray()) return;
-
         for (JsonNode msg : msgsNode) {
-            saveIncomingFromApi(acc.getId(), msg);
+            saveIncomingFromLwp(accountId, msg);
         }
     }
 
@@ -217,6 +349,64 @@ public class MessageService {
             eventPublisher.publishEvent(new NotifyEvent(this, entity, "NEW_MESSAGE"));
         }
         log.info("[MESSAGE] pulled msg {} in session {} from account {}", msgId, sessionId, accountId);
+    }
+
+    /** 从 LWP 响应体保存消息（userMessageModels） */
+    private void saveIncomingFromLwp(Long accountId, JsonNode msg) {
+        // LWP 消息结构：msg.messageId, msg.senderId, msg.senderNickName, msg.content
+        String msgId = msg.path("messageId").asText("");
+        if (msgId.isEmpty()) {
+            // 兼容旧格式
+            msgId = msg.path("msgId").asText("");
+        }
+        if (msgId.isEmpty()) return;
+
+        Long count = messageMapper.selectCount(
+                new LambdaQueryWrapper<XianyuMessage>().eq(XianyuMessage::getMsgId, msgId));
+        if (count != null && count > 0) return;
+
+        String cid = msg.path("cid").asText(msg.path("conversationId").asText(""));
+        if (!cid.contains("@")) {
+            cid += "@goofish";
+        }
+
+        XianyuMessage entity = new XianyuMessage();
+        entity.setAccountId(accountId);
+        entity.setSessionId(cid);
+        entity.setMsgId(msgId);
+        entity.setSenderId(msg.path("senderId").asText(""));
+        entity.setSenderName(msg.path("senderNickName").asText(msg.path("senderNick").asText("")));
+
+        // direction: senderId == selfId 是 OUTGOING，否则 INCOMING
+        entity.setDirection("INCOMING");
+        entity.setMsgType("TEXT");
+        entity.setAutoReply(false);
+        entity.setMessageTime(LocalDateTime.now());
+
+        // content.custom.data base64 -> JSON -> text
+        JsonNode content = msg.path("content");
+        if (content.has("custom") && content.path("custom").has("data")) {
+            try {
+                byte[] decoded = java.util.Base64.getDecoder().decode(content.path("custom").path("data").asText());
+                String plainJson = new String(decoded, StandardCharsets.UTF_8);
+                JsonNode plain = MAPPER.readTree(plainJson);
+                entity.setContent(plain.path("text").path("text").asText(""));
+            } catch (Exception e) {
+                entity.setContent(content.path("custom").path("data").asText(""));
+            }
+        } else if (content.has("text")) {
+            entity.setContent(content.path("text").asText(""));
+        } else if (content.has("body") && content.path("body").has("text")) {
+            entity.setContent(content.path("body").path("text").asText(""));
+        } else {
+            entity.setContent(content.asText(""));
+        }
+
+        messageMapper.insert(entity);
+        if ("INCOMING".equals(entity.getDirection())) {
+            eventPublisher.publishEvent(new NotifyEvent(this, entity, "NEW_MESSAGE"));
+        }
+        log.info("[MESSAGE] pulled lwp msg {} in session {} from account {}", msgId, cid, accountId);
     }
 
     public XianyuMessage sendMessage(MessageSendRequest request) throws Exception {
@@ -290,9 +480,5 @@ public class MessageService {
             saveIncomingMessage(replyMsg);
         }
         return reply;
-    }
-
-    public XianyuMessage getById(Long id) {
-        return messageMapper.selectById(id);
     }
 }

@@ -7,6 +7,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -64,6 +66,63 @@ public class XianyuMtopApiClient {
     /** 发送 POST 请求（JSON body） */
     public JsonNode postJson(String url, String jsonBody) {
         return send(url, "POST_JSON", jsonBody);
+    }
+
+    /**
+     * 上传 multipart/form-data 文件到闲鱼 CDN（stream-upload.goofish.com）。
+     * <p>真实抓包验证（XianYuApis upload_media + xianyu-auto-reply image_uploader）：</p>
+     * <ul>
+     *   <li>URL: https://stream-upload.goofish.com/api/upload.api?floderId=0&appkey=xy_chat&_input_charset=utf-8</li>
+     *   <li>method: POST，Content-Type: multipart/form-data; boundary=...</li>
+     *   <li>form 字段名: "file"，含 filename + Content-Type（image/png 或 video/mp4）</li>
+     *   <li>headers: 同 mtop 调用（origin/referer/sec-* 等），不要 sign（流上传不走 mtop 签名）</li>
+     *   <li>返回: {object: {url: "http://img.alicdn.com/...", pix: "WxH"}}（图片有 pix，视频无 pix 但有 url）</li>
+     * </ul>
+     *
+     * @param url        完整上传 URL（含 query params）
+     * @param fileBytes  文件二进制内容
+     * @param filename   文件名（如 "1.jpg"）
+     * @param contentType 文件 Content-Type（如 "image/png" / "video/mp4"）
+     * @return 闲鱼返回 JSON，含 object.url（CDN 地址）和 object.pix（"宽x高"，视频可能无）
+     */
+    public JsonNode uploadMultipart(String url, byte[] fileBytes, String filename, String contentType) {
+        try {
+            // 拼 multipart body —— boundary + file part + end
+            String boundary = "----xianyu-sdk-boundary-" + System.currentTimeMillis();
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            String CRLF = "\r\n";
+
+            // file part header
+            buf.write(("--" + boundary + CRLF).getBytes(StandardCharsets.UTF_8));
+            buf.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"" + CRLF).getBytes(StandardCharsets.UTF_8));
+            buf.write(("Content-Type: " + contentType + CRLF).getBytes(StandardCharsets.UTF_8));
+            buf.write(CRLF.getBytes(StandardCharsets.UTF_8));
+            // file binary
+            buf.write(fileBytes);
+            buf.write(CRLF.getBytes(StandardCharsets.UTF_8));
+            // end
+            buf.write(("--" + boundary + "--" + CRLF).getBytes(StandardCharsets.UTF_8));
+
+            byte[] body = buf.toByteArray();
+
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(60))
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .header("Accept", "*/*")
+                    .header("Origin", ORIGIN)
+                    .header("Referer", REFERER)
+                    .header("User-Agent", USER_AGENT)
+                    .header("Cookie", cookie != null ? cookie : "")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(body));
+
+            HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+            this.cookie = mergeCookieFromResponse(cookie, response);
+            return MAPPER.readTree(response.body());
+        } catch (Exception e) {
+            System.err.println("[MTOP uploadMultipart Error] " + e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -144,10 +203,18 @@ public class XianyuMtopApiClient {
             this.cookie = mergeCookieFromResponse(cookie, response);
             return MAPPER.readTree(response.body());
         } catch (Exception e) {
+            lastErrorResponse = "Error: " + e.getMessage();
             System.err.println("[MTOP " + method + " Error] " + e.getMessage());
             return null;
         }
     }
+
+    /** 获取最后错误响应内容 */
+    public String getLastErrorResponse() {
+        return lastErrorResponse != null ? lastErrorResponse : "";
+    }
+
+    private String lastErrorResponse;
 
     /**
      * 预热 _m_h5_tk cookie：调用一次轻量接口让服务端下发该 cookie。
@@ -197,6 +264,24 @@ public class XianyuMtopApiClient {
         return r0.contains("FAIL_SYS_TOKEN_EXOIRED")
                 || r0.contains("FAIL_SYS_ILLEGAL_REQUEST")
                 || r0.contains("FAIL_SYS_TOKEN_EMPTY");
+    }
+
+    /** 检查是否触发风控（验证码/滑块/挤爆） */
+    public boolean isRiskControlTriggered(JsonNode resp) {
+        if (resp == null) return false;
+        JsonNode ret = resp.path("ret");
+        if (!ret.isArray() || ret.size() == 0) return false;
+        String r0 = ret.get(0).asText("");
+        return r0.contains("FAIL_SYS_USER_VALIDATE")
+                || r0.contains("RGV587")
+                || r0.contains("FAIL_SYS_ILLEGAL_ACCESS")
+                || r0.contains("FAIL_BIZ_WUA_IS_MACHINE")
+                || r0.contains("WUA_IS_MACHINE")
+                || r0.contains("哎哟喂")
+                || r0.contains("挤爆")
+                || r0.contains("punish")
+                || r0.contains("captcha")
+                || r0.contains("validate");
     }
 
     /** 从 Set-Cookie 头合并到当前 cookie 字符串 */

@@ -2,9 +2,13 @@ package cn.net.rjnetwork.xianyu.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -18,6 +22,7 @@ import java.util.Map;
  */
 public class XianyuMessageApiService {
 
+    private static final Logger log = LoggerFactory.getLogger(XianyuMessageApiService.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final XianyuMtopApiClient apiClient;
     /** accs IM 长连接客户端（懒初始化，首次发消息/拉历史时建立） */
@@ -63,6 +68,29 @@ public class XianyuMessageApiService {
      */
     public JsonNode getSessionList() {
         return apiClient.callMtop("mtop.taobao.idlemessage.pc.session.sync", "{}");
+    }
+
+    /**
+     * 获取 IM 长连接会话列表 — WSS LWP 协议。
+     * <p>真实帧：</p>
+     * <ul>
+     *   <li>wss://wss-goofish.dingtalk.com/ POST JSON</li>
+     *   <li>{"lwp":"/r/Conversation/listNewestPagination","headers":{"mid":"..."},
+     *       "body":[9007199254740991,50]}</li>
+     *   <li>body[0]=startTimestamp, [1]=limit</li>
+     * </ul>
+     *
+     * @param limit 每页数量，默认 50
+     */
+    public JsonNode getConversationList(int limit) throws Exception {
+        ensureAccs();
+        Object[] body = new Object[]{
+                9007199254740991L,  // Number.MAX_SAFE_INTEGER
+                Math.max(1, Math.min(limit, 100))
+        };
+        JsonNode resp = accsClient.sendFrame("/r/Conversation/listNewestPagination", body);
+        log.info("[MESSAGE] conversation list response: {}", resp != null ? resp.toString() : "null");
+        return resp;
     }
 
     /**
@@ -131,14 +159,12 @@ public class XianyuMessageApiService {
     }
 
     /**
-     * 获取消息历史 — accs 长连接协议（真实抓包验证 2026-07-19 CDP）。
+     * 获取单会话消息历史 — accs 长连接协议。
      * <p>真实帧：</p>
      * <ul>
      *   <li>wss://wss-goofish.dingtalk.com/ POST JSON</li>
      *   <li>{"lwp":"/r/MessageManager/listUserMessages","headers":{"mid":"..."},
      *       "body":["63620203412@goofish",false,9007199254740991,20,false]}</li>
-     *   <li>body[0]=cid, [1]=fromLatest(false=从最新拉), [2]=startMsgId(向后拉用 9007199254740991),
-     *       [3]=size(20), [4]=false</li>
      * </ul>
      *
      * @param cid    会话 id，形如 "63620203412@goofish"
@@ -146,15 +172,60 @@ public class XianyuMessageApiService {
      */
     public JsonNode getMessageHistory(String cid, Integer size) throws Exception {
         ensureAccs();
-        // body=[cid, false, 9007199254740991, size, false]
         Object[] body = new Object[]{
                 cid != null ? cid : "",
                 false,
-                9007199254740991L,  // 真实抓包值，表示从最新向后拉
+                9007199254740991L,
                 size != null && size > 0 ? size : 20,
                 false
         };
         return accsClient.sendFrame("/r/MessageManager/listUserMessages", body);
+    }
+
+    /**
+     * 批量拉取所有会话的历史消息。
+     * <p>先通过 WSS 获取会话列表，再逐条拉取每会话语义。</p>
+     *
+     * @param maxCidCount 最多处理多少个会话（避免一次性拉太多）
+     * @param msgLimit    每个会话拉取条数
+     * @return 返回包含 hasMore 和 userConvs 的 JSON
+     */
+    public JsonNode pullAllHistory(int maxCidCount, int msgLimit) throws Exception {
+        ensureAccs();
+        // 1. 获取会话列表
+        JsonNode convList = getConversationList(maxCidCount);
+        if (convList == null || !convList.has("body")) return convList;
+
+        JsonNode bodyNode = convList.path("body");
+        List<String> cids = new ArrayList<>();
+        for (JsonNode conv : bodyNode.path("userConvs")) {
+            String cid = conv.path("cid").asText();
+            if (!cid.isEmpty()) {
+                // 确保 cid 带 @goofish 后缀
+                if (!cid.contains("@")) {
+                    cid += "@goofish";
+                }
+                cids.add(cid);
+            }
+        }
+
+        // 2. 对每个会话拉取历史
+        JsonNode allHistory = MAPPER.readTree("{}");
+        for (String cid : cids) {
+            try {
+                JsonNode history = getMessageHistory(cid, msgLimit);
+                if (history != null && history.has("body")) {
+                    allHistory = MAPPER.readTree(
+                            allHistory.toString().replace("}",
+                                    ",\"histories\":[\"" + history.path("body").path("userMessageModels").toString() + "\"]}"
+                            )
+                    );
+                }
+            } catch (Exception e) {
+                log.warn("[MESSAGE] failed to pull history for cid={}: {}", cid, e.getMessage());
+            }
+        }
+        return allHistory;
     }
 
     // ==================== 黑名单 ====================

@@ -93,30 +93,50 @@ public class XianyuProductEditApiService {
 
     // ==================== 价格调整 ====================
 
-    /** 调整商品价格 — 命名规律候选 mtop.taobao.idlemanage.item.price.update（未真抓） */
+    /**
+     * 调整商品价格 — 闲鱼 PC 无独立改价接口
+     * <p>真实定位结论（2026-07-19 全参考项目翻查）：</p>
+     * <ul>
+     *   <li>参考项目 XianYuApis / XianyuAutoAgent / xianyu-auto-reply 均无改价接口实现</li>
+     *   <li>闲鱼 PC 卖家后台没有「直接改价」的 mtop 接口，原候选 mtop.taobao.idlemanage.item.price.update 不存在</li>
+     *   <li>真正的改价路径是「编辑商品重新 publish」：调 mtop.idle.pc.idleitem.publish 带 itemId + 新价格 + 原商品全套信息，
+     *       itemId 保留，浏览量/收藏不清零。但这需要先调 getProductDetail 拿原商品全部字段，工程量不小</li>
+     * </ul>
+     *
+     * <p><b>当前实现</b>：抛明确异常，提示用户走闲鱼 App 卖家中心或编辑重发。
+     * 调用方（ProductService.updatePrice）应捕获此异常，前端跳闲鱼 App 或提示。
+     * 若后续要走编辑重发路径，本方法应改成调 publishItem(itemId, ..., newPrice, ...)。</p>
+     *
+     * @param itemId 闲鱼商品 id
+     * @param price  新价格（元，如 "99.00"）— 当前实现忽略，只抛异常
+     */
     public JsonNode updatePrice(String itemId, String price) {
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("itemId", itemId != null ? itemId : "");
-        data.put("price", price != null ? price : "");
-        return apiClient.callMtop("mtop.taobao.idlemanage.item.price.update", toJson(data));
+        throw new UnsupportedOperationException(
+                "闲鱼 PC 无独立改价接口，请到闲鱼 App 卖家中心改价，或走「编辑商品重新 publish」流程（调 publishItem 带 itemId + 新价格 + 原商品全套信息）。"
+        );
     }
 
-    /** 调整商品原价 — 命名规律候选 mtop.taobao.idlemanage.item.originalprice.update（未真抓） */
+    /** 调整商品原价 — 同 updatePrice，闲鱼 PC 无独立改原价接口 */
     public JsonNode updateOriginalPrice(String itemId, String originalPrice) {
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("itemId", itemId != null ? itemId : "");
-        data.put("originalPrice", originalPrice != null ? originalPrice : "");
-        return apiClient.callMtop("mtop.taobao.idlemanage.item.originalprice.update", toJson(data));
+        throw new UnsupportedOperationException(
+                "闲鱼 PC 无独立改原价接口，请到闲鱼 App 卖家中心改原价，或走「编辑商品重新 publish」流程。"
+        );
     }
 
     // ==================== 库存管理 ====================
 
-    /** 调整商品库存 — 命名规律候选 mtop.taobao.idlemanage.item.stock.update（未真抓） */
+    /**
+     * 调整商品库存 — 闲鱼 PC 无独立改库存接口
+     * <p>真实定位结论同 updatePrice：参考项目全无实现，原候选 mtop.taobao.idlemanage.item.stock.update 不存在。
+     * 闲鱼改库存同样走「编辑商品重新 publish」或闲鱼 App 卖家中心。</p>
+     *
+     * @param itemId 闲鱼商品 id
+     * @param stock  新库存（如 "10"）— 当前实现忽略，只抛异常
+     */
     public JsonNode updateStock(String itemId, String stock) {
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("itemId", itemId != null ? itemId : "");
-        data.put("stock", stock != null ? stock : "");
-        return apiClient.callMtop("mtop.taobao.idlemanage.item.stock.update", toJson(data));
+        throw new UnsupportedOperationException(
+                "闲鱼 PC 无独立改库存接口，请到闲鱼 App 卖家中心改库存，或走「编辑商品重新 publish」流程。"
+        );
     }
 
     // ==================== 商品分类 ====================

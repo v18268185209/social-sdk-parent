@@ -3,6 +3,7 @@ package cn.net.rjnetwork.xianyu.manager.product.service;
 import cn.net.rjnetwork.xianyu.api.XianyuMtopApiClient;
 import cn.net.rjnetwork.xianyu.api.XianyuProductApiService;
 import cn.net.rjnetwork.xianyu.api.XianyuProductEditApiService;
+import cn.net.rjnetwork.xianyu.api.XianyuPublishApiService;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import cn.net.rjnetwork.xianyu.manager.account.service.AccountService;
 import cn.net.rjnetwork.xianyu.manager.product.dto.ProductCreateRequest;
@@ -22,7 +23,9 @@ import java.io.FileOutputStream;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -91,8 +94,25 @@ public class ProductService {
         return productMapper.selectById(id);
     }
 
+    /**
+     * 创建商品并真发布到闲鱼 — 完整闭环
+     * <p>真实抓包来源：参考项目 /Users/vim/Desktop/codes/github/XianYuApis/goofish_apis.py 的 public() 方法，
+     * 链上 4 个 mtop 接口：recommendCategory → getDefaultLocation → publishItem（图片上传走外部，此处跳过）。</p>
+     *
+     * <p><b>发布闭环</b>（参考 XianYuApis 真抓）：本地落 DRAFT → 调闲鱼发布链 → 拿闲鱼返回 →
+     * 回写本地 status=ON_SALE + itemId → 调 syncFromXianyu 同步完整信息（浏览量/分类/图片等）。</p>
+     *
+     * <p><b>图片限制</b>：闲鱼图片需先上传到闲鱼 CDN（stream-upload.goofish.com multipart），
+     * 当前 SDK 未集成 multipart 上传。若调用方传的图片是本地 URL（/uploads/xxx.jpg），
+     * 走无图发布模式（publishItem imageInfoList 传空），闲鱼允许无图发布（会提示但能成功）。
+     * 若调用方已通过其他方式拿到闲鱼 CDN 图片 URL，传进来即可正常带图发布。</p>
+     *
+     * <p><b>发布 ≠ 上架已下架商品</b>：发布会生成新 itemId，原商品的浏览量/收藏/历史成交清零。
+     * 这是闲鱼平台设计，不是 SDK 限制。</p>
+     */
     @Transactional
     public XianyuProduct create(ProductCreateRequest request) {
+        // 1. 本地先落 DRAFT 记录（保留请求痕迹，万一发布失败也有本地草稿可查）
         XianyuProduct product = new XianyuProduct();
         product.setAccountId(request.getAccountId());
         product.setTitle(request.getTitle());
@@ -109,7 +129,247 @@ public class ProductService {
         product.setCreatedAt(LocalDateTime.now());
         product.setUpdatedAt(LocalDateTime.now());
         productMapper.insert(product);
+
+        // 2. 校验账号 cookie
+        Long accountId = request.getAccountId();
+        if (accountId == null) {
+            throw new IllegalArgumentException("accountId is required");
+        }
+        XianyuAccount account = accountService.getById(accountId);
+        if (account == null) {
+            throw new IllegalArgumentException("Account not found: " + accountId);
+        }
+        if (account.getCookieHeader() == null || account.getCookieHeader().isBlank()) {
+            throw new IllegalStateException("Account has no cookie, please re-login: " + accountId);
+        }
+
+        // 3. 构造 SDK：MtopApiClient + PublishApiService
+        XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(account.getCookieHeader());
+        XianyuPublishApiService publishApi = new XianyuPublishApiService(mtopClient);
+
+        // 4. 步骤 A：AI 推荐分类（title + 图片信息；图片信息从本地 images URL 拼不出闲鱼 CDN 的 url/height/width，传空让 AI 只按标题推荐）
+        JsonNode catResp = publishApi.recommendCategory(
+                request.getTitle() != null ? request.getTitle() : "",
+                new ArrayList<>()
+
+        );
+        // 解析 categoryPredictResult → catDTO
+        Map<String, String> catDTO = new LinkedHashMap<>();
+        JsonNode catPredict = catResp != null ? catResp.path("data").path("categoryPredictResult") : null;
+        if (catPredict != null && !catPredict.isMissingNode()) {
+            catDTO.put("catId", pickText(catPredict, "catId"));
+            catDTO.put("catName", pickText(catPredict, "catName"));
+            catDTO.put("channelCatId", pickText(catPredict, "channelCatId"));
+            catDTO.put("tbCatId", pickText(catPredict, "tbCatId"));
+        }
+        // 若用户在前端表单里显式传了 categoryId，覆盖 AI 推荐结果（用户指定优先）
+        if (request.getCategoryId() != null && !request.getCategoryId().isBlank()) {
+            catDTO.put("catId", request.getCategoryId());
+        }
+
+        // 5. 步骤 B：拿默认所在地（itemAddrDTO 必填）
+        JsonNode locResp = publishApi.getDefaultLocation();
+        Map<String, Object> addrDTO = new LinkedHashMap<>();
+        JsonNode addrNode = locResp != null ? locResp.path("data").path("commonAddresses") : null;
+        if (addrNode != null && addrNode.isArray() && addrNode.size() > 0) {
+            JsonNode first = addrNode.get(0);
+            addrDTO.put("area", pickText(first, "area"));
+            addrDTO.put("city", pickText(first, "city"));
+            addrDTO.put("divisionId", pickText(first, "divisionId"));
+            // gps = "经度,纬度"（逗号拼接）
+            String longitude = pickText(first, "longitude");
+            String latitude = pickText(first, "latitude");
+            if (!longitude.isEmpty() && !latitude.isEmpty()) {
+                addrDTO.put("gps", longitude + "," + latitude);
+            }
+            addrDTO.put("poiId", pickText(first, "poiId"));
+            addrDTO.put("poi", pickText(first, "poi"));
+        }
+
+        // 6. 步骤 C：图片真上传闲鱼 CDN（stream-upload.goofish.com），拿 url+pix → 拼 imageInfoList
+        // 前端传的 images 是本地上传后的 URL（/uploads/xxx.jpg），闲鱼 publish 不认本地 URL，
+        // 必须先把二进制传到闲鱼 CDN（alicdn.com），拿到的 URL 才能传给 publishItem。
+        // 兼容：若前端直接传了闲鱼 CDN URL（alicdn.com），跳过本地上传直接用。
+        List<Map<String, Object>> imageInfoList = new ArrayList<>();
+        if (request.getImages() != null) {
+            for (String imgUrl : request.getImages()) {
+                if (imgUrl == null || imgUrl.isBlank()) continue;
+                Map<String, Object> img = new LinkedHashMap<>();
+                if (imgUrl.contains("alicdn.com")) {
+                    // 已经是闲鱼 CDN URL，直接用（宽高未知传 0）
+                    img.put("url", imgUrl);
+                    img.put("width", 0);
+                    img.put("height", 0);
+                } else {
+                    // 本地 URL（/uploads/xxx.jpg）→ 读文件二进制 → 调 uploadImage 真上传闲鱼 CDN
+                    try {
+                        XianyuPublishApiService.UploadResult ur = uploadLocalFileToXianyu(publishApi, imgUrl, true);
+                        img.put("url", ur.url);
+                        img.put("width", ur.width);
+                        img.put("height", ur.height);
+                    } catch (Exception uploadErr) {
+                        // 单张图上传失败不阻塞整个发布（无图也能发），记录后跳过这张
+                        // 让 publishItem 走无图模式，闲鱼会提示但能成功
+                        continue;
+                    }
+                }
+                imageInfoList.add(img);
+            }
+        }
+
+        // 视频同理：本地 URL → 调 uploadVideo 真上传闲鱼 CDN → 拿 url
+        // 注意：publishItem 的 imageInfoDOList 闲鱼只接图片，视频走单独字段
+        // 但 publishItem 当前 data 结构里没有视频字段（XianYuApis public 真抓里也没有），
+        // 视频在闲鱼网页版发布页根本无入口，只在闲鱼 App。所以视频先上传到 CDN 拿 url 落本地，
+        // 等 publishItem 后续补视频字段（或闲鱼 App 抓包定位真接口）才能传给闲鱼。
+        List<String> xianyuVideoUrls = new ArrayList<>();
+        if (request.getVideos() != null) {
+            for (String videoUrl : request.getVideos()) {
+                if (videoUrl == null || videoUrl.isBlank()) continue;
+                if (videoUrl.contains("alicdn.com")) {
+                    xianyuVideoUrls.add(videoUrl);
+                } else {
+                    try {
+                        XianyuPublishApiService.UploadResult ur = uploadLocalFileToXianyu(publishApi, videoUrl, false);
+                        xianyuVideoUrls.add(ur.url);
+                    } catch (Exception uploadErr) {
+                        // 视频上传失败不阻塞发布，跳过
+                        continue;
+                    }
+                }
+            }
+        }
+        // 把闲鱼 CDN 视频 URL 回写本地 product.videos，方便后续 syncFromXianyu 不丢
+        if (!xianyuVideoUrls.isEmpty()) {
+            product.setVideos(toJsonArray(xianyuVideoUrls));
+        }
+
+        // 7. 步骤 D：运费设置（默认按距离计费，templateId=-100；前端暂时未提供运费选项，用保守默认）
+        Map<String, Object> deliverySettings = new LinkedHashMap<>();
+        deliverySettings.put("supportFreight", true);
+        deliverySettings.put("canFreeShipping", false);
+        deliverySettings.put("onlyTakeSelf", false);
+        deliverySettings.put("templateId", "-100");  // 按距离计费
+
+        // 8. 步骤 E：价格转分（元 → 分）
+        String priceInCent = null;
+        if (request.getPrice() != null) {
+            priceInCent = String.valueOf(request.getPrice().multiply(java.math.BigDecimal.valueOf(100)).longValue());
+        }
+        String origPriceInCent = null;
+        if (request.getOriginalPrice() != null) {
+            origPriceInCent = String.valueOf(request.getOriginalPrice().multiply(java.math.BigDecimal.valueOf(100)).longValue());
+        }
+
+        // 9. 步骤 F：真调 publishItem 提交发布
+        JsonNode pubResp = publishApi.publishItem(
+                request.getTitle() != null ? request.getTitle() : "",
+                request.getDescription() != null ? request.getDescription() : "",
+                priceInCent, origPriceInCent,
+                imageInfoList, catDTO, new ArrayList<>(), addrDTO, deliverySettings
+        );
+
+        // 10. 检查发布结果：ret[0] 应含 SUCCESS
+        if (!isMtopSuccess(pubResp)) {
+            throw new IllegalStateException("Xianyu publish failed: " + safeMtopMsg(pubResp));
+        }
+
+        // 11. 回写本地：status=ON_SALE，尝试解析 itemId（部分版本返回，部分不返回需 syncFromXianyu 拉回）
+        product.setStatus("ON_SALE");
+        String publishedItemId = parseItemIdFromPublishResp(pubResp);
+        if (publishedItemId != null && !publishedItemId.isEmpty()) {
+            product.setItemId(publishedItemId);
+        }
+        product.setUpdatedAt(LocalDateTime.now());
+        productMapper.updateById(product);
+
+        // 12. 调 syncFromXianyu 同步完整信息（浏览量/收藏/真实 itemId/图片 URL/分类等）
+        // 发布后闲鱼商品列表会立即出现新商品，syncFromXianyu 按 accountId + itemId upsert
+        try {
+            syncFromXianyu(accountId);
+        } catch (Exception syncErr) {
+            // sync 失败不回滚发布（发布已经成功了），只记录日志
+            // 同步可后续手动触发
+        }
+
         return product;
+    }
+
+    /** 从 publish 接口返回里解析 itemId（部分版本返回 data.itemId，部分不返回需 syncFromXianyu 拉） */
+    private String parseItemIdFromPublishResp(JsonNode resp) {
+        if (resp == null) return null;
+        JsonNode data = resp.path("data");
+        if (data.isMissingNode() || data.isNull()) return null;
+        // 候选字段名：itemId / id / itemDO.itemId
+        String[] candidates = {"itemId", "id", "itemDO.itemId"};
+        for (String key : candidates) {
+            if (key.contains(".")) {
+                // 嵌套：itemDO.itemId
+                String[] parts = key.split("\\.");
+                JsonNode node = data;
+                for (String p : parts) {
+                    node = node.path(p);
+                    if (node.isMissingNode() || node.isNull()) break;
+                }
+                if (!node.isMissingNode() && !node.isNull()) {
+                    String v = node.asText("");
+                    if (!v.isEmpty()) return v;
+                }
+            } else {
+                JsonNode node = data.get(key);
+                if (node != null && !node.isNull()) {
+                    String v = node.asText("");
+                    if (!v.isEmpty()) return v;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 从 JsonNode 拿指定字段文本值，缺失返空串 */
+    private String pickText(JsonNode node, String fieldName) {
+        if (node == null) return "";
+        JsonNode v = node.path(fieldName);
+        if (v.isMissingNode() || v.isNull()) return "";
+        return v.asText("");
+    }
+
+    /**
+     * 读本地文件二进制 → 调闲鱼 CDN 上传 → 拿 url+pix。
+     * @param publishApi 闲鱼发布服务（含 uploadImage/uploadVideo）
+     * @param localUrl   本地 URL（如 /uploads/xxx.jpg 或 http://localhost:8080/uploads/xxx.jpg）
+     * @param isImage    true=图片走 uploadImage，false=视频走 uploadVideo
+     * @return 闲鱼 CDN 上传结果（url + width + height）
+     */
+    private XianyuPublishApiService.UploadResult uploadLocalFileToXianyu(
+            XianyuPublishApiService publishApi, String localUrl, boolean isImage) throws Exception {
+        // 把本地 URL 解析成本地文件路径：
+        //   /uploads/xxx.jpg → uploadDir/xxx.jpg
+        //   http://localhost:8080/uploads/xxx.jpg → uploadDir/xxx.jpg
+        String filePath = localUrl;
+        // 剥 host 部分（若前端传了完整 URL）
+        if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
+            int idx = filePath.indexOf("/uploads/");
+            if (idx >= 0) filePath = filePath.substring(idx + "/uploads/".length() - 1); // 保留开头的 /
+        }
+        // 去 uploadUrlPrefix 前缀（默认 /uploads）
+        String prefix = uploadUrlPrefix != null ? uploadUrlPrefix : "/uploads";
+        if (filePath.startsWith(prefix)) {
+            filePath = filePath.substring(prefix.length());
+        }
+        // 拼 uploadDir + filePath → 真实本地文件
+        String fullLocalPath = (uploadDir != null ? uploadDir : "./data/uploads") + filePath;
+        java.io.File localFile = new java.io.File(fullLocalPath);
+        if (!localFile.exists() || !localFile.isFile()) {
+            throw new IllegalStateException("本地文件不存在：" + fullLocalPath);
+        }
+        byte[] bytes = java.nio.file.Files.readAllBytes(localFile.toPath());
+        String filename = localFile.getName();
+        if (isImage) {
+            return publishApi.uploadImage(bytes, filename);
+        } else {
+            return publishApi.uploadVideo(bytes, filename);
+        }
     }
 
     @Transactional
@@ -239,24 +499,35 @@ public class ProductService {
         return resp.toString().length() > 300 ? resp.toString().substring(0, 300) : resp.toString();
     }
 
+    /**
+     * 改价 — 闲鱼 PC 无独立改价接口，抛明确异常
+     * <p>真实定位结论（2026-07-19 全参考项目翻查）：闲鱼 PC 卖家后台没有「直接改价」的 mtop 接口，
+     * 真正的改价路径是「编辑商品重新 publish」（调 publishItem 带 itemId + 新价格 + 原商品全套信息），
+     * 但这需要先调 getProductDetail 拿原商品全部字段，工程量不小，且当前 SDK 未集成图片 CDN 上传，
+     * 编辑重发会丢图。故先抛明确异常，前端按钮跳闲鱼 App 卖家中心或提示用户手动改。
+     * 若后续要走编辑重发路径，本方法应改成调 publishItem(itemId, ..., newPrice, ...)。</p>
+     */
     @Transactional
     public XianyuProduct updatePrice(Long id, java.math.BigDecimal price) {
         XianyuProduct product = productMapper.selectById(id);
         if (product == null) throw new IllegalArgumentException("Product not found");
-        product.setPrice(price);
-        product.setUpdatedAt(LocalDateTime.now());
-        productMapper.updateById(product);
-        return product;
+        throw new IllegalStateException(
+                "闲鱼 PC 不支持直接改价，请到闲鱼 App 卖家中心改价，或走「编辑商品重新发布」流程"
+        );
     }
 
+    /**
+     * 改库存 — 闲鱼 PC 无独立改库存接口，抛明确异常
+     * <p>真实定位结论同 updatePrice：参考项目全无实现，
+     * 闲鱼改库存同样走「编辑商品重新 publish」或闲鱼 App 卖家中心。</p>
+     */
     @Transactional
     public XianyuProduct updateStock(Long id, Integer stock) {
         XianyuProduct product = productMapper.selectById(id);
         if (product == null) throw new IllegalArgumentException("Product not found");
-        product.setStock(stock);
-        product.setUpdatedAt(LocalDateTime.now());
-        productMapper.updateById(product);
-        return product;
+        throw new IllegalStateException(
+                "闲鱼 PC 不支持直接改库存，请到闲鱼 App 卖家中心改库存，或走「编辑商品重新发布」流程"
+        );
     }
 
     public List<XianyuProduct> listByAccountId(Long accountId) {

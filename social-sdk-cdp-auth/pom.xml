@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>cn.net.rjnetwork</groupId>
+        <artifactId>social-sdk-parent</artifactId>
+        <version>0.0.1</version>
+    </parent>
+
+    <artifactId>social-sdk-cdp-auth</artifactId>
+    <packaging>jar</packaging>
+    <name>Social SDK CDP Auth</name>
+    <description>CDP-based captcha solver for Xianyu MTOP risk control</description>
+
+    <dependencies>
+        <!-- Spring Boot Web (for @ConfigurationProperties, @Value injection) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- JSON processing -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- SLF4J Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <!-- CDP Client - Java Remote Debugging Protocol -->
+        <dependency>
+            <groupId>com.github.kklisura.cdt</groupId>
+            <artifactId>cdt-java-client</artifactId>
+            <version>4.0.0</version>
+        </dependency>
+
+        <!-- Internal SDK: social-sdk-xianyu for MTOP client and Cookie parsing -->
+        <dependency>
+            <groupId>cn.net.rjnetwork</groupId>
+            <artifactId>social-sdk-xianyu</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <classifier>exec</classifier>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -16,6 +16,7 @@
         <module>social-sdk-core</module>
         <module>social-sdk-xianyu</module>
         <module>social-sdk-spring-boot-starter</module>
+        <module>social-sdk-cdp-auth</module>
         <module>social-sdk-xianyu-manager</module>
     </modules>
 
@@ -60,6 +61,11 @@
             <dependency>
                 <groupId>cn.net.rjnetwork</groupId>
                 <artifactId>social-sdk-spring-boot-starter</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.net.rjnetwork</groupId>
+                <artifactId>social-sdk-cdp-auth</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

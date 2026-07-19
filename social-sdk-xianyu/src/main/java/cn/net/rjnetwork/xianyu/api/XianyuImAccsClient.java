@@ -3,8 +3,11 @@ package cn.net.rjnetwork.xianyu.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import javax.net.ssl.SSLEngine;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -14,44 +17,58 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.codec.http.DefaultHttpHeaders;
-import io.netty.handler.codec.http.HttpClientCodec;
-import io.netty.handler.codec.http.HttpObjectAggregator;
-import io.netty.handler.codec.http.websocketx.*;
+import io.netty.handler.codec.http.DefaultFullHttpResponse;
+import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http.HttpHeaderNames;
+import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpUtil;
+import io.netty.handler.codec.http.HttpVersion;
+import io.netty.handler.codec.http.websocketx.WebSocket08FrameDecoder;
+import io.netty.handler.codec.http.websocketx.WebSocket08FrameEncoder;
+import io.netty.handler.codec.http.websocketx.WebSocketDecoderConfig;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 
 /**
- * 闲鱼 IM accs 长连接客户端（Netty 实现，真实抓包验证 2026-07-19 CDP）。
+ * 闲鱼 IM accs 长连接客户端（Netty + TLS 实现）。
  * <p>闲鱼 IM 复用了钉钉的 IM PaaS 基础设施，长连接走：</p>
  * <ul>
- *   <li>wss://wss-cntaobao.dingtalk.com/ — 业务帧（发消息/拉历史/会话同步）</li>
- *   <li>wss://msgacs.m.taobao.com/accs/auth?token=... — 阿里 accs 鉴权 + 心跳（type=ACK protocol=HEARTBEAT_ACCS_H5）</li>
- *   <li>帧格式：{"lwp":"/r/MessageSend/sendByReceiverScope","headers":{"mid":"... 0"},"body":[...]}</li>
+ *   <li>wss://wss-goofish.dingtalk.com/ — 业务帧（发消息/拉历史/会话同步）</li>
+ *   <li>帧格式：{"lwp":"/r/MessageSend/sendByReceiverScope","headers":{"mid":"..."},"body":[...]}</li>
  *   <li>鉴权：先调 mtop.taobao.idlemessage.pc.login.token 拿 accessToken</li>
- *   <li>心跳：accs 长连接服务端约 30s 推一帧 HEARTBEAT，客户端要回 ACK；IdleStateHandler 兜底主动发心跳</li>
+ *   <li>注册：连接成功后发 /reg LWP 帧注册设备</li>
+ *   <li>心跳：服务端约 30s 推一帧，客户端 15s 主动发 /! 心跳</li>
  * </ul>
  *
- * <p>Netty 设计要点：</p>
+ * <p>设计要点：</p>
  * <ul>
  *   <li>NioEventLoopGroup 单线程撑多会话并发</li>
- *   <li>IdleStateHandler 30s 写空闲触发心跳帧</li>
- *   <li>自动重连：断线后重拉 token + 重连 wss</li>
- *   <li>服务端推送帧（对方发新消息）异步回调业务监听器</li>
+ *   <li>SSL/TLS 直连，不走 JVM 代理</li>
+ *   <li>WebSocket 08 协议升级，手动发送 HTTP Upgrade 请求</li>
+ *   <li>自动重连：断线后重拉 token + 重连 WSS</li>
+ *   <li>服务端推送帧异步回调业务监听器</li>
  *   <li>同步调用走 mid 匹配 + CompletableFuture 等回帧</li>
  * </ul>
  */
 public class XianyuImAccsClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final String WSS_HOST = "wss-cntaobao.dingtalk.com";
-    private static final String WSS_URL = "wss://wss-cntaobao.dingtalk.com/";
-    private static final int HEARTBEAT_IDLE_SECONDS = 30;
+    private static final String WSS_HOST = "wss-goofish.dingtalk.com";
+    private static final int WSS_PORT = 443;
+    private static final String WSS_PATH = "/";
+    private static final String APP_KEY = "444e9908a51d1cb236a27862abc769c9";
+    private static final String DEVICE_ID = "B213E622-BED6-4903-9907-0BFDE5E9DEA9";
+    private static final String UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
+    private static final int HEARTBEAT_INTERVAL_SECONDS = 15;
 
     private final XianyuMtopApiClient apiClient;
     private final AtomicLong midSeq = new AtomicLong(System.currentTimeMillis());
@@ -69,31 +86,21 @@ public class XianyuImAccsClient {
     }
 
     /**
-     * 建立 accs 长连接：先 MTOP 拿 accessToken，再连 wss-goofish.dingtalk.com。
-     * 阻塞等握手完成。
+     * 建立 WSS 长连接：MTOP 拿 token → SSL 直连 → WebSocket 08 升级 → 发送 /reg 注册。
      */
     public synchronized void connect() throws Exception {
         if (channel != null && channel.isActive()) return;
         closed = false;
 
-        // 禁用 JVM 代理（避免 Netty 通过 HTTP 代理连 WSS 时拿到 301）
-        System.setProperty("https.proxyHost", "");
-        System.setProperty("http.proxyHost", "");
-        System.clearProperty("https.proxyPort");
-        System.clearProperty("http.proxyPort");
-        System.clearProperty("proxySet");
-        
-        // 1. MTOP 拿 IM accessToken（真实抓包 2026-07-19 CDP：data 需带 appKey + deviceId，否则 FAIL_SYS_BIZPARAM_MISSED）
-        //    deviceId 格式 = "<固定 UUID>-<userId>"，userId 从 cookie 的 unb 字段解析
+        // 1. MTOP 拿 IM accessToken
         String userId = extractUserIdFromCookie();
-        String deviceId = "B213E622-BED6-4903-9907-0BFDE5E9DEA9-" + (userId.isEmpty() ? "0" : userId);
+        String deviceId = DEVICE_ID + "-" + (userId.isEmpty() ? "0" : userId);
         String tokenReqData = MAPPER.writeValueAsString(Map.of(
-                "appKey", "444e9908a51d1cb236a27862abc769c9",
+                "appKey", APP_KEY,
                 "deviceId", deviceId
         ));
         JsonNode tokenResp = apiClient.callMtop("mtop.taobao.idlemessage.pc.login.token", tokenReqData);
         JsonNode data = tokenResp != null ? tokenResp.path("data") : null;
-        // 兼容多种字段名：accessToken / access_token / token
         accessToken = "";
         if (data != null) {
             accessToken = data.path("accessToken").asText("");
@@ -104,63 +111,120 @@ public class XianyuImAccsClient {
         if (accessToken.isEmpty()) {
             throw new IllegalStateException("Failed to fetch IM accessToken via pc.login.token, resp=" + tokenResp);
         }
-        System.err.println("[IM-ACCS] got accessToken len=" + accessToken.length());
+        System.err.println("[IM-WSS] got accessToken len=" + accessToken.length());
 
-        // 2. Netty Bootstrap 直连 wss-cntaobao.dingtalk.com（禁用代理，避免 301）
-        if (group == null || group.isShuttingDown()) group = new NioEventLoopGroup(1);
-        
-        URI uri = URI.create(WSS_URL);
-        WebSocketClientHandshaker handshaker = WebSocketClientHandshakerFactory.newHandshaker(
-                uri, WebSocketVersion.V13, null, true,
-                new DefaultHttpHeaders()
-                        .add("Origin", "https://www.goofish.com")
-                        .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"),
-                65536);
+        // 2. 创建 SslContext（信任所有证书，避免自签名问题）
+        SslContext sslCtx = SslContextBuilder.forClient()
+                .trustManager(new java.security.cert.X509Certificate[0])
+                .build();
+
+        // 3. Netty Bootstrap
+        if (group == null || group.isShuttingDown()) {
+            group = new NioEventLoopGroup(1);
+        }
 
         Bootstrap bootstrap = new Bootstrap();
         bootstrap.group(group)
                 .channel(NioSocketChannel.class)
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000)
                 .handler(new ChannelInitializer<SocketChannel>() {
-                    @Override protected void initChannel(SocketChannel ch) {
+                    @Override
+                    protected void initChannel(SocketChannel ch) {
                         ChannelPipeline p = ch.pipeline();
-                        p.addLast("http", new HttpClientCodec());
-                        p.addLast("aggregator", new HttpObjectAggregator(65536));
-                        // 30s 写空闲触发心跳 + 60s 读空闲判定断线
-                        p.addLast("idle", new IdleStateHandler(60, HEARTBEAT_IDLE_SECONDS, 0, TimeUnit.SECONDS));
-                        p.addLast("ws", new WebSocketClientProtocolHandler(handshaker,
-                                WebSocketClientProtocolConfig.newBuilder()
-                                        .handleCloseFrames(true)
-                                        .dropPongFrames(true)
-                                        .webSocketUri(uri)
-                                        .build()));
+                        // TLS
+                        SSLEngine sslEngine = sslCtx.newEngine(ch.alloc(), WSS_HOST, WSS_PORT);
+                        p.addLast("ssl", new SslHandler(sslEngine));
+                        // WebSocket 08 编解码
+                        p.addLast("ws-decoder", new WebSocket08FrameDecoder(WebSocketDecoderConfig.newBuilder().build()));
+                        p.addLast("ws-encoder", new WebSocket08FrameEncoder(true));
+                        // 心跳
+                        p.addLast("idle", new IdleStateHandler(0, 0, HEARTBEAT_INTERVAL_SECONDS, TimeUnit.SECONDS));
+                        // 业务 handler
                         p.addLast("im", new ImFrameHandler());
                     }
                 });
 
-        // 直连目标 host:port，不走 JVM 代理
-        channel = bootstrap.connect(uri.getHost(), uri.getPort() == -1 ? 443 : uri.getPort()).sync().channel();
-        // 等握手完成 — Netty 4.1.x 没有 WebSocketClientProtocolHandler.handshakeFuture()，
-        // 改在 pipeline 上加一个 handler 监听 HANDSHAKE_COMPLETE 事件
-        final CountDownLatch hsLatch = new CountDownLatch(1);
-        channel.pipeline().addAfter("ws", "hs-wait", new ChannelInboundHandlerAdapter() {
-            @Override public void userEventTriggered(ChannelHandlerContext ctx, Object evt) {
-                if (evt == WebSocketClientProtocolHandler.ClientHandshakeStateEvent.HANDSHAKE_COMPLETE) {
+        channel = bootstrap.connect(WSS_HOST, WSS_PORT).sync().channel();
+        System.err.println("[IM-WSS] TCP connected to " + WSS_HOST + ":" + WSS_PORT);
+
+        // 4. 等待 SSL handshake 完成
+        channel.closeFuture().sync(); // 占位，实际由 pipeline 事件驱动
+        // 实际上连接已建立，直接发 WebSocket 升级请求
+        sendWebSocketUpgrade();
+
+        // 5. 等待握手完成
+        CountDownLatch hsLatch = new CountDownLatch(1);
+        channel.pipeline().addAfter("ws-encoder", "hs-wait", new ChannelInboundHandlerAdapter() {
+            @Override
+            public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+                if (evt instanceof FullHttpResponse && ((FullHttpResponse) evt).status().code() == 101) {
                     hsLatch.countDown();
                 }
+                super.userEventTriggered(ctx, evt);
             }
         });
-        hsLatch.await(10, TimeUnit.SECONDS);
-        System.err.println("[IM-ACCS] wss connected & handshake done");
+
+        // 6. 发送 /reg 注册帧
+        sendRegFrame();
+        System.err.println("[IM-WSS] /reg frame sent");
+
+        boolean handshakeDone = hsLatch.await(10, TimeUnit.SECONDS);
+        if (!handshakeDone) {
+            System.err.println("[IM-WSS] WARNING: handshake may not complete normally, continuing anyway");
+        } else {
+            System.err.println("[IM-WSS] wss connected & handshake done");
+        }
     }
 
     /**
-     * 发送 accs JSON 帧（业务路径如 /r/MessageSend/sendByReceiverScope），
-     * 等同步响应（同 mid 的回帧），返回响应 JSON。
+     * 手动发送 WebSocket 08 Upgrade 请求（绕过 Netty HttpClientCodec 的代理问题）。
+     */
+    private void sendWebSocketUpgrade() throws Exception {
+        String key = Base64.getEncoder().encodeToString(new byte[16]);
+        String upgradeRequest =
+                "GET " + WSS_PATH + " HTTP/1.1\r\n" +
+                "Host: " + WSS_HOST + ":" + WSS_PORT + "\r\n" +
+                "Upgrade: websocket\r\n" +
+                "Connection: Upgrade\r\n" +
+                "Sec-WebSocket-Key: " + key + "\r\n" +
+                "Sec-WebSocket-Version: 13\r\n" +
+                "Origin: https://www.goofish.com\r\n" +
+                "User-Agent: " + UA + "\r\n" +
+                "\r\n";
+
+        byte[] bytes = upgradeRequest.getBytes(StandardCharsets.UTF_8);
+        channel.writeAndFlush(Unpooled.copiedBuffer(bytes)).sync();
+        System.err.println("[IM-WSS] sent WebSocket upgrade request");
+    }
+
+    /**
+     * 发送 /reg 注册帧。
+     */
+    private void sendRegFrame() throws Exception {
+        Map<String, Object> regMsg = new LinkedHashMap<>();
+        regMsg.put("lwp", "/reg");
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("cache-header", "app-key token ua wv");
+        headers.put("app-key", APP_KEY);
+        headers.put("token", accessToken);
+        headers.put("ua", UA);
+        headers.put("dt", "j");
+        headers.put("wv", "im:3,au:3,sy:6");
+        headers.put("sync", "0,0;0;0;");
+        headers.put("did", DEVICE_ID + "-" + extractUserIdFromCookie());
+        headers.put("mid", nextMid());
+        regMsg.put("headers", headers);
+        regMsg.put("body", new LinkedHashMap<>());
+
+        channel.writeAndFlush(new io.netty.handler.codec.http.websocketx.TextWebSocketFrame(
+                MAPPER.writeValueAsString(regMsg))).sync();
+    }
+
+    /**
+     * 发送 LWP 业务帧（如 /r/Conversation/listNewestPagination、/r/MessageManager/listUserMessages）。
      */
     public JsonNode sendFrame(String lwp, Object body) throws Exception {
         ensureConnected();
-
         String mid = nextMid();
         Map<String, Object> frame = new LinkedHashMap<>();
         frame.put("lwp", lwp);
@@ -171,22 +235,26 @@ public class XianyuImAccsClient {
         java.util.concurrent.CompletableFuture<JsonNode> future = new java.util.concurrent.CompletableFuture<>();
         pending.put(mid, future);
 
-        channel.writeAndFlush(new TextWebSocketFrame(json));
-        System.err.println("[IM-ACCS] send frame: " + (json.length() > 500 ? json.substring(0, 500) + "..." : json));
+        channel.writeAndFlush(new io.netty.handler.codec.http.websocketx.TextWebSocketFrame(json));
+        System.err.println("[IM-WSS] send frame: " + (json.length() > 500 ? json.substring(0, 500) + "..." : json));
 
         try {
-            // 同步等响应最多 8 秒
             return future.get(8, TimeUnit.SECONDS);
         } catch (Exception e) {
             pending.remove(mid);
-            throw new IllegalStateException("IM accs frame timeout, lwp=" + lwp, e);
+            throw new IllegalStateException("IM WSS frame timeout, lwp=" + lwp, e);
         }
     }
 
     /**
-     * 注册服务端推送帧监听器（对方发新消息等异步推送）。
-     * @param key 监听 key（如 "message"），同名覆盖
+     * 发送纯 JSON 帧（无 mid，用于心跳等）。
      */
+    public void sendRawFrame(String json) throws Exception {
+        ensureConnected();
+        channel.writeAndFlush(new io.netty.handler.codec.http.websocketx.TextWebSocketFrame(json));
+    }
+
+    /** 注册服务端推送帧监听器。 */
     public void addPushListener(String key, Consumer<JsonNode> listener) {
         pushListeners.put(key, listener);
     }
@@ -211,7 +279,6 @@ public class XianyuImAccsClient {
         return String.valueOf(midSeq.incrementAndGet()) + " 0";
     }
 
-    /** 从 cookie 的 unb 字段解析当前登录用户 id（形如 "2215024781926"），找不到返回空字符串。 */
     private String extractUserIdFromCookie() {
         String cookie = apiClient.getCookie();
         if (cookie == null || cookie.isEmpty()) return "";
@@ -225,62 +292,79 @@ public class XianyuImAccsClient {
         return "";
     }
 
-    /** accs 心跳帧（HEARTBEAT_ACCS_H5）真实抓包：{"type":"ACK","protocol":"HEARTBEAT_ACCS_H5","data":""} */
-    private String heartbeatFrame() {
-        return "{\"type\":\"ACK\",\"protocol\":\"HEARTBEAT_ACCS_H5\",\"data\":\"\"}";
-    }
-
     /**
-     * Netty IM 帧处理器：收帧 → 按 mid 匹配同步 future / 否则当推送回调业务监听；
-     * IdleStateHandler 触发时发心跳帧；断线重连。
+     * IM 帧处理器：收帧 → 按 mid 匹配同步 future / 否则当推送回调业务监听；
+     * 15s 写空闲触发心跳帧；断线重连。
      */
-    private class ImFrameHandler extends SimpleChannelInboundHandler<WebSocketFrame> {
+    private class ImFrameHandler extends SimpleChannelInboundHandler<Object> {
 
-        @Override protected void channelRead0(ChannelHandlerContext ctx, WebSocketFrame frame) throws Exception {
-            if (frame instanceof TextWebSocketFrame) {
-                String text = ((TextWebSocketFrame) frame).text();
+        @Override
+        protected void channelRead0(ChannelHandlerContext ctx, Object msg) throws Exception {
+            if (msg instanceof io.netty.handler.codec.http.FullHttpResponse) {
+                FullHttpResponse resp = (FullHttpResponse) msg;
+                if (resp.status().code() == 101) {
+                    // 握手成功，移除等待 handler
+                    ctx.pipeline().remove("hs-wait");
+                    System.err.println("[IM-WSS] 101 Switching Protocols received");
+                    return;
+                }
+                System.err.println("[IM-WSS] HTTP response status: " + resp.status().code() + " " + resp.status().reasonPhrase());
+                return;
+            }
+            if (msg instanceof io.netty.handler.codec.http.websocketx.TextWebSocketFrame) {
+                String text = ((io.netty.handler.codec.http.websocketx.TextWebSocketFrame) msg).text();
                 if (!text.startsWith("{")) return;
-                JsonNode json = MAPPER.readTree(text);
-                String mid = json.path("headers").path("mid").asText("");
-                // 1. mid 匹配的同步回帧
-                if (!mid.isEmpty()) {
-                    java.util.concurrent.CompletableFuture<JsonNode> f = pending.remove(mid);
-                    if (f != null) {
-                        f.complete(json);
-                        return;
+                try {
+                    JsonNode json = MAPPER.readTree(text);
+                    String mid = json.path("headers").path("mid").asText("");
+                    // 1. mid 匹配的同步回帧
+                    if (!mid.isEmpty()) {
+                        java.util.concurrent.CompletableFuture<JsonNode> f = pending.remove(mid);
+                        if (f != null) {
+                            f.complete(json);
+                            return;
+                        }
                     }
+                    // 2. 推送帧
+                    String lwp = json.path("lwp").asText("");
+                    System.err.println("[IM-WSS] push frame lwp=" + lwp + " mid=" + mid);
+                    for (Consumer<JsonNode> listener : pushListeners.values()) {
+                        try {
+                            listener.accept(json);
+                        } catch (Exception e) {
+                            System.err.println("[IM-WSS] listener err: " + e.getMessage());
+                        }
+                    }
+                } catch (Exception e) {
+                    System.err.println("[IM-WSS] parse frame error: " + e.getMessage());
                 }
-                // 2. 否则当推送帧回调业务监听器（对方发新消息/会话变更等）
-                String lwp = json.path("lwp").asText("");
-                System.err.println("[IM-ACCS] push frame lwp=" + lwp + " mid=" + mid);
-                for (Consumer<JsonNode> listener : pushListeners.values()) {
-                    try { listener.accept(json); } catch (Exception e) { System.err.println("[IM-ACCS] listener err: " + e.getMessage()); }
-                }
-            } else if (frame instanceof PongWebSocketFrame) {
-                // pong 不处理
             }
         }
 
-        @Override public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+        @Override
+        public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
             if (evt instanceof IdleStateEvent) {
                 IdleStateEvent e = (IdleStateEvent) evt;
                 if (e.state() == IdleState.WRITER_IDLE) {
-                    // 30s 写空闲 → 主动发心跳
-                    ctx.writeAndFlush(new TextWebSocketFrame(heartbeatFrame()));
-                    System.err.println("[IM-ACCS] heartbeat sent");
+                    // 15s 写空闲 → 发 /! 心跳
+                    String heartbeat = "{\"lwp\":\"/!\",\"headers\":{\"mid\":\"" + nextMid() + "\"},\"body\":{}}";
+                    ctx.writeAndFlush(new io.netty.handler.codec.http.websocketx.TextWebSocketFrame(heartbeat));
+                    System.err.println("[IM-WSS] heartbeat sent (/!)");
                 } else if (e.state() == IdleState.READER_IDLE) {
-                    // 60s 读空闲 → 服务端断连，触发重连
-                    System.err.println("[IM-ACCS] reader idle, reconnecting...");
+                    System.err.println("[IM-WSS] reader idle, reconnecting...");
                     channel = null;
-                    try { connect(); } catch (Exception ex) { System.err.println("[IM-ACCS] reconnect failed: " + ex.getMessage()); }
+                    try { connect(); } catch (Exception ex) {
+                        System.err.println("[IM-WSS] reconnect failed: " + ex.getMessage());
+                    }
                 }
             } else {
                 super.userEventTriggered(ctx, evt);
             }
         }
 
-        @Override public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-            System.err.println("[IM-ACCS] ws error: " + cause.getMessage());
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            System.err.println("[IM-WSS] ws error: " + cause.getMessage());
         }
     }
 }

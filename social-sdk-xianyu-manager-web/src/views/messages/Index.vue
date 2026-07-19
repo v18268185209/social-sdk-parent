@@ -11,6 +11,9 @@
           <el-button type="primary" size="small" :loading="syncing" @click="handleSyncNow">
             同步消息
           </el-button>
+          <el-button type="warning" size="small" @click="openCaptchaPage" v-if="accounts.length > 0">
+            打开滑块验证
+          </el-button>
         </div>
       </div>
     </el-card>
@@ -94,6 +97,8 @@ const selectedSession = ref('')
 const newMessage = ref('')
 const syncing = ref(false)
 const chatBoxRef = ref(null)
+const syncMsg = ref('')
+const captchaOpened = ref(false)
 
 const selectedSessionData = ref({ counterpartyName: '', lastContent: '' })
 
@@ -173,16 +178,25 @@ async function handleSyncNow() {
     return
   }
   syncing.value = true
+  syncMsg.value = ''
   try {
     await api.post('/messages/syncNow')
+    syncMsg.value = '同步成功！'
     await loadSessions()
     if (selectedSession.value) await loadHistory()
-    ElMessage.success('同步完成')
   } catch (e) {
-    ElMessage.error('同步失败')
+    syncMsg.value = '错误: ' + e.message
   } finally {
     syncing.value = false
   }
+}
+
+const openCaptchaPage = () => {
+  // 打开新窗口到闲鱼主页，让用户手动完成滑块验证
+  const url = window.location.origin.replace(':3000', ':9333') + '/json'
+  window.open(url, '_blank')
+  captchaOpened.value = true
+  ElMessage.info('请在浏览器中完成滑块验证')
 }
 
 function onEnterKey(e) {
