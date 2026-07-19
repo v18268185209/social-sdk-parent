@@ -37,6 +37,7 @@ public class XianyuApiFacade {
     private final XianyuTradeAuxApiService tradeAuxApiService;
     private final XianyuCollectApiService collectApiService;
     private final XianyuWalletApiService walletApiService;
+    private final XianyuCaptchaService captchaService;
 
     public XianyuApiFacade(String cookie) {
         this.apiClient = new XianyuMtopApiClient(cookie);
@@ -52,6 +53,7 @@ public class XianyuApiFacade {
         this.tradeAuxApiService = new XianyuTradeAuxApiService(apiClient);
         this.collectApiService = new XianyuCollectApiService(apiClient);
         this.walletApiService = new XianyuWalletApiService(apiClient);
+        this.captchaService = new XianyuCaptchaService(cookie);
     }
 
     // ==================== Cookie 管理 ====================
@@ -364,14 +366,20 @@ public class XianyuApiFacade {
     public JsonNode reviewOrder(String orderId, String rating, String content) {
         return tradeAuxApiService.reviewOrder(orderId, rating, content);
     }
-    public JsonNode getReviewList(String page, String pageSize) {
-        return tradeAuxApiService.getReviewList(page, pageSize);
+    public JsonNode getReviewList(String buyerId, String page, String pageSize) {
+        return tradeAuxApiService.getReviewList(buyerId, page, pageSize);
     }
     public JsonNode applyRefund(String orderId, String reason, String amount) {
         return tradeAuxApiService.applyRefund(orderId, reason, amount);
     }
-    public JsonNode getRefundList(String page, String pageSize) {
-        return tradeAuxApiService.getRefundList(page, pageSize);
+    public JsonNode getRefundList(String disputeStatus, String page, String pageSize) {
+        return tradeAuxApiService.getRefundList(disputeStatus, page, pageSize);
+    }
+    public JsonNode getSellerSummary() {
+        return tradeAuxApiService.getSellerSummary();
+    }
+    public JsonNode getBrowseSummary() {
+        return tradeAuxApiService.getBrowseSummary();
     }
     public JsonNode getRefundDetail(String refundId) {
         return tradeAuxApiService.getRefundDetail(refundId);
@@ -423,4 +431,90 @@ public class XianyuApiFacade {
     public JsonNode getBillList(String page, String pageSize) { return walletApiService.getBillList(page, pageSize); }
     public JsonNode withdraw(String amount) { return walletApiService.withdraw(amount); }
     public JsonNode getBankCards() { return walletApiService.getBankCards(); }
+
+    // ======================== 12. 擦亮/虚拟发货/免拼发货/关闭订单（参考项目真验通） ========================
+
+    /** 商品擦亮（提升曝光排名）— 真实接口 mtop.taobao.idle.item.polish v1.0 */
+    public JsonNode polishItem(String itemId) { return productEditApiService.polishItem(itemId); }
+
+    /** 虚拟发货（确认发货/无需物流）— 真实接口 mtop.taobao.idle.logistic.consign.dummy v1.0 */
+    public JsonNode dummyDelivery(String orderId) { return tradeAuxApiService.dummyDelivery(orderId); }
+
+    /** 免拼发货（团购免拼一键发货）— 真实接口 mtop.idle.groupon.activity.seller.freeshipping v1.0 */
+    public JsonNode freeShipping(String orderId, String itemId, String buyerId) {
+        return tradeAuxApiService.freeShipping(orderId, itemId, buyerId);
+    }
+
+    /** 卖家主动关闭订单 — 真实接口 mtop.taobao.idle.trade.merchant.close.by.seller v2.0 */
+    public JsonNode closeOrderBySeller(String orderNo) { return tradeAuxApiService.closeOrderBySeller(orderNo); }
+
+    // ======================== 13. 评价/退款（真接口名） ========================
+    // 注意：reviewOrder/getReviewList/getRefundList/getSellerSummary/getBrowseSummary
+    // 已在第 9 区交易辅助段定义（L364-379），这里不重复定义，避免编译撞。
+
+    // ======================== 14. 验证码解题（captchaService） ========================
+
+    /** 风控触发检测：判断接口响应是否被 punish 拦截 */
+    public boolean isRiskControlTriggered(JsonNode response) { return captchaService.isRiskControlTriggered(response); }
+
+    /** 从风控拦截响应里提取 punish 验证 URL */
+    public String extractPunishUrl(JsonNode response) { return captchaService.extractPunishUrl(response); }
+
+    /** 凭 cookie 重新请求 token 拿新鲜验证链接 */
+    public XianyuCaptchaService.CaptchaRefetchResult requestFreshCaptchaUrl(String deviceId) {
+        return captchaService.requestFreshCaptchaUrl(deviceId);
+    }
+
+    /** 风控触发时的统一处理入口 */
+    public XianyuCaptchaService.CaptchaRefetchResult handleRiskControl(JsonNode response, String deviceId) {
+        return captchaService.handleRiskControl(response, deviceId);
+    }
+
+    /** 判断 URL 是否仍在风控 punish 页 */
+    public boolean isPunishUrl(String url) { return captchaService.isPunishUrl(url); }
+
+    /** 计算滑块需滑动的距离（普通/刮刮乐） */
+    public double calculateSlideDistance(double trackBoxWidth, double buttonBoxWidth, boolean isScratchCaptcha) {
+        return captchaService.calculateSlideDistance(trackBoxWidth, buttonBoxWidth, isScratchCaptcha);
+    }
+
+    /** 判定滑块验证是否真通过 */
+    public boolean isVerificationPassed(String currentUrl, String preX5sec, String currentX5sec, boolean sliderContainerDetached) {
+        return captchaService.isVerificationPassed(currentUrl, preX5sec, currentX5sec, sliderContainerDetached);
+    }
+
+    /** 刮刮乐验证码特征检测 */
+    public boolean isScratchCaptcha(String pageHtml) { return captchaService.isScratchCaptcha(pageHtml); }
+
+    // ======================== 15. 登录续期（loginApiService） ========================
+
+    /** 登录状态续期 — mtop.taobao.idlemessage.pc.loginuser.get v1.0 */
+    public JsonNode checkLoginRenew() { return profileApiService.getLoginUserInfo(); }
+
+    // ======================== 16. 通知/红花/黑名单（messageApiService） ========================
+
+    /** 关闭平台通知 — mtop.taobao.idlemessage.pc.profile.notice.update v1.0 */
+    public JsonNode closeNotice(String noticeId) { return messageApiService.closeNotice(noticeId); }
+
+    /** 红花（点赞/送花）— mtop.taobao.idlemessage.red.flower v1.0 */
+    public JsonNode sendRedFlower(String targetId, String targetType) {
+        return messageApiService.sendRedFlower(targetId, targetType);
+    }
+
+    /** 查询黑名单 — mtop.taobao.idlemessage.pc.blacklist.query v1.0 */
+    public JsonNode queryBlacklist() { return messageApiService.queryBlacklist(); }
+
+    /** 添加黑名单 — mtop.taobao.idlemessage.pc.blacklist.add v2.0 */
+    public JsonNode addBlacklist(String userId) { return messageApiService.addBlacklist(userId); }
+
+    /** 移除黑名单 — mtop.taobao.idlemessage.pc.blacklist.remove v1.0 */
+    public JsonNode removeBlacklist(String userId) { return messageApiService.removeBlacklist(userId); }
+
+    // ======================== 17. 用户主页（profileApiService） ========================
+
+    /** 获取用户主页头信息 — mtop.idle.web.user.page.head */
+    public JsonNode getUserPageHead(boolean self) { return profileApiService.getUserPageHead(self); }
+
+    /** 暴露 captchaService 实例（manager 层做浏览器解题时可能直访） */
+    public XianyuCaptchaService getCaptchaService() { return captchaService; }
 }

@@ -157,6 +157,66 @@ public class XianyuMessageApiService {
         return accsClient.sendFrame("/r/MessageManager/listUserMessages", body);
     }
 
+    // ==================== 黑名单 ====================
+
+    /**
+     * 查询黑名单列表 — mtop.taobao.idlemessage.pc.blacklist.query v1.0
+     */
+    public JsonNode queryBlacklist() {
+        return apiClient.callMtop("mtop.taobao.idlemessage.pc.blacklist.query", "{}");
+    }
+
+    /**
+     * 添加黑名单 — mtop.taobao.idlemessage.pc.blacklist.add v2.0
+     *
+     * @param userId 要拉黑的用户 id
+     */
+    public JsonNode addBlacklist(String userId) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("userId", userId != null ? userId : "");
+        return apiClient.callMtop("mtop.taobao.idlemessage.pc.blacklist.add", "2.0", toJson(data));
+    }
+
+    /**
+     * 移除黑名单 — mtop.taobao.idlemessage.pc.blacklist.remove v1.0
+     *
+     * @param userId 要移除的用户 id
+     */
+    public JsonNode removeBlacklist(String userId) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("userId", userId != null ? userId : "");
+        return apiClient.callMtop("mtop.taobao.idlemessage.pc.blacklist.remove", toJson(data));
+    }
+
+    // ==================== 红花（点赞/送花） ====================
+
+    /**
+     * 送红花 — mtop.taobao.idlemessage.red.flower v1.0
+     *
+     * @param targetId   目标 id（用户或商品）
+     * @param targetType 目标类型（USER 或 ITEM）
+     */
+    public JsonNode sendRedFlower(String targetId, String targetType) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("targetId", targetId != null ? targetId : "");
+        data.put("targetType", targetType != null ? targetType : "USER");
+        return apiClient.callMtop("mtop.taobao.idlemessage.red.flower", "1.0", toJson(data));
+    }
+
+    // ==================== 通知设置 ====================
+
+    /**
+     * 关闭/更新平台通知 — mtop.taobao.idlemessage.pc.profile.notice.update v1.0
+     *
+     * @param noticeId 通知设置 id
+     */
+    public JsonNode closeNotice(String noticeId) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("noticeId", noticeId != null ? noticeId : "");
+        data.put("status", "CLOSED");
+        return apiClient.callMtop("mtop.taobao.idlemessage.pc.profile.notice.update", toJson(data));
+    }
+
     private void ensureAccs() throws Exception {
         if (accsClient == null) {
             accsClient = new XianyuImAccsClient(apiClient);

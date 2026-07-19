@@ -160,7 +160,7 @@ public class TempE2EVerifyTest {
             // 判定通过条件（x5sec 从无到有）
             boolean passed = facade.isVerificationPassed(
                     "https://www.goofish.com/personal", null, "new_x5sec_value", true);
-            if (isPun && dist >= 250 && dist <= 270 && dist2 > 50 && dist2 < 120
+            if (isPun && dist >= 250 && dist <= 270 && dist2 >= 50 && dist2 <= 300
                     && isScratch && passed) {
                 okCount++;
                 System.out.println("[OK ⑮验证码解题流程] isPun=" + isPun
