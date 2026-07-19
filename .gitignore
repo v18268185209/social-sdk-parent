@@ -73,3 +73,29 @@ chrome-user-data/
 
 # Selenium
 selenium/
+
+# Node.js / Frontend
+node_modules/
+.pnpm-store/
+dist/
+.nuxt/
+.next/
+.cache/
+
+# Database
+data/
+*.db
+*.db.bak
+
+# Agent workspace
+.atomcode/
+.workbuddy/
+
+# Vite / Vue
+.DS_Store
+*.local
+.cache/
+
+# Temp
+*.tmp
+*.swp

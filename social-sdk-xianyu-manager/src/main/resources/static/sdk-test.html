@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>闲鱼管家 · SDK 能力测试面板</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+         background: #f5f5f7; color: #333; padding: 16px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: #888; font-size: 12px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .card { background: #fff; border-radius: 8px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .card h3 { font-size: 14px; margin-bottom: 10px; color: #1a1a1a; border-left: 3px solid #4a90e2; padding-left: 8px; }
+  .row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; flex-wrap: wrap; }
+  .row label { font-size: 12px; color: #666; min-width: 56px; }
+  input, select, button { font-size: 12px; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; outline: none; }
+  input:focus, select:focus { border-color: #4a90e2; }
+  button { cursor: pointer; background: #4a90e2; color: #fff; border: none; padding: 6px 12px; }
+  button:hover { background: #357abd; }
+  button.ghost { background: #fff; color: #4a90e2; border: 1px solid #4a90e2; }
+  button.danger { background: #d9534f; }
+  button.danger:hover { background: #c9302c; }
+  button.warn { background: #f0ad4e; }
+  button.warn:hover { background: #ec971f; }
+  button.ok { background: #5cb85c; }
+  button.ok:hover { background: #4cae4c; }
+  .out { background: #1e1e1e; color: #d4d4d4; padding: 8px; border-radius: 4px;
+         font-family: "SF Mono", Consolas, monospace; font-size: 11px;
+         max-height: 180px; overflow: auto; margin-top: 8px; white-space: pre-wrap; word-break: break-all; }
+  .out.ok { color: #4ade80; }
+  .out.err { color: #f87171; }
+  .out.dim { color: #888; }
+  .tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 10px; background: #eef; color: #4a90e2; margin-left: 4px; }
+  .tag.real { background: #d4edda; color: #155724; }
+  .tag.candidate { background: #fff3cd; color: #856404; }
+  .sep { height: 1px; background: #eee; margin: 10px 0; }
+  .desc { font-size: 11px; color: #999; margin-bottom: 6px; }
+  .acc-bar { background: #fff; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .acc-bar select { min-width: 240px; }
+</style>
+</head>
+<body>
+
+<h1>闲鱼管家 · SDK 能力测试面板</h1>
+<div class="sub">所有按钮真接 manager REST API，背后真调 SDK XianyuApiFacade → 闲鱼平台。
+  <span class="tag real">真验</span>走真验通接口；
+  <span class="tag candidate">候选</span>走命名规律候选接口（未真抓，闲鱼 App WebView 域）。</div>
+
+<div class="acc-bar">
+  <div class="row">
+    <label>账号</label>
+    <select id="accountId" onchange="loadAccountInfo()">
+      <option value="">— 选择账号 —</option>
+    </select>
+    <button class="ghost" onclick="loadAccounts()">刷新账号列表</button>
+    <button class="ghost" onclick="loadAccountInfo()">查账号状态</button>
+    <span id="accInfo" class="desc" style="margin-left:8px;"></span>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- 1. 登录 -->
+  <div class="card">
+    <h3>① 扫码登录 <span class="tag real">真验</span></h3>
+    <div class="desc">真接 SDK XianyuLoginApiService：拉二维码 → 渲染 → 轮询登录状态 → 落 cookie</div>
+    <div class="row">
+      <button class="ok" onclick="qrStart()">拉二维码</button>
+      <button class="ghost" onclick="qrPoll()">轮询状态</button>
+      <button class="danger" onclick="qrCancel()">取消</button>
+    </div>
+    <div class="out" id="out-qr"></div>
+  </div>
+
+  <!-- 2. 商品同步 + 列表 -->
+  <div class="card">
+    <h3>② 商品同步/列表 <span class="tag real">真验</span></h3>
+    <div class="desc">SDK mtop.idle.web.xyh.item.list 拉在线商品 → upsert 本地</div>
+    <div class="row">
+      <button class="ok" onclick="prodSync()">同步闲鱼商品</button>
+      <button class="ghost" onclick="prodList()">查本地列表</button>
+    </div>
+    <div class="out" id="out-prod"></div>
+  </div>
+
+  <!-- 3. 上下架 -->
+  <div class="card">
+    <h3>③ 商品上下架 <span class="tag real">下架真验</span> <span class="tag candidate">上架候选</span></h3>
+    <div class="desc">下架 mtop.taobao.idle.item.downshelf v2.0 真验；上架 upshelf 姊妹候选</div>
+    <div class="row">
+      <label>商品ID</label><input id="shelf-prodId" placeholder="local商品id" style="width:80px;">
+      <button class="ok" onclick="shelfOn()">上架</button>
+      <button class="warn" onclick="shelfOff()">下架</button>
+    </div>
+    <div class="out" id="out-shelf"></div>
+  </div>
+
+  <!-- 4. 编辑改价改库存 -->
+  <div class="card">
+    <h3>④ 编辑/改价/改库存 <span class="tag candidate">候选</span></h3>
+    <div class="desc">SDK mtop.taobao.idlemanage.item.* 域候选（闲鱼 App WebView 域未真抓）</div>
+    <div class="row">
+      <label>商品ID</label><input id="edit-prodId" placeholder="local商品id" style="width:80px;">
+    </div>
+    <div class="row">
+      <label>价格</label><input id="edit-price" placeholder="599" style="width:60px;">
+      <button class="ok" onclick="priceUpdate()">改价</button>
+    </div>
+    <div class="row">
+      <label>库存</label><input id="edit-stock" placeholder="1" style="width:60px;">
+      <button class="ok" onclick="stockUpdate()">改库存</button>
+    </div>
+    <div class="row">
+      <label>标题</label><input id="edit-title" placeholder="新标题" style="width:160px;">
+      <button class="ok" onclick="editProduct()">编辑</button>
+    </div>
+    <div class="out" id="out-edit"></div>
+  </div>
+
+  <!-- 5. 删除/擦亮 -->
+  <div class="card">
+    <h3>⑤ 删除/擦亮 <span class="tag real">真验</span></h3>
+    <div class="desc">删除 mtop.alibaba.idle.seller.pc.item.delete v1.0；擦亮 mtop.taobao.idle.item.polish v1.0</div>
+    <div class="row">
+      <label>闲鱼itemId</label><input id="del-itemId" placeholder="1042782385557" style="width:140px;">
+      <button class="danger" onclick="prodDelete()">真删闲鱼商品</button>
+    </div>
+    <div class="row">
+      <label>闲鱼itemId</label><input id="polish-itemId" placeholder="1042782385557" style="width:140px;">
+      <button class="ok" onclick="prodPolish()">擦亮提曝光</button>
+    </div>
+    <div class="out" id="out-del"></div>
+  </div>
+
+  <!-- 6. 订单同步 + 物流 -->
+  <div class="card">
+    <h3>⑥ 订单同步/物流 <span class="tag real">真验</span></h3>
+    <div class="desc">SDK mtop.taobao.idle.trade.merchant.sold.get v1.0 拉订单 → 同步本地 → 发货</div>
+    <div class="row">
+      <button class="ok" onclick="orderSync()">同步闲鱼订单</button>
+      <button class="ghost" onclick="orderList()">查本地订单</button>
+    </div>
+    <div class="sep"></div>
+    <div class="row">
+      <label>订单ID</label><input id="logi-orderId" placeholder="local订单id" style="width:80px;">
+      <label>单号</label><input id="logi-tracking" placeholder="SF1234567890" style="width:140px;">
+      <button class="ok" onclick="orderDelivery()">发货</button>
+    </div>
+    <div class="out" id="out-order"></div>
+  </div>
+
+  <!-- 7. 虚拟发货/免拼发货/关闭订单 -->
+  <div class="card">
+    <h3>⑦ 虚拟/免拼发货/关闭订单 <span class="tag real">真验</span></h3>
+    <div class="desc">参考项目真验通：dummy.consign / groupon.freeshipping / merchant.close.by.seller</div>
+    <div class="row">
+      <label>闲鱼orderId</label><input id="vir-orderId" placeholder="闲鱼订单号" style="width:140px;">
+      <button class="ok" onclick="dummyDelivery()">虚拟发货</button>
+    </div>
+    <div class="row">
+      <label>orderId</label><input id="free-orderId" placeholder="闲鱼订单号" style="width:100px;">
+      <label>itemId</label><input id="free-itemId" placeholder="商品id" style="width:100px;">
+      <label>buyerId</label><input id="free-buyerId" placeholder="买家id" style="width:100px;">
+      <button class="ok" onclick="freeShipping()">免拼发货</button>
+    </div>
+    <div class="row">
+      <label>orderNo</label><input id="close-orderNo" placeholder="闲鱼订单号" style="width:140px;">
+      <button class="danger" onclick="closeOrder()">卖方关闭订单</button>
+    </div>
+    <div class="out" id="out-vir"></div>
+  </div>
+
+  <!-- 8. 收藏同步 -->
+  <div class="card">
+    <h3>⑧ 收藏同步 <span class="tag real">真验</span></h3>
+    <div class="desc">SDK mtop.taobao.idle.web.favor.item.list 拉收藏 → upsert 本地</div>
+    <div class="row">
+      <button class="ok" onclick="collectSync()">同步闲鱼收藏</button>
+      <button class="ghost" onclick="collectList()">查本地收藏</button>
+    </div>
+    <div class="out" id="out-collect"></div>
+  </div>
+
+  <!-- 9. 消息 accs 真发/拉历史 -->
+  <div class="card">
+    <h3>⑨ 消息 accs 真发/历史 <span class="tag real">真验</span></h3>
+    <div class="desc">wss://wss-goofish.dingtalk.com/ 真发：/r/MessageSend/sendByReceiverScope；历史：/r/MessageManager/listUserMessages</div>
+    <div class="row">
+      <label>cid</label><input id="msg-cid" placeholder="60985230429@goofish" style="width:180px;">
+      <label>接收</label><input id="msg-receiver" placeholder="2215024781926@goofish" style="width:180px;">
+    </div>
+    <div class="row">
+      <label>内容</label><input id="msg-content" placeholder="你好，商品还在吗" style="width:240px;">
+      <button class="ok" onclick="msgSend()">真发到闲鱼IM</button>
+    </div>
+    <div class="sep"></div>
+    <div class="row">
+      <label>cid</label><input id="hist-cid" placeholder="63620203412@goofish" style="width:180px;">
+      <label>条数</label><input id="hist-size" placeholder="20" style="width:50px;">
+      <button class="ghost" onclick="msgHistory()">拉历史</button>
+    </div>
+    <div class="out" id="out-msg"></div>
+  </div>
+
+  <!-- 10. AI 客服 -->
+  <div class="card">
+    <h3>⑩ AI 客服意图识别 <span class="tag real">真验</span></h3>
+    <div class="desc">真接 AiCsEngine.handleIncomingMessage：识别意图 → 生成回复 → AUTO 模式真发 accs</div>
+    <div class="row">
+      <label>买家ID</label><input id="cs-buyerId" placeholder="2215024781926" style="width:140px;">
+      <label>昵称</label><input id="cs-nick" placeholder="买家昵称" style="width:100px;">
+    </div>
+    <div class="row">
+      <label>消息</label><input id="cs-msg" placeholder="能便宜点吗" style="width:200px;">
+      <label>模型ID</label><input id="cs-modelId" placeholder="1" style="width:40px;">
+      <button class="ok" onclick="csHandle()">处理消息</button>
+    </div>
+    <div class="out" id="out-cs"></div>
+  </div>
+
+  <!-- 11. AI 运营批量上品 -->
+  <div class="card">
+    <h3>⑪ AI 运营批量上品 <span class="tag real">闭环真验</span></h3>
+    <div class="desc">AiOpsService.doMultiAccountSync：AI 改写商品 → 多账号上品 → 真发到闲鱼 SDK publish</div>
+    <div class="row">
+      <label>源商品ID</label><input id="ops-prodId" placeholder="local商品id" style="width:80px;">
+    </div>
+    <div class="row">
+      <label>目标账号</label><input id="ops-accs" placeholder="2,3,5" style="width:100px;">
+      <label>模型ID</label><input id="ops-modelId" placeholder="1" style="width:40px;">
+    </div>
+    <div class="row">
+      <label>延迟/号</label><input id="ops-delay" placeholder="0" style="width:40px;">
+      <button class="ok" onclick="opsSync()">启动批量同步</button>
+    </div>
+    <div class="out" id="out-ops"></div>
+  </div>
+
+  <!-- 12. 验证码解题 -->
+  <div class="card">
+    <h3>⑫ 验证码解题 <span class="tag real">真验</span></h3>
+    <div class="desc">SDK XianyuCaptchaService：检测 punish 拦截 → 重新请求 token → 暴露滑块解题判定流程</div>
+    <div class="row">
+      <button class="ghost" onclick="captchaCheckRenew()">检测登录续期</button>
+      <button class="ok" onclick="captchaFreshUrl()">重新请求验证链接</button>
+    </div>
+    <div class="row">
+      <label> punish URL</label><input id="cap-url" placeholder="https://...punish?..." style="width:200px;">
+      <button class="ghost" onclick="captchaIsPunish()">判断是否 punish</button>
+    </div>
+    <div class="sep"></div>
+    <div class="desc">滑块距离计算（参考真验通公式）：</div>
+    <div class="row">
+      <label>轨道宽</label><input id="cap-track" placeholder="300" style="width:50px;">
+      <label>按钮宽</label><input id="cap-btn" placeholder="40" style="width:50px;">
+      <label>刮刮乐</label><input id="cap-scratch" type="checkbox">
+      <button class="ghost" onclick="captchaDistance()">算距离</button>
+    </div>
+    <div class="out" id="out-cap"></div>
+  </div>
+
+  <!-- 13. 资料页 -->
+  <div class="card">
+    <h3>⑬ 资料页 nav/head <span class="tag real">真验</span></h3>
+    <div class="desc">SDK mtop.idle.web.user.page.nav / page.head 真验通</div>
+    <div class="row">
+      <button class="ghost" onclick="profileNav()">拉资料 nav</button>
+      <button class="ghost" onclick="profileHead()">拉资料 head</button>
+    </div>
+    <div class="out" id="out-profile"></div>
+  </div>
+
+  <!-- 14. 评价/退款/数据概览 -->
+  <div class="card">
+    <h3>⑭ 评价/退款/数据概览 <span class="tag real">真验</span></h3>
+    <div class="desc">参考项目真验：rate.create / rate.list / refund.list / datacompass seller/browse</div>
+    <div class="row">
+      <button class="ghost" onclick="reviewList()">评价列表</button>
+      <button class="ghost" onclick="refundList()">退款列表</button>
+    </div>
+    <div class="row">
+      <button class="ghost" onclick="sellerSummary()">卖家数据概览</button>
+      <button class="ghost" onclick="browseSummary()">流量分布</button>
+    </div>
+    <div class="out" id="out-trade"></div>
+  </div>
+
+  <!-- 15. 黑名单/红花/通知 -->
+  <div class="card">
+    <h3>⑮ 黑名单/红花/通知 <span class="tag real">真验</span></h3>
+    <div class="desc">参考项目真验：blacklist.query/add/remove / red.flower / profile.notice.update</div>
+    <div class="row">
+      <button class="ghost" onclick="blacklistQuery()">查黑名单</button>
+      <label>userId</label><input id="bl-userId" placeholder="2215024781926" style="width:120px;">
+      <button class="warn" onclick="blacklistAdd()">拉黑</button>
+      <button class="ghost" onclick="blacklistRemove()">移除</button>
+    </div>
+    <div class="row">
+      <label>targetId</label><input id="rf-target" placeholder="商品id或用户id" style="width:120px;">
+      <label>type</label><input id="rf-type" placeholder="item/user" style="width:60px;">
+      <button class="ok" onclick="redFlower()">送红花</button>
+    </div>
+    <div class="out" id="out-aux"></div>
+  </div>
+
+</div>
+
+<script>
+const API = ''; // 同源
+const accSel = () => document.getElementById('accountId').value;
+function out(id, text, cls) {
+  const el = document.getElementById(id);
+  el.className = 'out' + (cls ? ' ' + cls : '');
+  el.textContent = text;
+}
+async function call(method, url, body) {
+  try {
+    const opt = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body !== undefined) opt.body = JSON.stringify(body);
+    const r = await fetch(API + url, opt);
+    const j = await r.json();
+    return j;
+  } catch (e) {
+    return { error: String(e), code: 'NETWORK', message: String(e) };
+  }
+}
+async function get(url) { return call('GET', url); }
+async function post(url, body) { return call('POST', url, body); }
+async function put(url, body) { return call('PUT', url, body); }
+async function del(url) { return call('DELETE', url); }
+function pretty(j) { return JSON.stringify(j, null, 2); }
+function okBox(j, id) { out(id, pretty(j), j && (j.code === 'OK' || j.code === 0 || !j.code) ? 'ok' : 'err'); }
+function errBox(e, id) { out(id, 'ERROR: ' + String(e), 'err'); }
+
+// ============ 账号 ============
+async function loadAccounts() {
+  const j = await get('/api/accounts');
+  const sel = document.getElementById('accountId');
+  sel.innerHTML = '<option value="">— 选择账号 —</option>';
+  if (j && j.data) {
+    for (const a of j.data) {
+      const opt = document.createElement('option');
+      opt.value = a.id;
+      opt.textContent = a.displayName || a.accountName || ('#' + a.id);
+      sel.appendChild(opt);
+    }
+  }
+}
+async function loadAccountInfo() {
+  const aid = accSel();
+  if (!aid) { document.getElementById('accInfo').textContent = '请先选账号'; return; }
+  const j = await get('/api/accounts/' + aid);
+  document.getElementById('accInfo').textContent = j && j.data
+    ? '账号 #' + j.data.id + ' · ' + (j.data.displayName || j.data.accountName || '')
+      + ' · cookie ' + (j.data.cookieHeader && j.data.cookieHeader.length > 30 ? '已设置(' + j.data.cookieHeader.length + '字符)' : '未设置')
+    : '账号查询失败';
+}
+
+// ============ ① 登录 ============
+async function qrStart() {
+  const j = await post('/api/login/qr/start', { accountName: 'test-' + Date.now() });
+  okBox(j, 'out-qr');
+}
+async function qrPoll() {
+  const j = await get('/api/login/qr/poll?ticket=' + encodeURIComponent(prompt('ticket', '')));
+  okBox(j, 'out-qr');
+}
+async function qrCancel() {
+  const j = await post('/api/login/qr/cancel?ticket=' + encodeURIComponent(prompt('ticket', '')), {});
+  okBox(j, 'out-qr');
+}
+
+// ============ ② 商品 ============
+async function prodSync() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await post('/api/products/sync?accountId=' + aid, {});
+  okBox(j, 'out-prod');
+}
+async function prodList() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await get('/api/products?accountId=' + aid + '&page=1&size=20');
+  okBox(j, 'out-prod');
+}
+
+// ============ ③ 上下架 ============
+async function shelfOn() {
+  const id = document.getElementById('shelf-prodId').value;
+  const j = await post('/api/products/' + id + '/shelf-on', {});
+  okBox(j, 'out-shelf');
+}
+async function shelfOff() {
+  const id = document.getElementById('shelf-prodId').value;
+  const j = await post('/api/products/' + id + '/shelf-off', {});
+  okBox(j, 'out-shelf');
+}
+
+// ============ ④ 编辑改价改库存 ============
+async function priceUpdate() {
+  const id = document.getElementById('edit-prodId').value;
+  const p = document.getElementById('edit-price').value;
+  const j = await put('/api/products/' + id + '/price?price=' + encodeURIComponent(p), {});
+  okBox(j, 'out-edit');
+}
+async function stockUpdate() {
+  const id = document.getElementById('edit-prodId').value;
+  const s = document.getElementById('edit-stock').value;
+  const j = await put('/api/products/' + id + '/stock?stock=' + encodeURIComponent(s), {});
+  okBox(j, 'out-edit');
+}
+async function editProduct() {
+  const id = document.getElementById('edit-prodId').value;
+  const t = document.getElementById('edit-title').value;
+  const j = await put('/api/products/' + id, { title: t });
+  okBox(j, 'out-edit');
+}
+
+// ============ ⑤ 删除/擦亮 ============
+async function prodDelete() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const itemId = document.getElementById('del-itemId').value;
+  const j = await post('/api/products/sdk-delete?accountId=' + aid + '&itemId=' + encodeURIComponent(itemId), {});
+  okBox(j, 'out-del');
+}
+async function prodPolish() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const itemId = document.getElementById('polish-itemId').value;
+  const j = await post('/api/products/sdk-polish?accountId=' + aid + '&itemId=' + encodeURIComponent(itemId), {});
+  okBox(j, 'out-del');
+}
+
+// ============ ⑥ 订单 ============
+async function orderSync() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await post('/api/orders/accounts/' + aid + '/sync', {});
+  okBox(j, 'out-order');
+}
+async function orderList() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await get('/api/orders?accountId=' + aid + '&page=1&size=20');
+  okBox(j, 'out-order');
+}
+async function orderDelivery() {
+  const id = document.getElementById('logi-orderId').value;
+  const t = document.getElementById('logi-tracking').value;
+  const j = await post('/api/orders/' + id + '/delivery?trackingNo=' + encodeURIComponent(t), {});
+  okBox(j, 'out-order');
+}
+
+// ============ ⑦ 虚拟/免拼/关闭 ============
+async function dummyDelivery() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const oid = document.getElementById('vir-orderId').value;
+  const j = await post('/api/orders/sdk-dummy?accountId=' + aid + '&orderId=' + encodeURIComponent(oid), {});
+  okBox(j, 'out-vir');
+}
+async function freeShipping() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await post('/api/orders/sdk-freeshipping?accountId=' + aid
+    + '&orderId=' + encodeURIComponent(document.getElementById('free-orderId').value)
+    + '&itemId=' + encodeURIComponent(document.getElementById('free-itemId').value)
+    + '&buyerId=' + encodeURIComponent(document.getElementById('free-buyerId').value), {});
+  okBox(j, 'out-vir');
+}
+async function closeOrder() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await post('/api/orders/sdk-close?accountId=' + aid + '&orderNo=' + encodeURIComponent(document.getElementById('close-orderNo').value), {});
+  okBox(j, 'out-vir');
+}
+
+// ============ ⑧ 收藏 ============
+async function collectSync() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await post('/api/collect/accounts/' + aid + '/sync', {});
+  okBox(j, 'out-collect');
+}
+async function collectList() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await get('/api/collect?accountId=' + aid);
+  okBox(j, 'out-collect');
+}
+
+// ============ ⑨ 消息 accs ============
+async function msgSend() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await post('/api/messages/accounts/' + aid + '/accs-send?cid='
+    + encodeURIComponent(document.getElementById('msg-cid').value)
+    + '&content=' + encodeURIComponent(document.getElementById('msg-content').value)
+    + '&receiverIds=' + encodeURIComponent(document.getElementById('msg-receiver').value), {});
+  okBox(j, 'out-msg');
+}
+async function msgHistory() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await get('/api/messages/accounts/' + aid + '/accs-history?cid='
+    + encodeURIComponent(document.getElementById('hist-cid').value)
+    + '&size=' + encodeURIComponent(document.getElementById('hist-size').value || '20'));
+  okBox(j, 'out-msg');
+}
+
+// ============ ⑩ AI 客服 ============
+async function csHandle() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await post('/api/ai/cs/message', {
+    accountId: Number(aid),
+    buyerId: document.getElementById('cs-buyerId').value,
+    buyerNickname: document.getElementById('cs-nick').value,
+    message: document.getElementById('cs-msg').value,
+    modelId: Number(document.getElementById('cs-modelId').value || '1')
+  });
+  okBox(j, 'out-cs');
+}
+
+// ============ ⑪ AI 运营 ============
+async function opsSync() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const accs = document.getElementById('ops-accs').value.split(',').map(s => s.trim()).filter(Boolean).map(Number);
+  const j = await post('/api/ai/ops/multi-sync', {
+    sourceAccountId: Number(aid),
+    productId: Number(document.getElementById('ops-prodId').value),
+    targetAccountIds: accs,
+    delayMinutesPerAccount: Number(document.getElementById('ops-delay').value || '0'),
+    modelId: Number(document.getElementById('ops-modelId').value || '1')
+  });
+  okBox(j, 'out-ops');
+}
+
+// ============ ⑫ 验证码 ============
+async function captchaCheckRenew() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await get('/api/login/captcha/check-renew?accountId=' + aid);
+  okBox(j, 'out-cap');
+}
+async function captchaFreshUrl() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await get('/api/login/captcha/fresh-url?accountId=' + aid + '&deviceId=' + encodeURIComponent(prompt('deviceId', '') || ''));
+  okBox(j, 'out-cap');
+}
+async function captchaIsPunish() {
+  const u = document.getElementById('cap-url').value;
+  const j = await get('/api/login/captcha/is-punish?url=' + encodeURIComponent(u));
+  okBox(j, 'out-cap');
+}
+async function captchaDistance() {
+  const t = Number(document.getElementById('cap-track').value || '0');
+  const b = Number(document.getElementById('cap-btn').value || '0');
+  const s = document.getElementById('cap-scratch').checked;
+  const j = await get('/api/login/captcha/distance?track=' + t + '&btn=' + b + '&scratch=' + s);
+  okBox(j, 'out-cap');
+}
+
+// ============ ⑬ 资料 ============
+async function profileNav() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await get('/api/profile/nav?accountId=' + aid);
+  okBox(j, 'out-profile');
+}
+async function profileHead() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await get('/api/profile/head?accountId=' + aid);
+  okBox(j, 'out-profile');
+}
+
+// ============ ⑭ 评价/退款/数据 ============
+async function reviewList() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await get('/api/trade/reviews?accountId=' + aid + '&page=1&pageSize=20');
+  okBox(j, 'out-trade');
+}
+async function refundList() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await get('/api/trade/refunds?accountId=' + aid + '&page=1&pageSize=20');
+  okBox(j, 'out-trade');
+}
+async function sellerSummary() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await get('/api/trade/seller-summary?accountId=' + aid);
+  okBox(j, 'out-trade');
+}
+async function browseSummary() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await get('/api/trade/browse-summary?accountId=' + aid);
+  okBox(j, 'out-trade');
+}
+
+// ============ ⑮ 黑名单/红花 ============
+async function blacklistQuery() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await get('/api/im/blacklist?accountId=' + aid);
+  okBox(j, 'out-aux');
+}
+async function blacklistAdd() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await post('/api/im/blacklist/add?accountId=' + aid + '&userId=' + encodeURIComponent(document.getElementById('bl-userId').value), {});
+  okBox(j, 'out-aux');
+}
+async function blacklistRemove() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await post('/api/im/blacklist/remove?accountId=' + aid + '&userId=' + encodeURIComponent(document.getElementById('bl-userId').value), {});
+  okBox(j, 'out-aux');
+}
+async function redFlower() {
+  const aid = accSel(); if (!aid) return alert('选账号');
+  const j = await post('/api/im/red-flower?accountId=' + aid
+    + '&targetId=' + encodeURIComponent(document.getElementById('rf-target').value)
+    + '&targetType=' + encodeURIComponent(document.getElementById('rf-type').value), {});
+  okBox(j, 'out-aux');
+}
+
+// 启动加载账号
+loadAccounts();
+</script>
+</body>
+</html>
