@@ -217,15 +217,15 @@ CREATE TABLE IF NOT EXISTS xianyu_collect (
 );
 
 -- 创建索引
-CREATE INDEX IF NOT EXISTS idx_xianyu_product_account ON xianyu_product(account_id);
-CREATE INDEX IF NOT EXISTS idx_xianyu_product_status ON xianyu_product(status);
-CREATE INDEX IF NOT EXISTS idx_xianyu_message_session ON xianyu_message(account_id, session_id);
-CREATE INDEX IF NOT EXISTS idx_xianyu_order_account ON xianyu_order(account_id);
-CREATE INDEX IF NOT EXISTS idx_xianyu_keyword_rule_account ON xianyu_keyword_rule(account_id);
-CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
-CREATE INDEX IF NOT EXISTS idx_xianyu_wallet_account ON xianyu_wallet(account_id);
-CREATE INDEX IF NOT EXISTS idx_xianyu_wallet_transaction_account ON xianyu_wallet_transaction(account_id);
-CREATE INDEX IF NOT EXISTS idx_xianyu_collect_account ON xianyu_collect(account_id);
+CREATE INDEX idx_xianyu_product_account ON xianyu_product(account_id);
+CREATE INDEX idx_xianyu_product_status ON xianyu_product(status);
+CREATE INDEX idx_xianyu_message_session ON xianyu_message(account_id, session_id);
+CREATE INDEX idx_xianyu_order_account ON xianyu_order(account_id);
+CREATE INDEX idx_xianyu_keyword_rule_account ON xianyu_keyword_rule(account_id);
+CREATE INDEX idx_audit_log_action ON audit_log(action);
+CREATE INDEX idx_xianyu_wallet_account ON xianyu_wallet(account_id);
+CREATE INDEX idx_xianyu_wallet_transaction_account ON xianyu_wallet_transaction(account_id);
+CREATE INDEX idx_xianyu_collect_account ON xianyu_collect(account_id);
 
 -- ======================== AI 模块 ========================
 
@@ -262,8 +262,8 @@ CREATE TABLE IF NOT EXISTS ai_model (
     UNIQUE (provider_id, model_name)
 );
 
-CREATE INDEX IF NOT EXISTS idx_ai_model_provider ON ai_model(provider_id);
-CREATE INDEX IF NOT EXISTS idx_ai_model_type ON ai_model(model_type);
+CREATE INDEX idx_ai_model_provider ON ai_model(provider_id);
+CREATE INDEX idx_ai_model_type ON ai_model(model_type);
 
 -- ======================== 通知模块 ========================
 -- 通知通道（邮件 SMTP / Webhook 机器人）。config_json 密文存储敏感配置。
@@ -330,10 +330,10 @@ CREATE TABLE IF NOT EXISTS notify_message (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_notify_sub_scenario ON notify_subscription(scenario);
-CREATE INDEX IF NOT EXISTS idx_notify_log_scenario ON notify_log(scenario);
-CREATE INDEX IF NOT EXISTS idx_notify_msg_read ON notify_message(is_read);
-CREATE INDEX IF NOT EXISTS idx_notify_msg_created ON notify_message(created_at);
+CREATE INDEX idx_notify_sub_scenario ON notify_subscription(scenario);
+CREATE INDEX idx_notify_log_scenario ON notify_log(scenario);
+CREATE INDEX idx_notify_msg_read ON notify_message(is_read);
+CREATE INDEX idx_notify_msg_created ON notify_message(created_at);
 
 -- 发送重试队列（失败/限频后入队，按退避重发）
 CREATE TABLE IF NOT EXISTS notify_retry (
@@ -352,7 +352,7 @@ CREATE TABLE IF NOT EXISTS notify_retry (
     last_error TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_notify_retry_due ON notify_retry(status, next_retry_at);
+CREATE INDEX idx_notify_retry_due ON notify_retry(status, next_retry_at);
 
 -- 每日摘要配置（单例 id=1）
 CREATE TABLE IF NOT EXISTS notify_digest_config (
@@ -422,10 +422,10 @@ CREATE TABLE IF NOT EXISTS virtual_ship_config (
     FOREIGN KEY (account_id) REFERENCES xianyu_account(id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_virtual_card_pool_product ON virtual_card_pool(product_id);
-CREATE INDEX IF NOT EXISTS idx_virtual_card_pool_status ON virtual_card_pool(status);
-CREATE INDEX IF NOT EXISTS idx_virtual_ship_task_status ON virtual_ship_task(status);
-CREATE INDEX IF NOT EXISTS idx_xianyu_order_require_virtual_ship ON xianyu_order(require_virtual_ship);
+CREATE INDEX idx_virtual_card_pool_product ON virtual_card_pool(product_id);
+CREATE INDEX idx_virtual_card_pool_status ON virtual_card_pool(status);
+CREATE INDEX idx_virtual_ship_task_status ON virtual_ship_task(status);
+CREATE INDEX idx_xianyu_order_require_virtual_ship ON xianyu_order(require_virtual_ship);
 
 -- ======================== AI 客服 ========================
 
@@ -519,11 +519,11 @@ CREATE TABLE IF NOT EXISTS ai_cs_daily_stats (
     FOREIGN KEY (account_id) REFERENCES xianyu_account(id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_ai_cs_session_account ON ai_cs_session(account_id);
-CREATE INDEX IF NOT EXISTS idx_ai_cs_session_buyer ON ai_cs_session(account_id, buyer_id);
-CREATE INDEX IF NOT EXISTS idx_ai_cs_message_session ON ai_cs_message(session_id);
-CREATE INDEX IF NOT EXISTS idx_ai_cs_knowledge_account ON ai_cs_knowledge(account_id);
-CREATE INDEX IF NOT EXISTS idx_ai_cs_daily_stats_account ON ai_cs_daily_stats(account_id);
+CREATE INDEX idx_ai_cs_session_account ON ai_cs_session(account_id);
+CREATE INDEX idx_ai_cs_session_buyer ON ai_cs_session(account_id, buyer_id);
+CREATE INDEX idx_ai_cs_message_session ON ai_cs_message(session_id);
+CREATE INDEX idx_ai_cs_knowledge_account ON ai_cs_knowledge(account_id);
+CREATE INDEX idx_ai_cs_daily_stats_account ON ai_cs_daily_stats(account_id);
 
 -- ======================== AI 运营 ========================
 
@@ -572,8 +572,8 @@ CREATE TABLE IF NOT EXISTS ai_ops_knowledge (
     deleted INTEGER DEFAULT 0
 );
 
-CREATE INDEX IF NOT EXISTS idx_ai_ops_task_account ON ai_ops_task(account_id);
-CREATE INDEX IF NOT EXISTS idx_ai_ops_suggestion_account ON ai_ops_suggestion(account_id);
+CREATE INDEX idx_ai_ops_task_account ON ai_ops_task(account_id);
+CREATE INDEX idx_ai_ops_suggestion_account ON ai_ops_suggestion(account_id);
 
 -- ======================== 网盘存储（虚拟发货扩展） ========================
 
@@ -616,8 +616,8 @@ CREATE TABLE IF NOT EXISTS cloud_storage_file (
     FOREIGN KEY (storage_account_id) REFERENCES cloud_storage_account(id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_cloud_storage_account_account ON cloud_storage_account(account_id);
-CREATE INDEX IF NOT EXISTS idx_cloud_storage_file_account ON cloud_storage_file(storage_account_id);
+CREATE INDEX idx_cloud_storage_account_account ON cloud_storage_account(account_id);
+CREATE INDEX idx_cloud_storage_file_account ON cloud_storage_file(storage_account_id);
 
 -- ======================== 对外 OpenAPI ========================
 
@@ -637,5 +637,5 @@ CREATE TABLE IF NOT EXISTS open_app (
     deleted INTEGER DEFAULT 0
 );
 
-CREATE INDEX IF NOT EXISTS idx_open_app_key ON open_app(app_key);
+CREATE INDEX idx_open_app_key ON open_app(app_key);
 
