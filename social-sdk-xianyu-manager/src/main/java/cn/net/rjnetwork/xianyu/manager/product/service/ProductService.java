@@ -2,6 +2,7 @@ package cn.net.rjnetwork.xianyu.manager.product.service;
 
 import cn.net.rjnetwork.xianyu.api.XianyuMtopApiClient;
 import cn.net.rjnetwork.xianyu.api.XianyuProductApiService;
+import cn.net.rjnetwork.xianyu.api.XianyuProductEditApiService;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import cn.net.rjnetwork.xianyu.manager.account.service.AccountService;
 import cn.net.rjnetwork.xianyu.manager.product.dto.ProductCreateRequest;
@@ -135,24 +136,107 @@ public class ProductService {
         productMapper.deleteById(id);
     }
 
+    /**
+     * 商品上架 — 真实调用闲鱼 mtop.taobao.idle.item.upshelf v2.0
+     * <p>商品是从闲鱼同步来的（持有 itemId），所以上下架必须真打闲鱼接口，
+     * 不能只改本地 DB 状态。流程：
+     * <ol>
+     *   <li>按 productId 取本地商品 → 拿到 itemId 和 accountId</li>
+     *   <li>按 accountId 取账号 cookie，校验非空</li>
+     *   <li>构造 SDK：XianyuMtopApiClient + XianyuProductEditApiService</li>
+     *   <li>调 shelfOn(itemId) 真打闲鱼上架接口</li>
+     *   <li>闲鱼返回成功后再把本地 status 改为 ON_SALE</li>
+     * </ol>
+     * 若闲鱼接口失败，抛 IllegalStateException 带上闲鱼返回的 msg，本地状态不动。</p>
+     */
     @Transactional
     public XianyuProduct shelfOn(Long id) {
         XianyuProduct product = productMapper.selectById(id);
         if (product == null) throw new IllegalArgumentException("Product not found");
+
+        XianyuAccount account = accountService.getById(product.getAccountId());
+        if (account == null) throw new IllegalStateException("Account not found: " + product.getAccountId());
+        if (account.getCookieHeader() == null || account.getCookieHeader().isBlank()) {
+            throw new IllegalStateException("Account has no cookie, please re-login: " + product.getAccountId());
+        }
+        String itemId = product.getItemId();
+        if (itemId == null || itemId.isBlank()) {
+            throw new IllegalStateException("Product has no itemId, can not call Xianyu shelf-on API");
+        }
+
+        // 真打闲鱼上架接口
+        XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(account.getCookieHeader());
+        XianyuProductEditApiService editApi = new XianyuProductEditApiService(mtopClient);
+        JsonNode resp = editApi.shelfOn(itemId);
+        if (!isMtopSuccess(resp)) {
+            throw new IllegalStateException("Xianyu shelf-on failed: " + safeMtopMsg(resp));
+        }
+
+        // 闲鱼确认成功后再改本地状态
         product.setStatus("ON_SALE");
         product.setUpdatedAt(LocalDateTime.now());
         productMapper.updateById(product);
         return product;
     }
 
+    /**
+     * 商品下架 — 真实调用闲鱼 mtop.taobao.idle.item.downshelf v2.0
+     * <p>下架接口已 CDP 真抓验证（2026-07-19 详情页下架按钮 onClick）。</p>
+     */
     @Transactional
     public XianyuProduct shelfOff(Long id) {
         XianyuProduct product = productMapper.selectById(id);
         if (product == null) throw new IllegalArgumentException("Product not found");
+
+        XianyuAccount account = accountService.getById(product.getAccountId());
+        if (account == null) throw new IllegalStateException("Account not found: " + product.getAccountId());
+        if (account.getCookieHeader() == null || account.getCookieHeader().isBlank()) {
+            throw new IllegalStateException("Account has no cookie, please re-login: " + product.getAccountId());
+        }
+        String itemId = product.getItemId();
+        if (itemId == null || itemId.isBlank()) {
+            throw new IllegalStateException("Product has no itemId, can not call Xianyu shelf-off API");
+        }
+
+        XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(account.getCookieHeader());
+        XianyuProductEditApiService editApi = new XianyuProductEditApiService(mtopClient);
+        JsonNode resp = editApi.shelfOff(itemId);
+        if (!isMtopSuccess(resp)) {
+            throw new IllegalStateException("Xianyu shelf-off failed: " + safeMtopMsg(resp));
+        }
+
         product.setStatus("OFF_SALE");
         product.setUpdatedAt(LocalDateTime.now());
         productMapper.updateById(product);
         return product;
+    }
+
+    /**
+     * 判断 mtop 返回是否成功。
+     * <p>闲鱼 mtop 返回结构：ret[0] 形如 "FAIL_SYS_API_NOT_FOUNDED::api not found" 或
+     * "SUCCESS::xxx"。SUCCESS 或 ret 为空都算成功（部分接口无 ret 字段但 data 非空也算成功）。</p>
+     */
+    private boolean isMtopSuccess(JsonNode resp) {
+        if (resp == null) return false;
+        JsonNode ret = resp.path("ret");
+        if (ret.isArray() && ret.size() > 0) {
+            String first = ret.get(0).asText("");
+            // SUCCESS::xxx / FAIL_SYS_XXX::xxx → 看 :: 前段
+            String code = first.contains("::") ? first.substring(0, first.indexOf("::")) : first;
+            return "SUCCESS".equalsIgnoreCase(code);
+        }
+        // 没有 ret 字段，看 data 是否非空
+        JsonNode data = resp.path("data");
+        return data != null && !data.isMissingNode() && !data.isNull();
+    }
+
+    private String safeMtopMsg(JsonNode resp) {
+        if (resp == null) return "no response";
+        JsonNode ret = resp.path("ret");
+        if (ret.isArray() && ret.size() > 0) {
+            return ret.get(0).asText("unknown");
+        }
+        return resp.toString().length() > 300 ? resp.toString().substring(0, 300) : resp.toString();
     }
 
     @Transactional

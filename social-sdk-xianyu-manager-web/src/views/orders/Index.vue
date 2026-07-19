@@ -52,7 +52,7 @@
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="statusTagType(row.status)">
-              {{ statusLabel(row.status) }}
+              {{ statusLabel(row.status, row.tradeStatusEnum) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -138,12 +138,56 @@ function formatTime(t) {
 }
 
 // 状态标签
-function statusLabel(status) {
-  return { PENDING: '待付款', PAID: '待发货', SHIPPED: '已发货', COMPLETED: '已完成', REFUNDING: '退款中', CLOSED: '已关闭' }[status] || status
+function statusLabel(status, tradeStatusEnum) {
+  // 优先使用贸易枚举（更准确）
+  if (tradeStatusEnum) {
+    const enumMap = {
+      'trade_success': '交易成功',
+      'buyer_to_confirm': '买家待确认',
+      'refund_success': '退款成功',
+      'trade_refund': '退款中',
+      'trade_in_audit': '退款审核中',
+      'refund_agree': '同意退款',
+      'refund_process': '退款处理中',
+      'trade_closed': '交易关闭',
+      'trade_cancelled': '已取消',
+      'cancel': '已取消',
+      'pending_pay': '待付款',
+      'waiting_pay': '待付款',
+      'trade_pending': '待付款',
+      'trade_delivered': '已发货',
+      'sent': '已发货',
+      'paid': '已付款',
+      'trade_paid': '已付款',
+      'trade_suspended': '暂停'
+    }
+    return enumMap[tradeStatusEnum] || tradeStatusEnum
+  }
+  
+  // 回退到标准化状态码
+  return { 
+    PENDING: '待付款', 
+    PAID: '已付款', 
+    SHIPPED: '已发货', 
+    COMPLETED: '交易成功', 
+    REFUNDING: '退款中', 
+    REFUNDED: '退款成功', 
+    CLOSED: '已关闭',
+    BUYER_TO_CONFIRM: '买家待确认'
+  }[status] || status
 }
 
 function statusTagType(status) {
-  return { PENDING: 'warning', PAID: 'primary', SHIPPED: 'success', COMPLETED: 'info', REFUNDING: 'danger', CLOSED: '' }[status] || ''
+  return { 
+    PENDING: 'warning', 
+    PAID: 'primary', 
+    SHIPPED: 'info', 
+    COMPLETED: 'success', 
+    REFUNDING: 'danger', 
+    REFUNDED: 'info', 
+    CLOSED: '',
+    BUYER_TO_CONFIRM: 'warning'
+  }[status] || ''
 }
 
 // 加载账号列表

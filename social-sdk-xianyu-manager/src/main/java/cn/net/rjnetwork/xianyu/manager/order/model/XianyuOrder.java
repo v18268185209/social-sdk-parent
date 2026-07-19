@@ -18,7 +18,11 @@ public class XianyuOrder extends BaseEntity {
     private String itemTitle;
     private String counterpartyName;
     private BigDecimal amount;
-    private String status; // PENDING, PAID, SHIPPED, COMPLETED, REFUNDING
+    private String status; // PENDING, PAID, SHIPPED, COMPLETED, REFUNDING, REFUNDED, CLOSED
+    /** 闲鱼原始状态枚举 (tradeStatusEnum)，用于调试和回查 */
+    private String tradeStatusEnum;
+    /** 是否为卖家订单（bought 返回有 seller 标记，sold API 无此字段） */
+    private Boolean isSeller;
     private String trackingNo;
     private java.time.LocalDateTime orderTime;
 

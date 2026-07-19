@@ -100,8 +100,15 @@ CREATE TABLE IF NOT EXISTS xianyu_order (
     counterparty_name VARCHAR(128), -- 买方名字(bought)或卖方名字(sold)
     amount REAL,
     status VARCHAR(32) DEFAULT 'PENDING',
+    trade_status_enum VARCHAR(32), -- 闲鱼原始状态枚举 (tradeStatusEnum)
+    is_seller INTEGER DEFAULT 0, -- 是否为卖家订单
     tracking_no VARCHAR(64),
     order_time DATETIME, -- 订单创建时间(来自闲鱼 API)
+    goods_type VARCHAR(16) DEFAULT 'PHYSICAL',
+    require_virtual_ship INTEGER DEFAULT 0,
+    virtual_shipped_at DATETIME,
+    auto_receipt_at DATETIME,
+    deliver_content TEXT, -- 实际发货内容快照
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted INTEGER DEFAULT 0
@@ -370,12 +377,12 @@ CREATE TABLE IF NOT EXISTS notify_digest_config (
 
 -- ======================== 虚拟商品 / 自动发货 ========================
 
--- 给 xianyu_order 加虚拟发货/自动收货字段
-ALTER TABLE xianyu_order ADD COLUMN goods_type VARCHAR(16) DEFAULT 'PHYSICAL';
-ALTER TABLE xianyu_order ADD COLUMN require_virtual_ship BOOLEAN DEFAULT FALSE;
-ALTER TABLE xianyu_order ADD COLUMN virtual_shipped_at DATETIME;
-ALTER TABLE xianyu_order ADD COLUMN auto_receipt_at DATETIME;
-ALTER TABLE xianyu_order ADD COLUMN deliver_content TEXT;     -- 实际发货内容快照
+-- 给 xianyu_order 加虚拟发货/自动收货字段（已在 CREATE TABLE 中定义，此处注释避免重复）
+-- ALTER TABLE xianyu_order ADD COLUMN goods_type VARCHAR(16) DEFAULT 'PHYSICAL';
+-- ALTER TABLE xianyu_order ADD COLUMN require_virtual_ship BOOLEAN DEFAULT FALSE;
+-- ALTER TABLE xianyu_order ADD COLUMN virtual_shipped_at DATETIME;
+-- ALTER TABLE xianyu_order ADD COLUMN auto_receipt_at DATETIME;
+-- ALTER TABLE xianyu_order ADD COLUMN deliver_content TEXT;     -- 实际发货内容快照
 
 -- 卡密池（Card / Account 类虚拟商品共用）
 CREATE TABLE IF NOT EXISTS virtual_card_pool (

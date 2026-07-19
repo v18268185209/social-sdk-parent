@@ -34,9 +34,11 @@ spring:
       # ===== 空闲连接 =====
       pool-prepared-statements: true
       max-pool-prepared-statement-per-connection-size: 20
-      remove-abandoned: true
+      # remove-abandoned 仅调试用，会在启动阶段误判 init 占用的连接并强制回收
+      # （配合 unwrap 拿原生 Connection 时更会永久占住池槽），本地 SQLite 直接关掉
+      remove-abandoned: false
       remove-abandoned-timeout: 1800
-      log-abandoned: true
+      log-abandoned: false
       # ===== 过滤器 =====
       filters: stat,wall,slf4j
       filter:

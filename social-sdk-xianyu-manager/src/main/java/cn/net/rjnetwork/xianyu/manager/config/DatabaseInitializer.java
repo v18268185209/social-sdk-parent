@@ -58,6 +58,7 @@ public class DatabaseInitializer {
             ensureNotifyRetryColumns();
             ensureProductColumns();
             ensureAiColumns();
+            ensureOrderColumns();
         } catch (Exception e) {
             logger.warn("Database initialization skipped (may already exist): {}", e.getMessage());
         }
@@ -101,26 +102,14 @@ public class DatabaseInitializer {
      * <p>不用 Spring ScriptUtils.executeSqlScript（默认 FAIL_ON_ERROR + 整脚本当事务遇错即全回滚，
      * 导致第 12 行 CREATE INDEX 中断后前 11 张表也回滚 DB 最终 0 表）。</p>
      *
-     * <p><b>绕过 Druid WallFilter</b>：Druid 代理 Connection 会走 WallFilter，把 SQLite 的
-     * `CREATE INDEX IF NOT EXISTS` 的 `IF` token 当「illegal name」拦截，把含 `--` 注释的
-     * CREATE TABLE 当「comment not allow」拦截。这里用 {@code rawDataSource} 拿原生 JDBC
-     * Connection（不穿 Druid 代理），真接 SQLite 驱动，避开 WallFilter 全部误判。</p>
+     * <p>用正常 Druid 池连接（try-with-resources 归还），不要 {@code unwrap(Connection)} 拿原生
+     * Connection —— unwrap 拿到的原生 Connection 脱离 Druid 代理管理，close 它并不会让池中
+     * 对应的代理槽位归还，结果初始化阶段永久占住一个池连接，后续 ensureColumn 拿不到连接
+     * 卡在 max-wait 上（日志里 `wait millis 30000, active 1, maxActive 1` 就是这个症状）。</p>
      */
     private void executeSchemaPerStatement() {
-        java.sql.Connection rawConn = null;
-        try {
-            // 拿原生 JDBC Connection（绕 Druid 代理 + WallFilter）
-            // DruidDataSource 是 RawConnection 驱动 + 代理，unwrap 拿真
-            rawConn = dataSource.getConnection().unwrap(java.sql.Connection.class);
-        } catch (Exception e) {
-            logger.warn("executeSchemaPerStatement unwrap raw conn failed, fallback to proxy: {}", e.getMessage());
-            try { rawConn = dataSource.getConnection(); } catch (Exception ee) { logger.warn("get conn failed: {}", ee.getMessage()); return; }
-        }
-        if (rawConn == null) {
-            logger.warn("executeSchemaPerStatement raw conn null, skip");
-            return;
-        }
-        try (Statement st = rawConn.createStatement();
+        try (java.sql.Connection conn = dataSource.getConnection();
+             Statement st = conn.createStatement();
              BufferedReader br = new BufferedReader(new InputStreamReader(
                      new ClassPathResource("db/schema.sql").getInputStream(), StandardCharsets.UTF_8))) {
 
@@ -159,8 +148,6 @@ public class DatabaseInitializer {
             logger.info("Schema executed: {} statements ok, {} skipped", ok, skip);
         } catch (Exception e) {
             logger.warn("executeSchemaPerStatement failed: {}", e.getMessage());
-        } finally {
-            try { rawConn.close(); } catch (Exception ce) { /* ignore close err */ }
         }
     }
 
@@ -196,6 +183,11 @@ public class DatabaseInitializer {
         // ai_ops_task / ai_ops_suggestion 缺 BaseEntity 的 updated_at
         ensureColumn("ai_ops_task", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
         ensureColumn("ai_ops_suggestion", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+    }
+
+    private void ensureOrderColumns() {
+        ensureColumn("xianyu_order", "trade_status_enum", "VARCHAR(32)");
+        ensureColumn("xianyu_order", "is_seller", "TINYINT(1)");
     }
 
     private void ensureColumn(String table, String column, String ddl) {
