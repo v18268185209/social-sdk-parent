@@ -19,6 +19,7 @@
         <module>social-sdk-cdp-auth</module>
         <module>social-sdk-proxys</module>
         <module>social-sdk-xianyu-manager</module>
+        <module>social-sdk-chrome</module>
     </modules>
 
     <properties>

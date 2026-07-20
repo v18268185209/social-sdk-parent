@@ -147,9 +147,10 @@ public class XianyuMessageApiService {
      *
      * @param cid        会话 id，形如 "60985230429@goofish"
      * @param content    消息明文内容
-     * @param receiverIds 接收者 id 列表，每个形如 "2215024781926@goofish"（至少 1 个）
+     * @param selfUserId 自己的 user id（必填），形如 "2215024781926" 或 "2215024781926@goofish"
+     * @param peerUserId 对方的 user id（必填），形如 "2221026227266" 或 "2221026227266@goofish"
      */
-    public JsonNode sendMessage(String cid, String content, String... receiverIds) throws Exception {
+    public JsonNode sendMessage(String cid, String content, String selfUserId, String peerUserId) throws Exception {
         ensureAccs();
 
         // 1. 构造 content.custom.data = base64({"contentType":1,"text":{"text":"内容"}})
@@ -160,6 +161,8 @@ public class XianyuMessageApiService {
         String base64Data = java.util.Base64.getEncoder().encodeToString(plainJson.getBytes(StandardCharsets.UTF_8));
 
         // 2. 构造 body 数组（第 0 项是消息体，第 1 项是 actualReceivers）
+        // 真实抓包：actualReceivers = [对方uid@goofish, 自己uid@goofish]
+        // CDP 校验 2026-07-21：发送失败根因是 actualReceivers 用 cid 兜底（cid 是会话 id 不是 user id）
         Map<String, Object> msg = new LinkedHashMap<>();
         msg.put("uuid", "-" + System.currentTimeMillis());
         msg.put("cid", cid != null ? cid : "");
@@ -174,13 +177,23 @@ public class XianyuMessageApiService {
         msg.put("mtags", Map.of());
         msg.put("msgReadStatusSetting", 1);
 
-        // actualReceivers 至少含一个；调用方没传则用 cid 兜底
-        String[] receivers = (receiverIds == null || receiverIds.length == 0)
-                ? new String[]{cid} : receiverIds;
+        // actualReceivers: 对方 + 自己，都要带 @goofish 后缀
+        String selfUid = ensureGoofishSuffix(selfUserId);
+        String peerUid = ensureGoofishSuffix(peerUserId);
         Map<String, Object> recv = new LinkedHashMap<>();
-        recv.put("actualReceivers", receivers);
+        recv.put("actualReceivers", new String[]{peerUid, selfUid});
 
+        // CDP 校验：服务端会 echo mid 同步回帧（recv.headers.mid == sent.headers.mid）
+        // 但 sendByReceiverScope 业务回帧里 message 真正 ack 在 body.messageId 里，
+        // 用 sendFrameAsync（不等 echo mid）更稳，避免 8s 超时阻塞前端
         return accsClient.sendFrameAsync("/r/MessageSend/sendByReceiverScope", new Object[]{msg, recv});
+    }
+
+    /** 给 userId 加 @goofish 后缀（如果还没有） */
+    private String ensureGoofishSuffix(String userId) {
+        if (userId == null || userId.isBlank()) return "";
+        String trimmed = userId.trim();
+        return trimmed.contains("@") ? trimmed : trimmed + "@goofish";
     }
 
     /**

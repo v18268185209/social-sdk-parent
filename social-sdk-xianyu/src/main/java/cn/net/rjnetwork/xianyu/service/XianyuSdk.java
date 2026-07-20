@@ -178,10 +178,10 @@ public class XianyuSdk {
     }
 
     /**
-     * 发送消息
+     * 发送消息（CDP 校验 2026-07-21：actualReceivers 需 self + peer 两个 userId）
      */
-    public JsonNode sendMessage(String sessionId, String content, String receiverId) throws Exception {
-        return account(DEFAULT_ACCOUNT).api().sendMessage(sessionId, content, receiverId);
+    public JsonNode sendMessage(String sessionId, String content, String selfUserId, String peerUserId) throws Exception {
+        return account(DEFAULT_ACCOUNT).api().sendMessage(sessionId, content, selfUserId, peerUserId);
     }
 
     /**

@@ -69,6 +69,7 @@ public class MessageService {
             if (!latest.isEmpty()) {
                 XianyuMessage last = latest.get(0);
                 row.put("lastContent", last.getContent());
+                row.put("contentType", last.getMsgType() != null ? last.getMsgType() : "TEXT");
                 row.put("lastTime", last.getMessageTime() != null ? last.getMessageTime().toString() : null);
                 row.put("direction", last.getDirection());
             }
@@ -435,6 +436,48 @@ public class MessageService {
         }
     }
 
+    /**
+     * 发送场景专用：解决滑块验证码并刷新 IM cookie，但不重试拉消息（与 solveCaptchaAndRetry 区别在此）。
+     * <p>调用链：sendMessage → ensureAccs/connect 抛 IllegalStateException(含 punish URL)
+     * → 抽 punish URL → captchaSolver.solve → 拿到 x5sec cookie 写入 imCookieHeader
+     * → 上层 sendMessage 重试发送。</p>
+     *
+     * @param rawError 含 punish URL 的原始错误文本（IllegalStateException.getMessage()）
+     * @return true=滑块已解决、IM cookie 已刷新，可重试发送；false=无法解决
+     */
+    private boolean solveCaptchaForSend(XianyuAccount acc, String rawError) {
+        try {
+            if (rawError == null || rawError.isBlank()) return false;
+            log.info("[CDP-AUTH] sendMessage risk control, raw error: {}", truncate(rawError, 800));
+
+            String url = extractPunishUrlFromRaw(rawError);
+            if (url == null || url.isEmpty()) {
+                log.warn("[MESSAGE] sendMessage: No punish URL found in error");
+                return false;
+            }
+
+            log.info("[CDP-AUTH] sendMessage Punish URL: {}", truncate(url, 250));
+            publishCaptchaRequired(acc, url, rawError);
+            cn.net.rjnetwork.xianyu.captcha.model.CaptchaResult result = captchaSolver.solve(url);
+
+            if (result.isSuccess()) {
+                log.info("[MESSAGE] sendMessage: Slider captcha solved successfully!");
+                // x5sec 等 IM 专用 cookie 单独存，不能覆盖登录 cookie
+                acc.setImCookieHeader(result.getNewCookie());
+                accountMapper.updateById(acc);
+                log.info("[MESSAGE] sendMessage: Saved IM cookie (x5sec), len={}",
+                        result.getNewCookie() != null ? result.getNewCookie().length() : 0);
+                return true;
+            } else {
+                log.error("[MESSAGE] sendMessage: Slider captcha failed: {}", result.getError());
+                return false;
+            }
+        } catch (Exception e) {
+            log.error("[MESSAGE] sendMessage: Failed to solve captcha: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+
     private void publishCaptchaRequired(XianyuAccount acc, String captchaUrl, String rawError) {
         try {
             String accountName = accountName(acc.getId());
@@ -703,15 +746,30 @@ public class MessageService {
         entity.setSessionId(cid);
         entity.setMsgId(msgId);
         JsonNode extension = messageNode.path("extension");
-        // 闲鱼 LWP 消息把发送方信息嵌在 extension.sender 里（nick / avatar / userId / openid），
-        // 顶层只有 senderId / senderUserId，没有 senderName 和 avatar。
-        // 因此昵称和头像必须用 firstTextDeep 往 extension.sender 里挖，否则永远为空。
-        entity.setSenderId(firstText(messageNode, "senderId", "senderUserId", "uid"));
+        // CDP 校验 2026-07-21：闲鱼 LWP 真实结构里发送方信息在两处：
+        //   - messageNode.sender.uid = "2221026227266@goofish"（带 @goofish 后缀的完整 uid）
+        //   - extension.senderUserId = "2221026227266"（裸 id）
+        //   - messageNode.sender.nick / sender.avatar（昵称和头像在 sender 嵌套对象里）
+        // 旧实现 firstText(messageNode,"senderId","senderUserId","uid") 在顶层找不到这些字段，
+        // 导致 senderId 永远为空，direction 判错（全部 INCOMING），头像昵称也拿不到。
+        JsonNode senderNode = messageNode.path("sender");
+        entity.setSenderId(firstText(senderNode, "uid", "userId", "senderId", "senderUserId", "id"));
         if (entity.getSenderId().isEmpty()) {
-            entity.setSenderId(firstText(extension, "senderUserId", "senderId"));
+            entity.setSenderId(firstText(messageNode, "senderId", "senderUserId", "uid"));
         }
-        entity.setSenderName(firstTextDeep(msg,
-                "senderNickName", "senderNick", "senderName", "nick", "nickname", "displayName"));
+        if (entity.getSenderId().isEmpty()) {
+            // extension.senderUserId 是裸 id（不带 @goofish），补后缀与对话方向判定对齐
+            String bareUid = firstText(extension, "senderUserId", "senderId");
+            if (!bareUid.isEmpty()) {
+                entity.setSenderId(bareUid.contains("@") ? bareUid : bareUid + "@goofish");
+            }
+        }
+        // 昵称：sender.nick / sender.name / sender.displayName（嵌套在 sender 对象里）
+        entity.setSenderName(firstText(senderNode, "nick", "name", "displayName", "senderNickName", "senderNick"));
+        if (entity.getSenderName().isEmpty()) {
+            entity.setSenderName(firstTextDeep(msg,
+                    "senderNickName", "senderNick", "senderName", "nick", "nickname", "displayName"));
+        }
         if (entity.getSenderName().isEmpty()) {
             entity.setSenderName(firstText(extension, "reminderTitle", "senderNickName", "senderNick"));
         }
@@ -719,11 +777,15 @@ public class MessageService {
             entity.setSenderName(firstTextDeep(extension.path("sender"),
                     "nick", "nickname", "displayName", "name"));
         }
-        // 头像：闲鱼字段名有 sender.avatar / sender.avatarUrl / sender.head / sender.portrait 等
-        entity.setSenderAvatar(firstTextDeep(msg,
-                "avatar", "avatarUrl", "headUrl", "headImg", "headPic", "userAvatar", "userAvatarUrl",
-                "senderAvatar", "senderAvatarUrl", "senderHeadUrl", "logo", "portrait", "displayPic",
-                "senderIcon", "senderLogo"));
+        // 头像：sender.avatar / sender.avatarUrl / sender.head（嵌套在 sender 对象里）
+        entity.setSenderAvatar(firstText(senderNode,
+                "avatar", "avatarUrl", "head", "headUrl", "headImg", "portrait", "logo", "icon"));
+        if (entity.getSenderAvatar().isEmpty()) {
+            entity.setSenderAvatar(firstTextDeep(msg,
+                    "avatar", "avatarUrl", "headUrl", "headImg", "headPic", "userAvatar", "userAvatarUrl",
+                    "senderAvatar", "senderAvatarUrl", "senderHeadUrl", "logo", "portrait", "displayPic",
+                    "senderIcon", "senderLogo"));
+        }
         if (entity.getSenderAvatar().isEmpty()) {
             entity.setSenderAvatar(firstTextDeep(extension.path("sender"),
                     "avatar", "avatarUrl", "head", "headUrl", "headImg", "portrait", "logo", "icon"));
@@ -913,7 +975,8 @@ public class MessageService {
      * 解析失败回退 LocalDateTime.now()（保留原 bug 行为不至于存不进 DB）
      */
     private LocalDateTime parseMessageTime(JsonNode msg) {
-        String[] candidates = {"msgTime", "createTime", "timestamp", "time", "createTimeInMs"};
+        // CDP 校验 2026-07-21：真实帧字段名是 createAt（不是 createTime）
+        String[] candidates = {"createAt", "msgTime", "createTime", "timestamp", "time", "createTimeInMs"};
         for (String key : candidates) {
             JsonNode v = msg.path(key);
             if (v.isMissingNode() || v.isNull()) continue;
@@ -935,11 +998,31 @@ public class MessageService {
             throw new IllegalArgumentException("Account not found or cookie expired");
         }
 
+        // CDP 校验 2026-07-21：sendByReceiverScope 的 actualReceivers 必须是
+        // [对方userId@goofish, 自己userId@goofish]，用 cid 兜底会被服务端拒绝。
+        // selfUserId 从账号 cookie 的 unb 字段提取；
+        // peerUserId 从该会话最新一条 INCOMING 消息的 senderId 取。
+        String selfUserId = extractSelfUserId(request.getAccountId());
+        if (selfUserId.isBlank()) {
+            throw new IllegalStateException("无法从账号 cookie 提取 selfUserId，请重新登录");
+        }
+        XianyuMessage peerMsg = messageMapper.selectLatestIncoming(request.getAccountId(), request.getSessionId());
+        String peerUserId = peerMsg != null ? peerMsg.getSenderId() : "";
+        if (peerUserId.isBlank()) {
+            // 该会话还没收到过对方消息（刚发起的会话），用 sessionId 兜底
+            // sessionId 形如 "57783854401@goofish"，去掉 @goofish 后缀就是对方 userId
+            String sid = request.getSessionId() != null ? request.getSessionId() : "";
+            peerUserId = sid.contains("@") ? sid.substring(0, sid.indexOf('@')) : sid;
+        }
+        if (peerUserId.isBlank()) {
+            throw new IllegalStateException("无法确定对方 userId，请先同步该会话消息");
+        }
+
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(acc.getCookieHeader());
         XianyuMessageApiService msgApi = new XianyuMessageApiService(mtopClient);
 
         // 通过 IM 长连接发送文本消息
-        JsonNode sendResp = msgApi.sendMessage(request.getSessionId(), request.getContent());
+        JsonNode sendResp = msgApi.sendMessage(request.getSessionId(), request.getContent(), selfUserId, peerUserId);
         if (sendResp == null) {
             throw new IllegalStateException("sendMessage returned null");
         }
@@ -953,6 +1036,8 @@ public class MessageService {
         msg.setSessionId(request.getSessionId());
         // 生成客户端 msgId（与闲鱼服务端 msgId 不同），避免与 pushListener 拉回的消息冲突
         msg.setMsgId("local-out-" + System.currentTimeMillis() + "-" + request.getAccountId());
+        msg.setSenderId(selfUserId);
+        msg.setSenderName(acc.getDisplayName() != null ? acc.getDisplayName() : acc.getAccountName());
         msg.setContent(request.getContent());
         msg.setMsgType("TEXT");
         msg.setDirection("OUTGOING");

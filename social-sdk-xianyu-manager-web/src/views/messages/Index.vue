@@ -46,7 +46,12 @@
                   <span class="time">{{ formatTime(s.lastTime) }}</span>
                 </div>
                 <div class="session-row-2">
-                  <span class="last-msg">{{ s.lastContent || '无消息' }}</span>
+                  <span class="last-msg">
+                    <template v-if="s.contentType === 'IMAGE'">[图片]</template>
+                    <template v-else-if="s.contentType === 'VIDEO'">[视频]</template>
+                    <template v-else-if="s.contentType === 'CARD' || s.contentType === 'JSON'">[卡片]</template>
+                    <template v-else>{{ s.lastContent || '无消息' }}</template>
+                  </span>
                 </div>
               </div>
             </div>

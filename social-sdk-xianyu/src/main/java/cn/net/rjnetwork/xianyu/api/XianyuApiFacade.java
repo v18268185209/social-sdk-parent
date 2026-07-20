@@ -333,9 +333,12 @@ public class XianyuApiFacade {
     // ======================== 7. 消息收发 ========================
 
     public JsonNode getSessionList() { return messageApiService.getSessionList(); }
-    public JsonNode sendMessage(String sessionId, String content, String receiverId) {
+    /**
+     * 发送文本消息（CDP 校验 2026-07-21：actualReceivers 需 self + peer 两个 userId）
+     */
+    public JsonNode sendMessage(String sessionId, String content, String selfUserId, String peerUserId) {
         try {
-            return messageApiService.sendMessage(sessionId, content, receiverId);
+            return messageApiService.sendMessage(sessionId, content, selfUserId, peerUserId);
         } catch (Exception e) {
             System.err.println("[Facade sendMessage] " + e.getMessage());
             return null;

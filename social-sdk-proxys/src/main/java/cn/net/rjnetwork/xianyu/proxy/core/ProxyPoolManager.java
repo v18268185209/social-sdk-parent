@@ -61,6 +61,16 @@ public interface ProxyPoolManager {
     void unbind(Long accountId);
 
     /**
+     * 手动注册一条账号-IP 绑定（通常由持久化层在启动时调用，还原 DB 里的绑定关系）。
+     *
+     * <p>调用后，acquire 时会直接复用这条绑定，而不是向供应商申请新 IP。</p>
+     *
+     * @param accountId 账号 ID
+     * @param proxy     代理信息
+     */
+    void registerBinding(Long accountId, ProxyInfo proxy);
+
+    /**
      * 手动标记某代理失败一次（健康检查累计失败会触发冷名单）。
      *
      * @param proxy 代理信息
