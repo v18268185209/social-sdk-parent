@@ -172,7 +172,16 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                    <mainClass>cn.net.rjnetwork.xianyu.manager.XianyuManagerApplication</mainClass>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>repackage</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- 前端构建：在 generate-resources 阶段于兄弟目录构建 Vue，再把 dist 拷进 classpath:/static -->

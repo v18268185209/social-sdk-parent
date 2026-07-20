@@ -7,6 +7,7 @@ import cn.net.rjnetwork.xianyu.manager.account.dto.QrLoginResponse;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import cn.net.rjnetwork.xianyu.manager.account.service.AccountProfileService;
 import cn.net.rjnetwork.xianyu.manager.account.service.AccountService;
+import cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import org.springframework.web.bind.annotation.*;
 
@@ -82,11 +83,13 @@ public class AccountController {
     }
 
     @PutMapping("/{id}/status")
+    @Audit("更新账号状态")
     public ApiResponse<XianyuAccount> updateStatus(@PathVariable Long id, @RequestBody AccountStatusUpdateRequest request) {
         return ApiResponse.ok(accountService.updateStatus(id, request));
     }
 
     @DeleteMapping("/{id}")
+    @Audit("删除账号")
     public ApiResponse<Void> delete(@PathVariable Long id) {
         accountService.removeById(id);
         return ApiResponse.ok(null);

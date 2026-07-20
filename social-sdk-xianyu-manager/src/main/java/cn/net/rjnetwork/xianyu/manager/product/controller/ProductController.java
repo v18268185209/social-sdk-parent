@@ -1,6 +1,7 @@
 package cn.net.rjnetwork.xianyu.manager.product.controller;
 
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
+import cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit;
 import cn.net.rjnetwork.xianyu.manager.product.dto.ProductCreateRequest;
 import cn.net.rjnetwork.xianyu.manager.product.dto.ProductUpdateRequest;
 import cn.net.rjnetwork.xianyu.manager.product.model.XianyuProduct;
@@ -93,11 +94,13 @@ public class ProductController {
     }
 
     @PostMapping("/{id}/shelf-on")
+    @Audit("商品上架")
     public ApiResponse<XianyuProduct> shelfOn(@PathVariable Long id) {
         return ApiResponse.ok(productService.shelfOn(id));
     }
 
     @PostMapping("/{id}/shelf-off")
+    @Audit("商品下架")
     public ApiResponse<XianyuProduct> shelfOff(@PathVariable Long id) {
         return ApiResponse.ok(productService.shelfOff(id));
     }

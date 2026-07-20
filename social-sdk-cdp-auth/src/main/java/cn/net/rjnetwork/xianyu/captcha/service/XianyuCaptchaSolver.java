@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 
 /**
@@ -130,9 +131,14 @@ public class XianyuCaptchaSolver {
      * 连接 CDP WebSocket
      */
     private Socket openWebSocket(String wsUrl) throws Exception {
-        URL url = new URL(wsUrl);
-        String host = url.getHost();
-        int port = url.getPort() > 0 ? url.getPort() : (url.getProtocol().equals("wss") ? 443 : 80);
+        // 使用 URI 而非 URL：java.net.URL 不支持 ws:// 协议，会抛 MalformedURLException
+        URI uri = URI.create(wsUrl);
+        String host = uri.getHost();
+        int port = uri.getPort() > 0 ? uri.getPort() : ("wss".equals(uri.getScheme()) ? 443 : 80);
+        String path = uri.getPath();
+        if (uri.getQuery() != null && !uri.getQuery().isEmpty()) {
+            path = path + "?" + uri.getQuery();
+        }
 
         Socket socket = new Socket(host, port);
         socket.setSoTimeout(config.getTimeoutSeconds() * 1000);
@@ -145,7 +151,7 @@ public class XianyuCaptchaSolver {
         String key = Base64.getEncoder().encodeToString(keyBytes);
 
         // 发送 WebSocket 握手请求
-        String upgradeRequest = "GET " + url.getPath() + " HTTP/1.1\r\n" +
+        String upgradeRequest = "GET " + path + " HTTP/1.1\r\n" +
                 "Host: " + host + "\r\n" +
                 "Upgrade: websocket\r\n" +
                 "Connection: Upgrade\r\n" +
@@ -166,12 +172,6 @@ public class XianyuCaptchaSolver {
         String response = new String(buffer, 0, read, StandardCharsets.UTF_8);
         if (!response.startsWith("HTTP/1.1 101")) {
             throw new IOException("WebSocket handshake failed: " + response.substring(0, Math.min(200, response.length())));
-        }
-
-        // 跳过响应头
-        int headerEnd = response.indexOf("\r\n\r\n");
-        if (headerEnd >= 0) {
-            // 继续读取可能的附加头
         }
 
         return socket;
@@ -284,6 +284,8 @@ public class XianyuCaptchaSolver {
         }
     }
 
+    private static final AtomicLong CMD_ID = new AtomicLong(1);
+
     /**
      * 发送 CDP 命令
      */
@@ -293,7 +295,7 @@ public class XianyuCaptchaSolver {
 
         // 构造请求 JSON
         Map<String, Object> request = new LinkedHashMap<>();
-        request.put("id", System.nanoTime());
+        request.put("id", CMD_ID.getAndIncrement());
         request.put("method", method);
         if (params != null) {
             request.put("params", params);
@@ -301,46 +303,57 @@ public class XianyuCaptchaSolver {
 
         String json = MAPPER.writeValueAsString(request);
 
-        // 构造 WebSocket 文本帧
+        // 构造 WebSocket 文本帧（支持长 payload）
         byte[] textBytes = json.getBytes(StandardCharsets.UTF_8);
-        byte[] frame = new byte[2 + textBytes.length];
-        frame[0] = (byte) 0x81; // 文本帧
-        frame[1] = (byte) (textBytes.length & 0xFF);
-        System.arraycopy(textBytes, 0, frame, 2, textBytes.length);
+        byte[] frame;
+        if (textBytes.length < 126) {
+            frame = new byte[2 + textBytes.length];
+            frame[0] = (byte) 0x81; // 文本帧
+            frame[1] = (byte) (textBytes.length & 0xFF);
+            System.arraycopy(textBytes, 0, frame, 2, textBytes.length);
+        } else if (textBytes.length < 65536) {
+            frame = new byte[4 + textBytes.length];
+            frame[0] = (byte) 0x81;
+            frame[1] = (byte) 126;
+            frame[2] = (byte) ((textBytes.length >> 8) & 0xFF);
+            frame[3] = (byte) (textBytes.length & 0xFF);
+            System.arraycopy(textBytes, 0, frame, 4, textBytes.length);
+        } else {
+            frame = new byte[10 + textBytes.length];
+            frame[0] = (byte) 0x81;
+            frame[1] = (byte) 127;
+            for (int i = 0; i < 8; i++) {
+                frame[2 + i] = (byte) ((textBytes.length >> (56 - 8 * i)) & 0xFF);
+            }
+            System.arraycopy(textBytes, 0, frame, 10, textBytes.length);
+        }
 
         OutputStream output = socket.getOutputStream();
         output.write(frame);
         output.flush();
 
-        // 读取 WebSocket 响应帧
-        byte[] firstByte = new byte[1];
-        int read = input.read(firstByte);
-        if (read == -1) return new LinkedHashMap<>();
+        // 读取 WebSocket 响应帧头（2 字节）
+        byte[] header = new byte[2];
+        if (readFully(input, header, 2) < 2) return new LinkedHashMap<>();
 
-        boolean isFinal = (firstByte[0] & 0x80) != 0;
-        int opcode = firstByte[0] & 0x0F;
+        int opcode = header[0] & 0x0F;
+        int length = header[1] & 0x7F;
 
-        // 处理扩展位
-        int maskBit = firstByte[0] & 0x80;
-        int length = firstByte[1] & 0x7F;
-        byte[] payload;
-
-        if (length < 126) {
-            payload = new byte[length];
-            readBytes(input, payload);
-        } else if (length == 126) {
+        if (length == 126) {
             byte[] ext = new byte[2];
-            readBytes(input, ext);
+            if (readFully(input, ext, 2) < 2) return new LinkedHashMap<>();
             length = ((ext[0] & 0xFF) << 8) | (ext[1] & 0xFF);
-            payload = new byte[length];
-            readBytes(input, payload);
-        } else {
+        } else if (length == 127) {
             byte[] ext = new byte[8];
-            readBytes(input, ext);
+            if (readFully(input, ext, 8) < 8) return new LinkedHashMap<>();
             long len = 0;
             for (byte b : ext) len = (len << 8) | (b & 0xFF);
-            payload = new byte[(int) len];
-            readBytes(input, payload);
+            length = (int) len;
+        }
+
+        byte[] payload = new byte[length];
+        if (length > 0 && readFully(input, payload, length) < length) {
+            return new LinkedHashMap<>();
         }
 
         // 解析 JSON
@@ -375,6 +388,19 @@ public class XianyuCaptchaSolver {
             if (read == -1) break;
             totalRead += read;
         }
+    }
+
+    /**
+     * 精确读取指定长度字节，返回实际读取的字节数
+     */
+    private int readFully(InputStream input, byte[] buffer, int len) throws IOException {
+        int totalRead = 0;
+        while (totalRead < len) {
+            int read = input.read(buffer, totalRead, len - totalRead);
+            if (read == -1) break;
+            totalRead += read;
+        }
+        return totalRead;
     }
 
 

@@ -24,57 +24,70 @@
 
     <el-card style="margin-top: 16px;">
       <template #header><span>账号维度统计</span></template>
-      <el-table :data="accountStats" stripe>
-        <el-table-column prop="accountName" label="账号名称" />
-        <el-table-column prop="status" label="状态" width="120">
+      <el-table :data="accounts" stripe>
+        <el-table-column prop="displayName" label="账号名称" width="180">
           <template #default="{ row }">
-            <el-tag :type="{ ACTIVE: 'success', DISABLED: 'info', FROZEN: 'danger', COOKIE_EXPIRED: 'warning' }[row.status]">{{ row.status }}</el-tag>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <el-avatar :size="28" :src="row.avatar" />
+              <span>{{ row.displayName || row.accountName }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="productCount" label="商品数" width="100" />
-        <el-table-column prop="messageCount" label="消息数" width="100" />
-        <el-table-column prop="orderCount" label="订单数" width="100" />
+        <el-table-column label="状态" width="120">
+          <template #default="{ row }">
+            <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="productCount" label="商品数" sortable width="100" />
+        <el-table-column prop="onSaleCount" label="在售" sortable width="100" />
+        <el-table-column prop="viewCount" label="浏览量" sortable width="100" />
+        <el-table-column prop="favoriteCount" label="收藏数" sortable width="100" />
+        <el-table-column prop="todayReplies" label="今日回复" sortable width="100" />
       </el-table>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { getDashboard, getAccountStats, clearCache } from '@/api/monitor'
+import { ref, computed, onMounted } from 'vue'
+import { getDashboard, clearCache } from '@/api/monitor'
 
-const stats = ref({})
-const accountStats = ref([])
-const statCards = ref([])
+const overview = ref({})
+const accounts = ref([])
+
+const statCards = computed(() => [
+  { title: '总账号数', value: overview.value.totalAccounts || 0, icon: 'User', color: '#409EFF' },
+  { title: '在线账号', value: overview.value.onlineAccounts || 0, icon: 'CircleCheck', color: '#67C23A' },
+  { title: '总商品数', value: overview.value.totalProducts || 0, icon: 'Goods', color: '#E6A23C' },
+  { title: '在售商品', value: overview.value.onSaleProducts || 0, icon: 'Shop', color: '#F56C6C' },
+  { title: '今日回复', value: overview.value.todayReplies || 0, icon: 'ChatLineRound', color: '#909399' },
+  { title: '总浏览量', value: overview.value.totalViews || 0, icon: 'View', color: '#73C0DE' },
+  { title: '总收藏', value: overview.value.totalFavorites || 0, icon: 'Star', color: '#FC8452' },
+  { title: '异常账号', value: overview.value.cookieExpiredAccounts || 0, icon: 'Warning', color: '#EE6666' }
+])
+
+function statusType(status) {
+  return { ACTIVE: 'success', DISABLED: 'info', FROZEN: 'danger', COOKIE_EXPIRED: 'warning' }[status] || 'info'
+}
+
+function statusLabel(status) {
+  return { ACTIVE: '在线', DISABLED: '离线', FROZEN: '冻结', COOKIE_EXPIRED: '过期' }[status] || status
+}
 
 async function loadDashboard() {
   try {
     const r1 = await getDashboard()
     if (r1.success) {
-      stats.value = r1.data
-      const s = r1.data
-      statCards.value = [
-        { title: '总账号数', value: s.totalAccounts || 0, icon: 'User', color: '#409EFF' },
-        { title: '活跃账号', value: s.activeAccounts || 0, icon: 'CircleCheck', color: '#67C23A' },
-        { title: '总商品数', value: s.totalProducts || 0, icon: 'Goods', color: '#E6A23C' },
-        { title: '在售商品', value: s.onSaleProducts || 0, icon: 'Shop', color: '#F56C6C' },
-        { title: '今日消息', value: s.todayMessages || 0, icon: 'ChatLineRound', color: '#909399' },
-        { title: '待处理订单', value: s.pendingOrders || 0, icon: 'ShoppingCart', color: '#409EFF' },
-        { title: '活跃规则', value: s.activeRules || 0, icon: 'Setting', color: '#67C23A' },
-        { title: '总收藏', value: s.totalCollects || 0, icon: 'Star', color: '#E6A23C' }
-      ]
+      overview.value = r1.data.overview || {}
+      accounts.value = r1.data.accounts || []
     }
-  } catch (e) {}
-
-  try {
-    const r2 = await getAccountStats()
-    if (r2.success) accountStats.value = r2.data
   } catch (e) {}
 }
 
-function handleRefresh() { loadDashboard() }
-
-function handleClearCache() { clearCache().then(() => loadDashboard()) }
+async function handleRefresh() {
+  await clearCache()
+  await loadDashboard()
+}
 
 onMounted(loadDashboard)
 </script>

@@ -1,6 +1,7 @@
 package cn.net.rjnetwork.xianyu.manager.virtual.controller;
 
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
+import cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit;
 import cn.net.rjnetwork.xianyu.manager.virtual.dto.VirtualShipConfigRequest;
 import cn.net.rjnetwork.xianyu.manager.virtual.dto.VirtualShipConfigUpdateRequest;
 import cn.net.rjnetwork.xianyu.manager.virtual.dto.CardPoolImportRequest;
@@ -40,6 +41,7 @@ public class VirtualShipController {
      * }
      */
     @PostMapping("/cards/import")
+    @Audit("导入卡密")
     public ApiResponse<Map<String, Object>> importCards(@RequestBody CardPoolImportRequest request) {
         int count = shipService.importCards(request.getProductId(), request.getCards());
         return ApiResponse.ok(Map.of("imported", count));

@@ -56,6 +56,7 @@ public class DatabaseInitializer {
                 logger.info("Database schema initialized successfully");
             }
             ensureNotifyRetryColumns();
+            ensureNotifyDigestConfigTable();
             ensureProductColumns();
             ensureAiColumns();
             ensureOrderColumns();
@@ -95,6 +96,42 @@ public class DatabaseInitializer {
             }
         } catch (Exception e) {
             logger.warn("ensureNotifyRetryColumns skipped: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 兼容旧库：确保 notify_digest_config 表存在（早期 schema.sql 未包含此表，加上 CREATE IF NOT EXISTS
+     * 后新建库已有，但旧库里没有，启动时查此表会报 no such table）。
+     */
+    private void ensureNotifyDigestConfigTable() {
+        try (java.sql.Connection conn = dataSource.getConnection()) {
+            boolean hasTable = false;
+            try (java.sql.PreparedStatement ps = conn.prepareStatement(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='notify_digest_config'")) {
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    hasTable = rs.next();
+                }
+            }
+            if (!hasTable) {
+                try (java.sql.Statement st = conn.createStatement()) {
+                    st.execute("CREATE TABLE notify_digest_config ("
+                            + "id INTEGER PRIMARY KEY, "
+                            + "enabled BOOLEAN DEFAULT FALSE, "
+                            + "channel_id INTEGER, "
+                            + "recipients TEXT, "
+                            + "hour INTEGER DEFAULT 9, "
+                            + "minute INTEGER DEFAULT 0, "
+                            + "scenarios TEXT, "
+                            + "include_in_app BOOLEAN DEFAULT TRUE, "
+                            + "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                            + "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                            + ")");
+                    ensureColumn("notify_digest_config", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+                    logger.info("Created missing table notify_digest_config");
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("ensureNotifyDigestConfigTable skipped: {}", e.getMessage());
         }
     }
 

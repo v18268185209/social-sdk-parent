@@ -1,5 +1,6 @@
 package cn.net.rjnetwork.xianyu.manager.order.controller;
 
+import cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import cn.net.rjnetwork.xianyu.manager.order.model.XianyuOrder;
 import cn.net.rjnetwork.xianyu.manager.order.service.OrderService;
@@ -53,6 +54,7 @@ public class OrderController {
     }
 
     @PostMapping("/{id}/delivery")
+    @Audit("订单发货")
     public ApiResponse<XianyuOrder> delivery(@PathVariable Long id, @RequestParam String trackingNo) {
         return ApiResponse.ok(orderService.delivery(id, trackingNo));
     }

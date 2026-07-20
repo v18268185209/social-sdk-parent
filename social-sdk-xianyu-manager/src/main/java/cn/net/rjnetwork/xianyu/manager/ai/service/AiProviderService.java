@@ -1,5 +1,6 @@
 package cn.net.rjnetwork.xianyu.manager.ai.service;
 
+import cn.net.rjnetwork.core.ai.client.OpenAiCompatibleClient;
 import cn.net.rjnetwork.xianyu.manager.ai.dto.AiProviderRequest;
 import cn.net.rjnetwork.xianyu.manager.ai.dto.AiProviderUpdateRequest;
 import cn.net.rjnetwork.xianyu.manager.ai.mapper.AiProviderMapper;
@@ -10,6 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class AiProviderService {
@@ -70,5 +73,18 @@ public class AiProviderService {
     @Transactional
     public void delete(Long id) {
         providerMapper.deleteById(id);
+    }
+
+    /**
+     * 按 OpenAI 标准规范从远端厂商拉取可用模型列表
+     * 调用 {apiBaseUrl}/models，需厂商的 apiKey 鉴权
+     */
+    public List<Map<String, Object>> listRemoteModels(Long providerId) {
+        AiProvider provider = getById(providerId);
+        if (provider == null) {
+            throw new IllegalArgumentException("Provider not found: " + providerId);
+        }
+        OpenAiCompatibleClient client = new OpenAiCompatibleClient(provider.getApiBaseUrl(), provider.getApiKey());
+        return client.listModels();
     }
 }

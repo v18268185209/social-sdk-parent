@@ -4,6 +4,7 @@ import cn.net.rjnetwork.xianyu.api.XianyuApiFacade;
 import cn.net.rjnetwork.xianyu.api.XianyuCaptchaService;
 import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
+import cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.web.bind.annotation.*;
@@ -40,12 +41,14 @@ public class SdkTestController {
 
     /** 真删闲鱼商品 — SDK mtop.alibaba.idle.seller.pc.item.delete v1.0 */
     @PostMapping("/products/sdk-delete")
+    @Audit("真删闲鱼商品")
     public ApiResponse<JsonNode> sdkDelete(@RequestParam Long accountId, @RequestParam String itemId) {
         return ApiResponse.ok(facade(accountId).deleteProduct(itemId));
     }
 
     /** 商品擦亮（提升曝光排名）— SDK mtop.taobao.idle.item.polish v1.0 */
     @PostMapping("/products/sdk-polish")
+    @Audit("擦亮闲鱼商品")
     public ApiResponse<JsonNode> sdkPolish(@RequestParam Long accountId, @RequestParam String itemId) {
         return ApiResponse.ok(facade(accountId).polishItem(itemId));
     }

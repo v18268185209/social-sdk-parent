@@ -1,6 +1,7 @@
 package cn.net.rjnetwork.xianyu.manager.rule.controller;
 
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
+import cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit;
 import cn.net.rjnetwork.xianyu.manager.rule.dto.RuleCreateRequest;
 import cn.net.rjnetwork.xianyu.manager.rule.dto.RuleTestRequest;
 import cn.net.rjnetwork.xianyu.manager.rule.model.XianyuAutoReplyConfig;
@@ -34,16 +35,19 @@ public class RuleController {
     }
 
     @PostMapping
+    @Audit("创建规则")
     public ApiResponse<XianyuKeywordRule> create(@RequestBody RuleCreateRequest request) {
         return ApiResponse.ok(ruleService.create(request));
     }
 
     @PutMapping("/{id}")
+    @Audit("更新规则")
     public ApiResponse<XianyuKeywordRule> update(@PathVariable Long id, @RequestBody RuleCreateRequest request) {
         return ApiResponse.ok(ruleService.update(id, request));
     }
 
     @DeleteMapping("/{id}")
+    @Audit("删除规则")
     public ApiResponse<Void> delete(@PathVariable Long id) {
         ruleService.delete(id);
         return ApiResponse.ok(null);

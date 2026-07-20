@@ -3,12 +3,11 @@ package cn.net.rjnetwork.xianyu.manager.audit.controller;
 import cn.net.rjnetwork.xianyu.manager.audit.model.AuditLog;
 import cn.net.rjnetwork.xianyu.manager.audit.service.AuditService;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/audit")
@@ -20,12 +19,35 @@ public class AuditController {
         this.auditService = auditService;
     }
 
+    /**
+     * 分页查询审计日志
+     * 返回结构：
+     * {
+     *   success: true,
+     *   data: {
+     *     records: [...],
+     *     total: 100,
+     *     current: 1,
+     *     size: 20
+     *   }
+     * }
+     */
     @GetMapping("/logs")
-    public ApiResponse<List<AuditLog>> list(
+    public ApiResponse<ApiResponse.PageResponse<AuditLog>> list(
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String action,
             @RequestParam(required = false) String resourceType) {
-        return ApiResponse.ok(auditService.listLogs(page, size, action, resourceType));
+        Page<AuditLog> result = auditService.listLogs(page, size, action, resourceType);
+        return ApiResponse.ok(toPageResponse(result));
+    }
+
+    private static <T> ApiResponse.PageResponse<T> toPageResponse(Page<T> page) {
+        ApiResponse.PageResponse<T> response = new ApiResponse.PageResponse<>();
+        response.setRecords(page.getRecords());
+        response.setTotal(page.getTotal());
+        response.setCurrent(page.getCurrent());
+        response.setSize(page.getSize());
+        return response;
     }
 }

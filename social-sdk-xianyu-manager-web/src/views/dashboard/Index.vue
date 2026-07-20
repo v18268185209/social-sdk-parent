@@ -218,14 +218,14 @@ const orderTrendOption = computed(() => ({
   series: [
     {
       name: '卖出', type: 'line', smooth: true,
-      data: orderTrend.value.map(d => d.s || d.sold || 0),
+      data: orderTrend.value.map(d => d.sold || 0),
       lineStyle: { color: '#409EFF' },
       itemStyle: { color: '#409EFF' },
       areaStyle: { color: 'rgba(64,158,255,0.15)' },
     },
     {
       name: '买入', type: 'line', smooth: true,
-      data: orderTrend.value.map(d => d.b || d.bought || 0),
+      data: orderTrend.value.map(d => d.bought || 0),
       lineStyle: { color: '#E6A23C' },
       itemStyle: { color: '#E6A23C' },
       areaStyle: { color: 'rgba(230,162,60,0.15)' },

@@ -1,5 +1,6 @@
 package cn.net.rjnetwork.xianyu.manager.message.controller;
 
+import cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import cn.net.rjnetwork.xianyu.manager.message.dto.MessageSendRequest;
 import cn.net.rjnetwork.xianyu.manager.message.model.XianyuMessage;
@@ -34,6 +35,7 @@ public class MessageController {
     }
 
     @PostMapping("/send")
+    @Audit("发送消息")
     public ApiResponse<XianyuMessage> send(@RequestBody MessageSendRequest request) throws Exception {
         XianyuMessage sent = messageService.sendMessage(request);
         return ApiResponse.ok(sent);

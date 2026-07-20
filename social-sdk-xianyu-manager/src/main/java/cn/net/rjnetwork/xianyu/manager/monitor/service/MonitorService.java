@@ -48,6 +48,17 @@ public class MonitorService {
         List<XianyuAccount> allAccounts = accountMapper.selectList(null);
         LocalDateTime todayStart = LocalDate.now().atStartOfDay();
 
+        // 批量查询所有账号的商品，按 accountId 分组（避免 N+1）
+        Map<Long, List<XianyuProduct>> productsByAccount = productMapper.selectList(null).stream()
+                .collect(Collectors.groupingBy(XianyuProduct::getAccountId));
+
+        // 批量查询今日所有 OUTGOING 消息，按 accountId 分组（避免 N+1）
+        Map<Long, List<XianyuMessage>> todayRepliesByAccount = messageMapper.selectList(
+                new LambdaQueryWrapper<XianyuMessage>()
+                        .eq(XianyuMessage::getDirection, "OUTGOING")
+                        .ge(XianyuMessage::getMessageTime, todayStart)
+        ).stream().collect(Collectors.groupingBy(XianyuMessage::getAccountId));
+
         List<Map<String, Object>> accountRows = new ArrayList<>();
         int totalProducts = 0, totalOnSale = 0, totalOffSale = 0, totalDraft = 0;
         int todayReplies = 0, totalViews = 0, totalFavorites = 0;
@@ -55,11 +66,8 @@ public class MonitorService {
 
         for (XianyuAccount acc : allAccounts) {
             Long accountId = acc.getId();
+            List<XianyuProduct> products = productsByAccount.getOrDefault(accountId, Collections.emptyList());
 
-            // 商品统计（按账号）
-            List<XianyuProduct> products = productMapper.selectList(
-                    new LambdaQueryWrapper<XianyuProduct>().eq(XianyuProduct::getAccountId, accountId)
-            );
             int productCount = products.size();
             int onSale = (int) products.stream().filter(p -> "ON_SALE".equals(p.getStatus())).count();
             int offSale = (int) products.stream().filter(p -> "OFF_SALE".equals(p.getStatus())).count();
@@ -67,13 +75,8 @@ public class MonitorService {
             int views = products.stream().mapToInt(p -> p.getViewCount() != null ? p.getViewCount() : 0).sum();
             int favorites = products.stream().mapToInt(p -> p.getFavoriteCount() != null ? p.getFavoriteCount() : 0).sum();
 
-            // 今日回复数（该账号今日发出的消息）
-            int replies = (int) messageMapper.selectList(
-                    new LambdaQueryWrapper<XianyuMessage>()
-                            .eq(XianyuMessage::getAccountId, accountId)
-                            .eq(XianyuMessage::getDirection, "OUTGOING")
-                            .ge(XianyuMessage::getMessageTime, todayStart)
-            ).size();
+            // 今日回复数（从预加载的分组中获取）
+            int replies = todayRepliesByAccount.getOrDefault(accountId, Collections.emptyList()).size();
 
             // 账号状态归类
             String status = acc.getStatus();
@@ -126,10 +129,10 @@ public class MonitorService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("overview", overview);
         result.put("accounts", accountRows);
-        result.put("orderTrend", buildOrderTrend(allAccounts));
-        result.put("messageActivity", buildMessageActivity(allAccounts));
+        result.put("orderTrend", buildOrderTrend());
+        result.put("messageActivity", buildMessageActivity());
         result.put("accountStatus", buildAccountStatus(offlineCount, cookieExpiredCount, onlineCount));
-        result.put("ruleHitStats", buildRuleHitStats(allAccounts));
+        result.put("ruleHitStats", buildRuleHitStats());
         return result;
     }
 
@@ -140,26 +143,29 @@ public class MonitorService {
         List<XianyuAccount> allAccounts = accountMapper.selectList(null);
         LocalDateTime todayStart = LocalDate.now().atStartOfDay();
 
+        // 批量查询所有商品，按 accountId 分组
+        Map<Long, List<XianyuProduct>> productsByAccount = productMapper.selectList(null).stream()
+                .collect(Collectors.groupingBy(XianyuProduct::getAccountId));
+
+        // 批量查询今日 OUTGOING 消息，按 accountId 分组
+        Map<Long, List<XianyuMessage>> todayRepliesByAccount = messageMapper.selectList(
+                new LambdaQueryWrapper<XianyuMessage>()
+                        .eq(XianyuMessage::getDirection, "OUTGOING")
+                        .ge(XianyuMessage::getMessageTime, todayStart)
+        ).stream().collect(Collectors.groupingBy(XianyuMessage::getAccountId));
+
         List<Map<String, Object>> accountRows = new ArrayList<>();
         for (XianyuAccount acc : allAccounts) {
             Long accountId = acc.getId();
+            List<XianyuProduct> products = productsByAccount.getOrDefault(accountId, Collections.emptyList());
 
-            List<XianyuProduct> products = productMapper.selectList(
-                    new LambdaQueryWrapper<XianyuProduct>().eq(XianyuProduct::getAccountId, accountId)
-            );
             int productCount = products.size();
             int onSale = (int) products.stream().filter(p -> "ON_SALE".equals(p.getStatus())).count();
             int offSale = (int) products.stream().filter(p -> "OFF_SALE".equals(p.getStatus())).count();
             int draft = (int) products.stream().filter(p -> "DRAFT".equals(p.getStatus())).count();
             int views = products.stream().mapToInt(p -> p.getViewCount() != null ? p.getViewCount() : 0).sum();
             int favorites = products.stream().mapToInt(p -> p.getFavoriteCount() != null ? p.getFavoriteCount() : 0).sum();
-
-            int replies = (int) messageMapper.selectList(
-                    new LambdaQueryWrapper<XianyuMessage>()
-                            .eq(XianyuMessage::getAccountId, accountId)
-                            .eq(XianyuMessage::getDirection, "OUTGOING")
-                            .ge(XianyuMessage::getMessageTime, todayStart)
-            ).size();
+            int replies = todayRepliesByAccount.getOrDefault(accountId, Collections.emptyList()).size();
 
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("accountId", accountId);
@@ -184,7 +190,7 @@ public class MonitorService {
     /**
      * 构建近 N 天订单趋势，用于折线图
      */
-    private List<Map<String, Object>> buildOrderTrend(List<XianyuAccount> allAccounts) {
+    private List<Map<String, Object>> buildOrderTrend() {
         int days = 14;
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MM-dd");
         LocalDate today = LocalDate.now();
@@ -197,6 +203,7 @@ public class MonitorService {
             day.put("bought", 0);
             trend.put(d.toString(), day);
         }
+        // 一次性查询所有订单，在内存中聚合
         List<XianyuOrder> allOrders = orderMapper.selectList(null);
         for (XianyuOrder order : allOrders) {
             if (order.getOrderTime() == null) continue;
@@ -216,7 +223,7 @@ public class MonitorService {
     /**
      * 构建近 N 天消息活跃度，用于折线图
      */
-    private List<Map<String, Object>> buildMessageActivity(List<XianyuAccount> allAccounts) {
+    private List<Map<String, Object>> buildMessageActivity() {
         int days = 14;
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MM-dd");
         LocalDate today = LocalDate.now();
@@ -229,21 +236,18 @@ public class MonitorService {
             day.put("outgoing", 0);
             trend.put(d.toString(), day);
         }
-        for (XianyuAccount acc : allAccounts) {
-            List<XianyuMessage> msgs = messageMapper.selectList(
-                    new LambdaQueryWrapper<XianyuMessage>().eq(XianyuMessage::getAccountId, acc.getId())
-            );
-            for (XianyuMessage msg : msgs) {
-                if (msg.getMessageTime() == null) continue;
-                LocalDate d = msg.getMessageTime().toLocalDate();
-                String key = d.toString();
-                if (!trend.containsKey(key)) continue;
-                Map<String, Object> day = trend.get(key);
-                if ("OUTGOING".equals(msg.getDirection())) {
-                    day.put("outgoing", (int) day.get("outgoing") + 1);
-                } else {
-                    day.put("incoming", (int) day.get("incoming") + 1);
-                }
+        // 一次性查询所有消息，在内存中聚合
+        List<XianyuMessage> allMessages = messageMapper.selectList(null);
+        for (XianyuMessage msg : allMessages) {
+            if (msg.getMessageTime() == null) continue;
+            LocalDate d = msg.getMessageTime().toLocalDate();
+            String key = d.toString();
+            if (!trend.containsKey(key)) continue;
+            Map<String, Object> day = trend.get(key);
+            if ("OUTGOING".equals(msg.getDirection())) {
+                day.put("outgoing", (int) day.get("outgoing") + 1);
+            } else {
+                day.put("incoming", (int) day.get("incoming") + 1);
             }
         }
         return new ArrayList<>(trend.values());
@@ -263,7 +267,7 @@ public class MonitorService {
     /**
      * 构建规则命中统计，用于柱状图
      */
-    private List<Map<String, Object>> buildRuleHitStats(List<XianyuAccount> allAccounts) {
+    private List<Map<String, Object>> buildRuleHitStats() {
         // 当前返回各账号规则命中计数（由前端展示），留个占位
         // 后续可从 XianyuMessage 表的 auto_reply=true 字段聚合
         // 当前仅按账号维度统计消息收发

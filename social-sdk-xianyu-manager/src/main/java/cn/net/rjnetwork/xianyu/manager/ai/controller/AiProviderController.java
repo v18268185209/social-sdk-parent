@@ -11,6 +11,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/ai/providers")
@@ -52,6 +53,15 @@ public class AiProviderController {
         }
         List<cn.net.rjnetwork.xianyu.manager.ai.model.AiModel> models = modelService.listByProvider(id, modelType);
         return ApiResponse.ok(models);
+    }
+
+    /**
+     * 按 OpenAI 标准规范从远端厂商拉取可用模型列表
+     * GET /api/ai/providers/{id}/remote-models
+     */
+    @GetMapping("/{id}/remote-models")
+    public ApiResponse<List<Map<String, Object>>> listRemoteModels(@PathVariable Long id) {
+        return ApiResponse.ok(providerService.listRemoteModels(id));
     }
 
     @PostMapping

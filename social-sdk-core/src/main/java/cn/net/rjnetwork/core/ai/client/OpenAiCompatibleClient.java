@@ -14,6 +14,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -61,6 +62,30 @@ public class OpenAiCompatibleClient implements AiClient {
             httpPostStream(apiBaseUrl + "/chat/completions", body, onChunk);
         } catch (IOException e) {
             throw new RuntimeException("AI stream request failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 按 OpenAI 标准规范列出远端可用模型：GET {apiBaseUrl}/models
+     * 返回 OpenAI 规范中的 data 列表（含 id、owned_by、object 等字段）
+     */
+    public List<Map<String, Object>> listModels() {
+        try {
+            String response = httpGet(apiBaseUrl + "/models");
+            JsonNode node = MAPPER.readTree(response);
+            List<Map<String, Object>> result = new ArrayList<>();
+            if (node.has("data") && node.get("data").isArray()) {
+                for (JsonNode m : node.get("data")) {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("id", m.path("id").asText());
+                    item.put("ownedBy", m.path("owned_by").asText(""));
+                    item.put("object", m.path("object").asText(""));
+                    result.add(item);
+                }
+            }
+            return result;
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to list remote models: " + e.getMessage(), e);
         }
     }
 
@@ -127,6 +152,27 @@ public class OpenAiCompatibleClient implements AiClient {
             try (OutputStream os = conn.getOutputStream()) {
                 os.write(body.getBytes(StandardCharsets.UTF_8));
             }
+
+            int code = conn.getResponseCode();
+            if (code >= 400) {
+                String err = readStream(conn.getErrorStream());
+                throw new IOException("AI API error (HTTP " + code + "): " + err);
+            }
+            return readStream(conn.getInputStream());
+        } finally {
+            conn.disconnect();
+        }
+    }
+
+    private String httpGet(String urlStr) throws IOException {
+        URL url = new URL(urlStr);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        try {
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(connectTimeout);
+            conn.setReadTimeout(readTimeout);
+            conn.setRequestProperty("Authorization", "Bearer " + apiKey);
+            conn.setRequestProperty("Accept", "application/json");
 
             int code = conn.getResponseCode();
             if (code >= 400) {
