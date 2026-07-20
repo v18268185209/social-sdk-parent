@@ -61,6 +61,7 @@ public class DatabaseInitializer {
             ensureAiColumns();
             ensureOrderColumns();
             ensureMessageColumns();
+            ensureOpenAppTable();
         } catch (Exception e) {
             logger.warn("Database initialization skipped (may already exist): {}", e.getMessage());
         }
@@ -76,27 +77,7 @@ public class DatabaseInitializer {
 
     /** 兼容旧库：schema 的 CREATE TABLE IF NOT EXISTS 不会给已存在的表补列，这里手动补齐 */
     private void ensureNotifyRetryColumns() {
-        try (java.sql.Connection conn = dataSource.getConnection()) {
-            boolean hasCol = false;
-            try (java.sql.PreparedStatement ps = conn.prepareStatement("PRAGMA table_info(notify_retry)")) {
-                try (java.sql.ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        if ("vars_json".equalsIgnoreCase(rs.getString("name"))) {
-                            hasCol = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (!hasCol) {
-                try (java.sql.Statement st = conn.createStatement()) {
-                    st.execute("ALTER TABLE notify_retry ADD COLUMN vars_json TEXT");
-                    logger.info("Added column vars_json to notify_retry");
-                }
-            }
-        } catch (Exception e) {
-            logger.warn("ensureNotifyRetryColumns skipped: {}", e.getMessage());
-        }
+        ensureColumn("notify_retry", "vars_json", "TEXT");
     }
 
     /**
@@ -156,8 +137,13 @@ public class DatabaseInitializer {
             List<String> stmts = new ArrayList<>();
             String line;
             while ((line = br.readLine()) != null) {
+                // 剥离行内 -- 注释：Druid WallFilter 对 SQLite 默认 commentAllow=false，
+                // 带 -- 注释的 CREATE TABLE 会被当 SQL 注入拦掉（"sql injection violation ...
+                // comment not allow"），导致 open_app / ai_ops_knowledge / ai_cs_knowledge 等
+                // 表建不出来，后续 CREATE INDEX 报 no such table。执行前先去掉行内注释即可。
+                line = stripInlineComment(line);
                 String stripped = line.trim();
-                if (stripped.isEmpty() || stripped.startsWith("--")) continue;  // 跳空行 + 注释
+                if (stripped.isEmpty()) continue;  // 跳空行 + 已被剥成空的整行注释
                 cur.append(line).append('\n');
                 if (stripped.endsWith(";")) {
                     String s = cur.toString().trim();
@@ -189,29 +175,27 @@ public class DatabaseInitializer {
         }
     }
 
+    /**
+     * 剥离 SQL 行内的 -- 注释（保留单引号字符串字面量内的 --）。
+     * schema.sql 的建表语句普遍带 -- 中文注释，Druid WallFilter(sqlite) 默认不允许注释会整条拒绝，
+     * 因此执行前逐行去掉 -- 之后的内容。
+     */
+    private String stripInlineComment(String line) {
+        boolean inSingle = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '\'') {
+                inSingle = !inSingle;
+            } else if (c == '-' && i + 1 < line.length() && line.charAt(i + 1) == '-' && !inSingle) {
+                return line.substring(0, i);
+            }
+        }
+        return line;
+    }
+
     /** 兼容旧库：xianyu_product 早期 DDL 缺 image_url 列，这里手动补齐 */
     private void ensureProductColumns() {
-        try (java.sql.Connection conn = dataSource.getConnection()) {
-            boolean hasImageUrl = false;
-            try (java.sql.PreparedStatement ps = conn.prepareStatement("PRAGMA table_info(xianyu_product)")) {
-                try (java.sql.ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        if ("image_url".equalsIgnoreCase(rs.getString("name"))) {
-                            hasImageUrl = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (!hasImageUrl) {
-                try (java.sql.Statement st = conn.createStatement()) {
-                    st.execute("ALTER TABLE xianyu_product ADD COLUMN image_url VARCHAR(512)");
-                    logger.info("Added column image_url to xianyu_product");
-                }
-            }
-        } catch (Exception e) {
-            logger.warn("ensureProductColumns skipped: {}", e.getMessage());
-        }
+        ensureColumn("xianyu_product", "image_url", "VARCHAR(512)");
     }
 
     /** 兼容旧库：补齐 AI 相关表缺失列（实体字段 ↔ DDL 列不匹配会导致 selectList 500） */
@@ -245,27 +229,55 @@ public class DatabaseInitializer {
         ensureColumn("xianyu_message", "auto_reply", "BOOLEAN");
     }
 
-    private void ensureColumn(String table, String column, String ddl) {
+    /**
+     * 兼容旧库：确保 open_app 表存在（早期 schema.sql 未包含此表，加上 CREATE IF NOT EXISTS
+     * 后新建库已有，但旧库里没有，启动时执行 CREATE INDEX idx_open_app_key 会报 no such table）。
+     */
+    private void ensureOpenAppTable() {
         try (java.sql.Connection conn = dataSource.getConnection()) {
-            boolean has = false;
-            try (java.sql.PreparedStatement ps = conn.prepareStatement("PRAGMA table_info(" + table + ")")) {
+            boolean hasTable = false;
+            try (java.sql.PreparedStatement ps = conn.prepareStatement(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='open_app'")) {
                 try (java.sql.ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        if (column.equalsIgnoreCase(rs.getString("name"))) {
-                            has = true;
-                            break;
-                        }
-                    }
+                    hasTable = rs.next();
                 }
             }
-            if (!has) {
+            if (!hasTable) {
                 try (java.sql.Statement st = conn.createStatement()) {
-                    st.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + ddl);
-                    logger.info("Added column {} to {}", column, table);
+                    st.execute("CREATE TABLE open_app ("
+                            + "id INTEGER PRIMARY KEY, "
+                            + "app_name VARCHAR(128) NOT NULL, "
+                            + "app_key VARCHAR(64) NOT NULL UNIQUE, "
+                            + "app_secret_enc VARCHAR(512), "
+                            + "status VARCHAR(16) DEFAULT 'ENABLED', "
+                            + "bound_account_ids TEXT, "
+                            + "rate_limit_per_minute INTEGER DEFAULT 60, "
+                            + "expire_at DATETIME, "
+                            + "last_used_at DATETIME, "
+                            + "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                            + "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                            + "deleted INTEGER DEFAULT 0"
+                            + ")");
+                    st.execute("CREATE INDEX idx_open_app_key ON open_app(app_key)");
+                    logger.info("Created missing table open_app and index idx_open_app_key");
                 }
             }
         } catch (Exception e) {
-            logger.warn("ensureColumn {} on {} skipped: {}", column, table, e.getMessage());
+            logger.warn("ensureOpenAppTable skipped: {}", e.getMessage());
+        }
+    }
+
+    private void ensureColumn(String table, String column, String ddl) {
+        // 不用 PRAGMA table_info（Druid WallFilter 对 SQLite 不认 PRAGMA，会报
+        // "syntax error: not supported ... token IDENTIFIER PRAGMA" 直接拦掉）。
+        // 改为直接 ADD COLUMN：列已存在时 SQLite 抛 "duplicate column name"，
+        // 当作已存在跳过即可；表不存在时抛 "no such table" 同样跳过。
+        try (java.sql.Connection conn = dataSource.getConnection();
+             java.sql.Statement st = conn.createStatement()) {
+            st.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + ddl);
+            logger.info("Added column {} to {}", column, table);
+        } catch (Exception e) {
+            logger.debug("ensureColumn {} on {}: {}", column, table, e.getMessage());
         }
     }
 }
