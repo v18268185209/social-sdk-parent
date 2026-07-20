@@ -205,30 +205,8 @@ public class MessageService {
             log.warn("[MESSAGE] IM history pull failed for account {}: {}", acc.getId(), e.getMessage());
         }
 
-        // 2. 再用轻量 MTOP 接口补充会话元数据
-        try {
-            JsonNode sessionListData = msgApi.getSessionList();
-            if (sessionListData == null || !sessionListData.has("data")) return;
-            JsonNode sessions = sessionListData.path("data").path("sessions");
-            if (!sessions.isArray() || sessions.size() == 0) return;
-
-            List<String> userIds = new ArrayList<>();
-            for (JsonNode session : sessions) {
-                String cid = session.path("cid").asText();
-                if (cid.isEmpty()) continue;
-                String uid = session.path("userId").asText("");
-                if (!uid.isEmpty() && !userIds.contains(uid)) userIds.add(uid);
-            }
-            if (!userIds.isEmpty()) {
-                try {
-                    msgApi.queryUsers(String.join(",", userIds));
-                } catch (Exception e) {
-                    log.warn("[MESSAGE] queryUsers failed: {}", e.getMessage());
-                }
-            }
-        } catch (Exception e) {
-            log.warn("[MESSAGE] session sync failed for account {}: {}", acc.getId(), e.getMessage());
-        }
+        // mtop.taobao.idlemessage.pc.session.sync 当前返回 FAIL_SYS_API_NOT_FOUNDED，
+        // 会话与历史统一走 IM WSS /r/Conversation/listNewestPagination + /r/MessageManager/listUserMessages。
     }
 
     /** 通过 IM 长连接拉取指定会话或全量历史 */
@@ -239,47 +217,34 @@ public class MessageService {
         try {
             if (targetCid != null && !targetCid.isEmpty()) {
                 // 单会话拉取
-                JsonNode historyData = msgApi.getMessageHistory(targetCid, Math.max(1, limit));
-                if (historyData == null || !historyData.has("body")) return;
-                saveMessagesFromLwpResponse(acc.getId(), historyData.path("body").path("userMessageModels"));
+                JsonNode historyData = msgApi.getMessageHistory(normalizeCid(targetCid), Math.max(1, limit));
+                saveMessagesFromHistoryResponse(acc.getId(), historyData, normalizeCid(targetCid));
                 return;
             }
 
             // 全量拉取：先获取会话列表，再逐条拉历史
             JsonNode convList = msgApi.getConversationList(limit > 0 ? limit : 50);
-            if (convList == null || !convList.has("body")) {
-                log.warn("[MESSAGE] getConversationList has no body");
+            if (convList == null) {
+                log.warn("[MESSAGE] getConversationList returned null");
                 return;
             }
-            JsonNode bodyNode = convList.path("body");
-            // 收集所有字段名用于调试
-            java.util.List<String> keys = new java.util.ArrayList<>();
-            for (java.util.Iterator<String> it = bodyNode.fieldNames(); it.hasNext(); ) {
-                keys.add(it.next());
-            }
-            log.info("[MESSAGE] conversation body keys: {}", keys);
-            JsonNode userConvs = bodyNode.path("userConvs");
-            if (!userConvs.isArray() || userConvs.size() == 0) {
-                log.warn("[MESSAGE] userConvs empty, full response: {}", convList.toString());
+            List<JsonNode> conversations = extractArrayNodes(convList, "userConvs", "conversations", "conversationList", "sessions", "list");
+            if (conversations.isEmpty()) {
+                log.warn("[MESSAGE] conversation list empty, keys={}, resp={}", fieldNames(convList), truncate(convList.toString(), 2000));
                 return;
             }
-            log.info("[MESSAGE] found {} conversations", userConvs.size());
+            log.info("[MESSAGE] found {} conversations", conversations.size());
 
-            for (JsonNode conv : userConvs) {
-                String cid = conv.path("cid").asText();
+            for (JsonNode conv : conversations) {
+                String cid = extractConversationId(conv);
                 if (cid.isEmpty()) {
-                    // 尝试其他可能的字段：userId, accountId, userConvId 等
-                    cid = conv.path("userId").asText();
-                    if (cid.isEmpty()) {
-                        log.warn("[MESSAGE] cannot find cid from conv: {}", conv.toString());
-                        continue;
-                    }
+                    log.warn("[MESSAGE] cannot find cid from conv: {}", truncate(conv.toString(), 1000));
+                    continue;
                 }
-                // listUserMessages 的 cid 不需要 @goofish 后缀，内部会自动拼接
                 try {
-                    JsonNode historyData = msgApi.getMessageHistory(cid, 20);
-                    if (historyData == null || !historyData.has("body")) continue;
-                    saveMessagesFromLwpResponse(acc.getId(), historyData.path("body").path("userMessageModels"));
+                    String normalizedCid = normalizeCid(cid);
+                    JsonNode historyData = msgApi.getMessageHistory(normalizedCid, 20);
+                    saveMessagesFromHistoryResponse(acc.getId(), historyData, normalizedCid);
                 } catch (Exception e) {
                     log.warn("[MESSAGE] failed to pull history for cid={}: {}", cid, e.getMessage());
                 }
@@ -293,7 +258,7 @@ public class MessageService {
                 errorMessage.contains("punish") || errorMessage.contains("captcha"))) {
                 
                 log.warn("[MESSAGE] Risk control detected! Attempting automatic slider captcha...");
-                solveCaptchaAndRetry(acc, mtopClient);
+                solveCaptchaAndRetry(acc, mtopClient, errorMessage);
             }
         }
     }
@@ -301,15 +266,18 @@ public class MessageService {
     /**
      * 自动解决滑块验证码并刷新 cookie
      */
-    private void solveCaptchaAndRetry(XianyuAccount acc, XianyuMtopApiClient mtopClient) {
+    private void solveCaptchaAndRetry(XianyuAccount acc, XianyuMtopApiClient mtopClient, String exceptionMessage) {
         try {
             // 风控信息可能出现在：1.MTOP lastErrorResponse；2.当前异常消息本身（LWP/WebSocket层）
             String rawError = mtopClient.getLastErrorResponse();
             if (rawError == null || rawError.isEmpty()) {
                 rawError = "";
             }
+            if (exceptionMessage != null && !exceptionMessage.isBlank()) {
+                rawError = rawError.isBlank() ? exceptionMessage : rawError + "\n" + exceptionMessage;
+            }
 
-            log.info("[CDP-AUTH] Raw error: {}", truncate(rawError, 400));
+            log.info("[CDP-AUTH] Raw error: {}", truncate(rawError, 800));
 
             // 从 JSON data.url 提取，也支持从异常消息里的明文 JSON 串正则提取
             String url = extractPunishUrlFromRaw(rawError);
@@ -400,12 +368,91 @@ public class MessageService {
         return s.length() > max ? s.substring(0, max) + "..." : s;
     }
 
+    private void saveMessagesFromHistoryResponse(Long accountId, JsonNode historyData, String fallbackCid) {
+        if (historyData == null) {
+            log.warn("[MESSAGE] history response is null, cid={}", fallbackCid);
+            return;
+        }
+        List<JsonNode> messages = extractArrayNodes(historyData, "userMessageModels", "messages", "messageList", "userMessages", "list");
+        if (messages.isEmpty()) {
+            log.warn("[MESSAGE] history has no messages, cid={}, keys={}, resp={}", fallbackCid, fieldNames(historyData), truncate(historyData.toString(), 2000));
+            return;
+        }
+        int before = messages.size();
+        for (JsonNode msg : messages) {
+            saveIncomingFromLwp(accountId, msg, fallbackCid);
+        }
+        log.info("[MESSAGE] processed {} history messages, cid={}", before, fallbackCid);
+    }
+
     /** 从 LWP 响应体中保存消息（userMessageModels） */
     private void saveMessagesFromLwpResponse(Long accountId, JsonNode msgsNode) {
         if (msgsNode == null || !msgsNode.isArray()) return;
         for (JsonNode msg : msgsNode) {
-            saveIncomingFromLwp(accountId, msg);
+            saveIncomingFromLwp(accountId, msg, "");
         }
+    }
+
+    private List<JsonNode> extractArrayNodes(JsonNode root, String... fieldNames) {
+        List<JsonNode> result = new ArrayList<>();
+        if (root == null || root.isMissingNode() || root.isNull()) return result;
+        if (root.isArray()) {
+            root.forEach(result::add);
+            return result;
+        }
+        for (String fieldName : fieldNames) {
+            JsonNode direct = root.path(fieldName);
+            if (direct.isArray()) {
+                direct.forEach(result::add);
+                return result;
+            }
+        }
+        if (root.isObject()) {
+            for (java.util.Iterator<JsonNode> it = root.elements(); it.hasNext(); ) {
+                JsonNode child = it.next();
+                if (!child.isObject()) continue;
+                List<JsonNode> nested = extractArrayNodes(child, fieldNames);
+                if (!nested.isEmpty()) return nested;
+            }
+        }
+        return result;
+    }
+
+    private List<String> fieldNames(JsonNode node) {
+        List<String> names = new ArrayList<>();
+        if (node == null || !node.isObject()) return names;
+        for (java.util.Iterator<String> it = node.fieldNames(); it.hasNext(); ) {
+            names.add(it.next());
+        }
+        return names;
+    }
+
+    private String extractConversationId(JsonNode node) {
+        String cid = firstText(node, "cid", "conversationId", "conversationID", "userConvId", "sessionId");
+        if (!cid.isEmpty()) return cid;
+        JsonNode singleConv = node.path("singleChatUserConversation").path("singleChatConversation");
+        cid = firstText(singleConv, "cid", "conversationId", "conversationID");
+        if (!cid.isEmpty()) return cid;
+        JsonNode lastMessage = node.path("singleChatUserConversation").path("lastMessage").path("message");
+        cid = firstText(lastMessage, "cid", "conversationId", "conversationID");
+        if (!cid.isEmpty()) return cid;
+        String userId = firstText(node, "userId", "peerUserId", "counterUserId", "receiverId", "buyerId");
+        return userId.isEmpty() ? "" : normalizeCid(userId);
+    }
+
+    private String firstText(JsonNode node, String... fields) {
+        if (node == null || node.isMissingNode() || node.isNull()) return "";
+        for (String field : fields) {
+            String value = node.path(field).asText("");
+            if (!value.isBlank()) return value.trim();
+        }
+        return "";
+    }
+
+    private String normalizeCid(String cid) {
+        if (cid == null || cid.isBlank()) return "";
+        String trimmed = cid.trim();
+        return trimmed.contains("@") ? trimmed : trimmed + "@goofish";
     }
 
     private void saveIncomingFromApi(Long accountId, JsonNode msg) {
@@ -445,30 +492,40 @@ public class MessageService {
     }
 
     /** 从 LWP 响应体保存消息（userMessageModels） */
-    private void saveIncomingFromLwp(Long accountId, JsonNode msg) {
-        // LWP 消息结构：msg.messageId, msg.senderId, msg.senderNickName, msg.content
-        String msgId = msg.path("messageId").asText("");
+    private void saveIncomingFromLwp(Long accountId, JsonNode msg, String fallbackCid) {
+        // listUserMessages 返回常见结构是 userMessageModel.message，兼容 message 外包一层。
+        JsonNode messageNode = msg.has("message") && msg.path("message").isObject() ? msg.path("message") : msg;
+        String msgId = firstText(messageNode, "messageId", "msgId", "id", "messageID");
         if (msgId.isEmpty()) {
-            // 兼容旧格式
-            msgId = msg.path("msgId").asText("");
+            log.warn("[MESSAGE] skip history message without msgId: {}", truncate(msg.toString(), 1000));
+            return;
         }
-        if (msgId.isEmpty()) return;
 
         Long count = messageMapper.selectCount(
                 new LambdaQueryWrapper<XianyuMessage>().eq(XianyuMessage::getMsgId, msgId));
         if (count != null && count > 0) return;
 
-        String cid = msg.path("cid").asText(msg.path("conversationId").asText(""));
-        if (!cid.contains("@")) {
-            cid += "@goofish";
+        String cid = firstText(messageNode, "cid", "conversationId", "conversationID", "sessionId", "userConvId");
+        if (cid.isEmpty()) cid = fallbackCid;
+        cid = normalizeCid(cid);
+        if (cid.isEmpty()) {
+            log.warn("[MESSAGE] skip history message without cid: {}", truncate(msg.toString(), 1000));
+            return;
         }
 
         XianyuMessage entity = new XianyuMessage();
         entity.setAccountId(accountId);
         entity.setSessionId(cid);
         entity.setMsgId(msgId);
-        entity.setSenderId(msg.path("senderId").asText(""));
-        entity.setSenderName(msg.path("senderNickName").asText(msg.path("senderNick").asText("")));
+        JsonNode extension = messageNode.path("extension");
+        entity.setSenderId(firstText(messageNode, "senderId", "senderUserId", "uid"));
+        if (entity.getSenderId().isEmpty()) {
+            entity.setSenderId(firstText(extension, "senderUserId", "senderId"));
+        }
+        entity.setSenderName(firstText(messageNode, "senderNickName", "senderNick", "senderName"));
+        if (entity.getSenderName().isEmpty()) {
+            entity.setSenderName(firstText(extension, "reminderTitle", "senderNickName", "senderNick"));
+        }
 
         // direction: senderId == selfId（账号 cookie 里的 userId）是 OUTGOING，否则 INCOMING
         // 原 bug：写死 INCOMING，导致自己发的消息被当进来消息，会话列表全是自己回自己的怪状
@@ -480,10 +537,10 @@ public class MessageService {
         entity.setAutoReply(false);
         // messageTime: 用闲鱼返回的真实时间（msgTime / createTime / timestamp 字段，毫秒级 Unix）
         // 原 bug：写死 LocalDateTime.now()，导致所有消息时间戳错位（同步历史消息时间全是当下）
-        entity.setMessageTime(parseMessageTime(msg));
+        entity.setMessageTime(parseMessageTime(messageNode));
 
         // content.custom.data base64 -> JSON -> text
-        JsonNode content = msg.path("content");
+        JsonNode content = messageNode.path("content");
         if (content.has("custom") && content.path("custom").has("data")) {
             try {
                 byte[] decoded = java.util.Base64.getDecoder().decode(content.path("custom").path("data").asText());
@@ -499,6 +556,9 @@ public class MessageService {
             entity.setContent(content.path("body").path("text").asText(""));
         } else {
             entity.setContent(content.asText(""));
+        }
+        if (entity.getContent() == null || entity.getContent().isBlank()) {
+            entity.setContent(firstText(extension, "reminderContent", "summary", "content"));
         }
 
         messageMapper.insert(entity);

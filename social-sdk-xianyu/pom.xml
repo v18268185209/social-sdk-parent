@@ -35,29 +35,16 @@
             <artifactId>netty-all</artifactId>
         </dependency>
 
+        <!-- ZXing for QR code generation -->
         <dependency>
             <groupId>com.google.zxing</groupId>
             <artifactId>core</artifactId>
             <version>3.5.3</version>
         </dependency>
-
         <dependency>
             <groupId>com.google.zxing</groupId>
             <artifactId>javase</artifactId>
             <version>3.5.3</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <!-- Netty (IM accs 长连接) -->
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-all</artifactId>
-            <version>4.1.111.Final</version>
         </dependency>
     </dependencies>
 

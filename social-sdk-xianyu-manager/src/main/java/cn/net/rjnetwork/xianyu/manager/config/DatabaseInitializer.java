@@ -187,8 +187,15 @@ public class DatabaseInitializer {
     }
 
     private void ensureOrderColumns() {
+        // 从 schema.sql 定义的完整 xianyu_order 表结构补齐可能缺失的列
+        ensureColumn("xianyu_order", "type", "VARCHAR(16) DEFAULT 'BOUGHT'");
         ensureColumn("xianyu_order", "trade_status_enum", "VARCHAR(32)");
         ensureColumn("xianyu_order", "is_seller", "TINYINT(1)");
+        ensureColumn("xianyu_order", "goods_type", "VARCHAR(16) DEFAULT 'PHYSICAL'");
+        ensureColumn("xianyu_order", "require_virtual_ship", "INTEGER DEFAULT 0");
+        ensureColumn("xianyu_order", "virtual_shipped_at", "DATETIME");
+        ensureColumn("xianyu_order", "auto_receipt_at", "DATETIME");
+        ensureColumn("xianyu_order", "deliver_content", "TEXT");
     }
 
     private void ensureMessageColumns() {

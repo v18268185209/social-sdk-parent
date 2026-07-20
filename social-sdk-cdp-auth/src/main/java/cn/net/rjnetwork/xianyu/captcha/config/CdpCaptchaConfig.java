@@ -18,10 +18,10 @@ import org.springframework.stereotype.Component;
 public class CdpCaptchaConfig {
 
     /** Chrome DevTools Protocol 主机地址 */
-    private String host = "192.168.1.127";
+    private String host = "127.0.0.1";
 
     /** CDP WebSocket 端口 */
-    private int port = 9333;
+    private int port = 9222;
 
     /** 超时秒数（默认 5 分钟） */
     private int timeoutSeconds = 300;

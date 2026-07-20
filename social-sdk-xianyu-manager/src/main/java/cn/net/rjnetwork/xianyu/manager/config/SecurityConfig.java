@@ -48,6 +48,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/system/info").permitAll()
                 .requestMatchers("/api/system/health").permitAll()
+                // AI 测试接口允许无 JWT 访问（内部功能需要）
+                .requestMatchers("/api/ai/chat/test").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 // 仅 /api/** 需要 JWT；其余（SPA 页面、静态资源、/ws 握手）全部放行
                 .requestMatchers("/api/**").authenticated()

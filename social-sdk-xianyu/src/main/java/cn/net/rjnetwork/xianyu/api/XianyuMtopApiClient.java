@@ -159,6 +159,7 @@ public class XianyuMtopApiClient {
             String body = builder.buildPostBody();
 
             JsonNode resp = send(url, "POST", body);
+            rememberBusinessError(resp);
 
             // 处理 token 过期：返回 ret[0]=FAIL_SYS_TOKEN_EXOIRED 时，重新预热后重试一次
             if (isTokenExpired(resp)) {
@@ -168,7 +169,9 @@ public class XianyuMtopApiClient {
                         .setCookie(cookie)
                         .setVersion(v)
                         .setDataJson(dataJson != null ? dataJson : "{}");
-                return send(retry.buildUrl(), "POST", retry.buildPostBody());
+                JsonNode retryResp = send(retry.buildUrl(), "POST", retry.buildPostBody());
+                rememberBusinessError(retryResp);
+                return retryResp;
             }
             return resp;
         } catch (Exception e) {
@@ -206,6 +209,17 @@ public class XianyuMtopApiClient {
             lastErrorResponse = "Error: " + e.getMessage();
             System.err.println("[MTOP " + method + " Error] " + e.getMessage());
             return null;
+        }
+    }
+
+    private void rememberBusinessError(JsonNode resp) {
+        if (resp == null) return;
+        JsonNode ret = resp.path("ret");
+        if (ret.isArray() && ret.size() > 0) {
+            String r0 = ret.get(0).asText("");
+            if (r0.startsWith("FAIL_") || r0.contains("RGV587") || r0.contains("punish") || r0.contains("captcha")) {
+                lastErrorResponse = resp.toString();
+            }
         }
     }
 

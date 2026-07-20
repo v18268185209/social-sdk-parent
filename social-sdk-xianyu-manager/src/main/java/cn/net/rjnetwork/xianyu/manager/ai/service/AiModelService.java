@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 public class AiModelService {
@@ -35,6 +36,19 @@ public class AiModelService {
         wrapper.orderByDesc(AiModel::getUpdatedAt);
         modelMapper.selectPage(page, wrapper);
         return page;
+    }
+
+    /**
+     * 根据厂商ID查询所有模型（不分页）
+     */
+    public List<AiModel> listByProvider(Long providerId, String modelType) {
+        LambdaQueryWrapper<AiModel> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(AiModel::getProviderId, providerId);
+        if (modelType != null && !modelType.isBlank()) {
+            wrapper.eq(AiModel::getModelType, modelType);
+        }
+        wrapper.orderByAsc(AiModel::getDisplayName);
+        return modelMapper.selectList(wrapper);
     }
 
     public AiModel getById(Long id) {

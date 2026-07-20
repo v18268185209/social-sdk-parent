@@ -248,9 +248,9 @@ async function loadModels(providerId) {
   if (!providerId) return
   loadingModels.value = true
   try {
-    const res = await api.get('/ai/models', { params: { providerId } })
+    const res = await api.get(`/ai/providers/${providerId}/models`)
     if (res.success) {
-      models.value = res.data.records || []
+      models.value = res.data || []
     }
   } catch (e) {}
   finally { loadingModels.value = false }
