@@ -66,7 +66,7 @@ public class XianyuCaptchaService {
 
         if (proxy != null && proxy.isDirect()) {
             // 直连模式：跳过代理绑定
-            log.debug("[Captcha] 直连模式，跳过代理绑定, accountId=" + accountId);
+            log.info("[Captcha] 直连模式，跳过代理绑定, accountId=" + accountId);
         } else if (proxy != null && proxy.getHost() != null && !proxy.getHost().isBlank()) {
             builder.proxy(java.net.ProxySelector.of(
                     new java.net.InetSocketAddress(proxy.getHost(), proxy.getPort())));

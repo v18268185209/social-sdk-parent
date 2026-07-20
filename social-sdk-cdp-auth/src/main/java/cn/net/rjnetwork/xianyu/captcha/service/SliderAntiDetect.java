@@ -227,7 +227,7 @@ public final class SliderAntiDetect {
     private static final String LEGACY_SCRIPT_START =
         "(() => {\n" +
         "  'use strict';\n" +
-        + "  // 1. 隐藏 webdriver\n"
+         "  // 1. 隐藏 webdriver\n"
         + "  try {\n"
         + "    Object.defineProperty(navigator, 'webdriver', { get: () => false });\n"
         + "    delete navigator.__proto__.webdriver;\n"
