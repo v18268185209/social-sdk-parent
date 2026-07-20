@@ -438,8 +438,10 @@ public class MessageService {
     private void publishCaptchaRequired(XianyuAccount acc, String captchaUrl, String rawError) {
         try {
             String accountName = accountName(acc.getId());
+            String controlUrl = "/cdp-proxy/open?accountId=" + acc.getId();
             eventPublisher.publishEvent(new NotifyEvent("CAPTCHA_REQUIRED", acc.getId(), accountName,
                     Map.of("accountName", accountName,
+                            "controlUrl", controlUrl,
                             "captchaUrl", captchaUrl != null ? captchaUrl : "",
                             "imPageUrl", captchaSolver.getManualVerificationPageUrl(),
                             "cdpEndpoint", captchaSolver.getCdpHttpEndpoint(),

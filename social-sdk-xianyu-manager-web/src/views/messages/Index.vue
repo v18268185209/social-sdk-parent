@@ -76,7 +76,17 @@
                   <span class="sender">{{ msg.senderName || msg.senderId || (msg.direction === 'OUTGOING' ? '我' : '') }}</span>
                   <span class="time" v-if="msg.messageTime">{{ formatTime(msg.messageTime.toString()) }}</span>
                 </div>
-                <div class="bubble-body">{{ msg.content || '[空消息]' }}</div>
+                <div class="bubble-body">
+                  <template v-if="msg.msgType === 'IMAGE'">
+                    <img :src="msg.content" alt="图片" class="bubble-media" @click="openMedia(msg.content)" />
+                  </template>
+                  <template v-else-if="msg.msgType === 'VIDEO'">
+                    <video :src="msg.content" controls class="bubble-media" @click="openMedia(msg.content)"></video>
+                  </template>
+                  <template v-else>
+                    {{ msg.content || '[空消息]' }}
+                  </template>
+                </div>
                 <el-tag v-if="msg.autoReply" size="small" type="warning" effect="plain" style="margin-top: 4px;">自动回复</el-tag>
               </div>
             </template>
@@ -95,6 +105,7 @@
         </el-card>
       </el-col>
     </el-row>
+
   </div>
 </template>
 
@@ -112,6 +123,11 @@ const selectedSession = ref('')
 const newMessage = ref('')
 const syncing = ref(false)
 const chatBoxRef = ref(null)
+const previewMedia = ref('') // 点击放大预览的图片/视频 URL
+
+function openMedia(url) {
+  if (url) window.open(url, '_blank')
+}
 const syncMsg = ref('')
 const captchaOpened = ref(false)
 
@@ -313,9 +329,15 @@ function startPolling() {
   countdownTimer = setInterval(() => {
     countdown.value = countdown.value > 0 ? countdown.value - 1 : POLL_INTERVAL
   }, 1000)
-  // 每 30s 自动刷新会话列表 + 当前聊天
+  // 每 30s 触发真实消息同步（MTOP 拉远端最新消息入库），再刷新列表 + 当前聊天
   pollTimer = setInterval(async () => {
     if (!selectedAccount.value) return
+    try {
+      // 真正触发同步：走 MTOP 拉最新消息写库
+      await api.post('/messages/sync', null, { params: { accountId: selectedAccount.value } })
+    } catch (e) {
+      // 同步失败（如风控）不阻塞后续刷新
+    }
     await loadSessions()
     if (selectedSession.value) await loadHistory()
     countdown.value = POLL_INTERVAL
@@ -458,6 +480,13 @@ onUnmounted(() => {
   background: #409eff;
   color: #fff;
   margin-left: auto;
+}
+.bubble-media {
+  max-width: 120px;
+  max-height: 120px;
+  border-radius: 6px;
+  display: block;
+  cursor: zoom-in;
 }
 
 .chat-input-bar {

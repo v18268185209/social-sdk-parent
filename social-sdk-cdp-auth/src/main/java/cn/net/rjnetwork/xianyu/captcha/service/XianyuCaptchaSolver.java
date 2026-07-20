@@ -129,7 +129,8 @@ public class XianyuCaptchaSolver {
         boolean shouldNavigate = true;
         Object infoObj = targets.get(targetId);
         if (infoObj instanceof Map<?, ?> info) {
-            String url = String.valueOf(info.getOrDefault("url", ""));
+            Object urlObj = info.get("url");
+            String url = urlObj != null ? String.valueOf(urlObj) : "";
             shouldNavigate = !url.contains("goofish.com/im");
         }
         if (shouldNavigate) {
@@ -751,6 +752,9 @@ public class XianyuCaptchaSolver {
         Socket socket = null;
         try {
             socket = openWebSocket(cdpEndpoint);
+            sendCommand(socket, "Page.enable", new LinkedHashMap<>());
+            sendCommand(socket, "Network.enable", new LinkedHashMap<>());
+            installAntiDetect(socket);
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("url", url);
             sendCommand(socket, "Page.navigate", params);
@@ -758,6 +762,23 @@ public class XianyuCaptchaSolver {
             if (socket != null) {
                 try { socket.close(); } catch (IOException ignored) {}
             }
+        }
+    }
+
+    private void installAntiDetect(Socket socket) {
+        try {
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("source", SliderAntiDetect.INIT_SCRIPT);
+            sendCommand(socket, "Page.addScriptToEvaluateOnNewDocument", params);
+
+            Map<String, Object> runtimeParams = new LinkedHashMap<>();
+            runtimeParams.put("expression", SliderAntiDetect.INIT_SCRIPT);
+            runtimeParams.put("awaitPromise", false);
+            runtimeParams.put("returnByValue", true);
+            sendCommand(socket, "Runtime.evaluate", runtimeParams);
+            log.info("[CDP-AUTH] 已注入滑块反检测脚本");
+        } catch (Exception e) {
+            log.debug("[CDP-AUTH] 注入滑块反检测脚本失败: {}", e.getMessage());
         }
     }
 
