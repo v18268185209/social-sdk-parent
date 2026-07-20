@@ -59,6 +59,7 @@ public class DatabaseInitializer {
             ensureNotifyDigestConfigTable();
             ensureProductColumns();
             ensureAiColumns();
+            ensureVirtualColumns();
             ensureOrderColumns();
             ensureMessageColumns();
             ensureOpenAppTable();
@@ -205,6 +206,11 @@ public class DatabaseInitializer {
         // ai_ops_task / ai_ops_suggestion 缺 BaseEntity 的 updated_at
         ensureColumn("ai_ops_task", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
         ensureColumn("ai_ops_suggestion", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+    }
+
+    /** 兼容旧库：virtual_card_pool 缺 BaseEntity 的 updated_at */
+    private void ensureVirtualColumns() {
+        ensureColumn("virtual_card_pool", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
     }
 
     private void ensureOrderColumns() {

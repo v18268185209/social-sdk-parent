@@ -720,8 +720,17 @@ async function sendDigestNow() {
   sendingDigest.value = true
   try {
     const res = await notify.sendDigestNow()
-    if (res.success) ElMessage.success('已触发发送，请查看投递日志')
-    else ElMessage.error(res.message || '发送失败')
+    if (res.success) {
+      const d = res.data || {}
+      if (d.sent) {
+        ElMessage.success((d.reason || '已发送') + (d.channelName ? '（通道：' + d.channelName + '）' : ''))
+        await loadLogs(1)
+      } else {
+        ElMessage.warning(d.reason || '未发送')
+      }
+    } else {
+      ElMessage.error(res.message || '发送失败')
+    }
   } catch (e) {}
   finally { sendingDigest.value = false }
 }

@@ -43,7 +43,10 @@ public class WebhookChannelAdapter implements ChannelAdapter {
     public void send(NotifyChannel channel, String title, String body, List<String> recipients, Map<String, Object> vars) throws Exception {
         JsonNode cfg = mapper.readTree(channel.getConfigJson());
         String webhookType = text(cfg, "webhookType", "GENERIC").toUpperCase();
-        String url = text(cfg, "url");
+        // 前端 Webhook 配置存的是 webhookUrl（见 notify/Index.vue emptyWebhookConfig），
+        // 通用/SMS 场景可能用 url。两个都兼容，优先 webhookUrl。
+        String url = text(cfg, "webhookUrl");
+        if (url == null || url.isBlank()) url = text(cfg, "url");
         String secret = text(cfg, "secret");
         if (url == null || url.isBlank()) {
             throw new IllegalStateException("Webhook 通道 " + channel.getName() + " 未配置 URL");

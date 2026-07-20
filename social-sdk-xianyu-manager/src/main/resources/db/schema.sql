@@ -394,6 +394,7 @@ CREATE TABLE IF NOT EXISTS virtual_card_pool (
     used_order_id INTEGER,
     used_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted INTEGER DEFAULT 0,
     UNIQUE(card_code),
     FOREIGN KEY (product_id) REFERENCES xianyu_product(id)

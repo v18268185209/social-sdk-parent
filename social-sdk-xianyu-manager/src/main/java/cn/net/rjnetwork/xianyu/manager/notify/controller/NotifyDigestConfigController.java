@@ -50,7 +50,7 @@ public class NotifyDigestConfigController {
 
     @PostMapping("/send-now")
     public ApiResponse<Map<String, Object>> sendNow() {
-        digestService.sendNow();
-        return ApiResponse.ok(Map.of("sent", true));
+        // 透传真实结果：sent / reason / total / channelName / channelType
+        return ApiResponse.ok(digestService.sendNow());
     }
 }
