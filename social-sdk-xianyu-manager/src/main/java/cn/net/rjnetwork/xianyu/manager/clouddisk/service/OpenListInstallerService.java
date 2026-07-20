@@ -205,9 +205,14 @@ public class OpenListInstallerService {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if (!entry.isDirectory()) {
-                    Path outPath = targetDir.resolve(entry.getName()).normalize();
+                    // 只处理顶层文件（不递归创建子目录）
+                    String fileName = entry.getName();
+                    int lastSlash = fileName.lastIndexOf('/');
+                    if (lastSlash >= 0) continue; // 跳过子目录中的文件
+                    
+                    Path outPath = targetDir.resolve(fileName).normalize();
                     if (!outPath.startsWith(targetDir)) {
-                        throw new SecurityException("Invalid zip entry: " + entry.getName());
+                        throw new SecurityException("Invalid zip entry: " + fileName);
                     }
                     Files.createDirectories(outPath.getParent());
                     try (FileOutputStream fos = new FileOutputStream(outPath.toFile())) {
@@ -216,9 +221,6 @@ public class OpenListInstallerService {
                         while ((n = zis.read(buffer)) != -1) {
                             fos.write(buffer, 0, n);
                         }
-                    }
-                    if (entry.getName().equals("openlist") || entry.getName().equals("openlist.exe")) {
-                        break;
                     }
                 }
                 zis.closeEntry();

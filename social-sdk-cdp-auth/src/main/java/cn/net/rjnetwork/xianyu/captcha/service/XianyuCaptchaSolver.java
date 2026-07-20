@@ -234,18 +234,19 @@ public class XianyuCaptchaSolver {
             socket = openWebSocket(cdpEndpoint);
 
             // 1. 获取滑块和轨道位置
+            // 使用参考项目验证过的选择器：按钮 #nc_1_n1z；轨道 #nc_1_n1t 或 .nc_scale（容器比轨道宽，不能用外层容器）
             Map<String, Object> positionScript = new LinkedHashMap<>();
             positionScript.put("expression", """
                 (() => {
-                    const slider = document.querySelector('#nc_1_n1z, .btn_slide, .nc_iconfont');
-                    const track = document.querySelector('#nc_1_nocaptcha, #nocaptcha, .nc-container');
-                    if (!slider || !track) return null;
-                    const sr = slider.getBoundingClientRect();
+                    const btn = document.querySelector('#nc_1_n1z') || document.querySelector('.nc_iconfont');
+                    const track = document.querySelector('#nc_1_n1t') || document.querySelector('.nc_scale');
+                    if (!btn || !track) return null;
+                    const br = btn.getBoundingClientRect();
                     const tr = track.getBoundingClientRect();
                     return JSON.stringify({
-                        startX: sr.left + sr.width / 2,
-                        startY: sr.top + sr.height / 2,
-                        sliderWidth: sr.width,
+                        startX: br.left + br.width / 2,
+                        startY: br.top + br.height / 2,
+                        btnWidth: br.width,
                         trackWidth: tr.width,
                         trackLeft: tr.left,
                         trackRight: tr.right
@@ -264,15 +265,22 @@ public class XianyuCaptchaSolver {
             JsonNode node = MAPPER.readTree(String.valueOf(runtimeValue));
             double startX = node.path("startX").asDouble(100);
             double startY = node.path("startY").asDouble(100);
-            double sliderWidth = node.path("sliderWidth").asDouble(40);
+            double btnWidth = node.path("btnWidth").asDouble(40);
             double trackWidth = node.path("trackWidth").asDouble(300);
 
-            // 计算拖动距离：轨道宽度 - 滑块宽度 + 随机过冲（真人会拖过一点）
-            double dragDistance = trackWidth - sliderWidth + (RANDOM.nextDouble() * 4 - 2);
-            log.info("[CDP-AUTH] 滑块位置: ({}, {}), 拖动距离: {}px", startX, startY, dragDistance);
+            // 参考项目 calculate_slide_distance：轨道真实距离 = trackWidth - btnWidth
+            double slideDistance = trackWidth - btnWidth;
+            // 参考项目 generate_physics_trajectory：距离 >= 180 时光标越界 45-55%，
+            // 滑块本体被轨道物理限制在终点，鼠标必须冲过終點才能被服务端判定为到位。
+            double cursorDistance = slideDistance;
+            if (slideDistance >= 180.0) {
+                cursorDistance += slideDistance * (0.45 + RANDOM.nextDouble() * 0.10); // 45-55% 越界
+            }
+            log.info("[CDP-AUTH] 滑块位置: ({}, {}), 轨道距离: {}px, 光标越界距离: {}px",
+                    startX, startY, String.format("%.1f", slideDistance), String.format("%.1f", cursorDistance));
 
-            // 2. 生成人类化轨迹
-            List<double[]> trajectory = generateHumanTrajectory(dragDistance, attemptIndex);
+            // 2. 生成人类化轨迹（使用 cursorDistance，包含越界段）
+            List<double[]> trajectory = generateHumanTrajectory(cursorDistance, attemptIndex);
 
             // 3. 移动到滑块位置（带随机偏移，模拟真人移动）
             double approachX = startX + (RANDOM.nextDouble() * 20 - 10);
