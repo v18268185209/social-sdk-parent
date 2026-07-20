@@ -1,0 +1,23 @@
+version: '3.8'
+services:
+  xianyu-manager:
+    build: .
+    container_name: xianyu-manager
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./chrome-profiles:/app/chrome-profiles
+      - ./logs:/app/logs
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - TZ=Asia/Shanghai
+      # 覆盖 application.yml 中的配置
+      - DB_PATH=/app/data/xianyu.db
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - seccomp=unconfined  # Chromium 需要
+    # 在 container 内启动一个轻量型 Chromium 用于滑块验证
+    # 如需更严格的隔离，可单独部署 CDP soler 容器

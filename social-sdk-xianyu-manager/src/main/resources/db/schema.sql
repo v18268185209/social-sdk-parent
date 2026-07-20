@@ -1,4 +1,4 @@
-^-- 闲鱼多账号管理平台 -- SQLite 数据库初始化脚本
+-- 闲鱼多账号管理平台 -- SQLite 数据库初始化脚本
 
 -- 管理员用户表
 CREATE TABLE IF NOT EXISTS admin_user (
@@ -666,4 +666,258 @@ CREATE TABLE IF NOT EXISTS open_app (
 );
 
 CREATE INDEX idx_open_app_key ON open_app(app_key);
+
+-- ======================== 价格历史 & 市场情报 ========================
+
+-- 市场搜索快照（定时抓取指定关键词的商品列表，用于价格趋势分析）
+CREATE TABLE IF NOT EXISTS market_snapshot (
+    id INTEGER PRIMARY KEY,
+    task_id INTEGER NOT NULL,                        -- 关联 monitor_task.id
+    keyword VARCHAR(256) NOT NULL,                   -- 搜索关键词
+    account_id INTEGER,                              -- 抓取所用账号（可空=未绑定）
+    total_results INTEGER DEFAULT 0,                 -- 本次抓取到的商品总数
+    raw_data TEXT,                                   -- JSON 商品列表原始数据
+    snapshot_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (account_id) REFERENCES xianyu_account(id)
+);
+
+CREATE INDEX idx_market_snapshot_task ON market_snapshot(task_id);
+CREATE INDEX idx_market_snapshot_keyword ON market_snapshot(keyword);
+CREATE INDEX idx_market_snapshot_time ON market_snapshot(snapshot_time);
+
+-- 价格历史记录（每个抓取到的商品一条价格记录）
+CREATE TABLE IF NOT EXISTS price_history (
+    id INTEGER PRIMARY KEY,
+    keyword VARCHAR(256) NOT NULL,                   -- 归属关键词
+    item_id VARCHAR(64),                             -- 闲鱼商品 ID（可空=无法关联）
+    item_title VARCHAR(256),
+    price REAL NOT NULL,
+    currency VARCHAR(8) DEFAULT 'CNY',
+    seller_id VARCHAR(64),
+    seller_nickname VARCHAR(128),
+    seller_credit_score INTEGER,
+    item_condition VARCHAR(32),                      -- 全新 / 几乎全新 / 轻微使用 / 明显使用
+    location VARCHAR(128),
+    listing_time DATETIME,                           -- 商品发布时间
+    snapshot_id INTEGER,                             -- 关联 market_snapshot.id
+    snapshot_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (snapshot_id) REFERENCES market_snapshot(id)
+);
+
+CREATE INDEX idx_price_history_keyword ON price_history(keyword);
+CREATE INDEX idx_price_history_item ON price_history(item_id);
+CREATE INDEX idx_price_history_time ON price_history(snapshot_time);
+CREATE INDEX idx_price_history_price ON price_history(price);
+
+-- 市场每日聚合统计（按 keyword + date 预聚合，加速仪表盘查询）
+CREATE TABLE IF NOT EXISTS market_daily_stat (
+    id INTEGER PRIMARY KEY,
+    keyword VARCHAR(256) NOT NULL,
+    stat_date DATE NOT NULL,
+    min_price REAL,
+    max_price REAL,
+    avg_price REAL,
+    median_price REAL,
+    p25_price REAL,                                  -- 25 分位价
+    p75_price REAL,                                  -- 75 分位价
+    volume INTEGER DEFAULT 0,                        -- 新增上架数
+    total_listings INTEGER DEFAULT 0,                -- 总在售数
+    sampled_count INTEGER DEFAULT 0,                 -- 本次采样数
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(keyword, stat_date)
+);
+
+CREATE INDEX idx_market_daily_stat_keyword ON market_daily_stat(keyword);
+CREATE INDEX idx_market_daily_stat_date ON market_daily_stat(stat_date);
+
+-- ======================== 监控爬虫调度引擎 ========================
+
+-- 监控任务表
+CREATE TABLE IF NOT EXISTS monitor_task (
+    id INTEGER PRIMARY KEY,
+    account_id INTEGER NOT NULL,                     -- 绑定的闲鱼账号
+    name VARCHAR(128) NOT NULL,                      -- 任务名称
+    task_type VARCHAR(32) DEFAULT 'KEYWORD',         -- KEYWORD / AI / CATEGORY
+    status VARCHAR(16) DEFAULT 'ACTIVE',             -- ACTIVE / PAUSED / DELETED
+
+    -- 搜索条件
+    keyword VARCHAR(256),
+    category_id VARCHAR(64),
+    min_price REAL,
+    max_price REAL,
+    item_condition VARCHAR(32),                      -- 全新 / 几乎全新 / 轻微使用 / 明显使用 / ANY
+    location_province VARCHAR(64),
+    location_city VARCHAR(64),
+    location_district VARCHAR(64),
+    free_shipping INTEGER DEFAULT 0,                 -- 0=不限 1=包邮
+    max_age_hours INTEGER,                           -- 只发 N 小时内新发布的
+
+    -- AI 决策配置
+    ai_enabled INTEGER DEFAULT 0,                    -- 0=关键词判断 1=AI 分析选品
+    ai_prompt TEXT,                                  -- AI 自定义 prompt（可空=用默认）
+    ai_model_id BIGINT,                              -- 关联 ai_model.id
+
+    -- 调度配置
+    cron_expression VARCHAR(64),                     -- Cron 表达式（为空则用全局间隔）
+    interval_minutes INTEGER DEFAULT 30,             -- 默认间隔分钟数
+    next_run_at DATETIME,
+    last_run_at DATETIME,
+    last_result_summary TEXT,                        -- JSON 上次结果摘要
+    run_count INTEGER DEFAULT 0,
+    consecutive_failures INTEGER DEFAULT 0,          -- 连续失败次数（熔断用）
+    circuit_open INTEGER DEFAULT 0,                  -- 0=正常 1=熔断中
+    circuit_open_until DATETIME,                     -- 熔断恢复时间
+
+    -- 通知配置
+    notify_on_match INTEGER DEFAULT 1,               -- 有匹配时通知
+    notify_channel_id INTEGER,                       -- 默认通知通道
+
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0,
+    FOREIGN KEY (account_id) REFERENCES xianyu_account(id),
+    FOREIGN KEY (notify_channel_id) REFERENCES notify_channel(id)
+);
+
+CREATE INDEX idx_monitor_task_account ON monitor_task(account_id);
+CREATE INDEX idx_monitor_task_status ON monitor_task(status);
+CREATE INDEX idx_monitor_task_next_run ON monitor_task(next_run_at);
+
+-- 监控结果（AI 推荐的商品）
+CREATE TABLE IF NOT EXISTS monitor_result (
+    id INTEGER PRIMARY KEY,
+    task_id INTEGER NOT NULL,
+    item_id VARCHAR(64) NOT NULL,
+    item_title VARCHAR(256),
+    price REAL,
+    image_url VARCHAR(512),
+    seller_nickname VARCHAR(128),
+    seller_credit_score INTEGER,
+    item_url VARCHAR(512),
+    ai_score REAL,                                   -- AI 推荐置信度 0-100
+    ai_reason TEXT,                                  -- AI 推荐理由
+    matched_keywords TEXT,                           -- JSON 匹配到的关键词列表
+    notified INTEGER DEFAULT 0,                      -- 已推送通知
+    snapshot_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (task_id) REFERENCES monitor_task(id),
+    FOREIGN KEY (snapshot_id) REFERENCES market_snapshot(id)
+);
+
+CREATE INDEX idx_monitor_result_task ON monitor_result(task_id);
+CREATE INDEX idx_monitor_result_item ON monitor_result(item_id);
+CREATE INDEX idx_monitor_result_created ON monitor_result(created_at);
+
+-- 卖家情报（抓取的非自有卖家信息）
+CREATE TABLE IF NOT EXISTS seller_profile (
+    id INTEGER PRIMARY KEY,
+    user_id VARCHAR(64) UNIQUE NOT NULL,
+    nickname VARCHAR(128),
+    avatar VARCHAR(512),
+    shop_level VARCHAR(32),
+    credit_score INTEGER,
+    followers INTEGER,
+    following INTEGER,
+    sold_count INTEGER,
+    on_sale_count INTEGER,
+    introduction TEXT,
+    ip_location VARCHAR(64),
+    last_active_at DATETIME,
+    profile_synced_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0
+);
+
+CREATE INDEX idx_seller_profile_nickname ON seller_profile(nickname);
+
+-- ======================== 买家画像 & 会话智能 ========================
+
+-- 买家画像（跨会话聚合）
+CREATE TABLE IF NOT EXISTS buyer_profile (
+    id INTEGER PRIMARY KEY,
+    buyer_id VARCHAR(64) NOT NULL,                   -- 买家 union_id / userId
+    first_account_id INTEGER,                        -- 首次交互账号
+    nickname VARCHAR(128),
+    avatar VARCHAR(512),
+    first_contact_at DATETIME,
+    last_contact_at DATETIME,
+    total_sessions INTEGER DEFAULT 0,
+    total_messages INTEGER DEFAULT 0,
+    total_orders INTEGER DEFAULT 0,                  -- 成交数
+    total_spent REAL DEFAULT 0,                      -- 累计成交金额
+    bargain_count INTEGER DEFAULT 0,                 -- 议价总次数
+    avg_response_seconds INTEGER DEFAULT 0,          -- 买家平均响应时长
+    credibility_score REAL DEFAULT 50,               -- 可信度评分 0-100
+    tags TEXT,                                       -- JSON 标签：["爽快买家","高频议价","疑似黄牛"]
+    notes TEXT,                                      -- 运营备注
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0,
+    UNIQUE(buyer_id)
+);
+
+CREATE INDEX idx_buyer_profile_last_contact ON buyer_profile(last_contact_at);
+
+-- AI 客服会话扩展字段（议价计数等状态）
+CREATE TABLE IF NOT EXISTS ai_cs_session_state (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER NOT NULL UNIQUE,
+    bargain_round INTEGER DEFAULT 0,                 -- 当前议价轮次
+    original_price REAL,                             -- 询问时商品原价
+    lowest_offer REAL,                               -- 买家最低出价
+    current_offer REAL,                              -- 当前 AI 报价
+    deal_closed INTEGER DEFAULT 0,                   -- 0=进行中 1=成交 2=未成交
+    closed_at DATETIME,
+    closed_reason VARCHAR(64),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES ai_cs_session(id)
+);
+
+CREATE INDEX idx_ai_cs_session_state_deal ON ai_cs_session_state(deal_closed);
+
+-- ======================== 故障保护 ========================
+
+-- 熔断器状态表（按账号 + 服务维度）
+CREATE TABLE IF NOT EXISTS circuit_breaker (
+    id INTEGER PRIMARY KEY,
+    account_id INTEGER,                              -- NULL=全局级熔断
+    service_name VARCHAR(64) NOT NULL,               -- MESSAGE_SYNC / ORDER_SYNC / AI_CHAT / MONITOR / PROFILE_FETCH
+    state VARCHAR(16) DEFAULT 'CLOSED',              -- CLOSED / OPEN / HALF_OPEN
+    failure_count INTEGER DEFAULT 0,
+    success_count INTEGER DEFAULT 0,
+    last_failure_at DATETIME,
+    last_failure_message TEXT,
+    last_success_at DATETIME,
+    opened_at DATETIME,
+    cooldown_until DATETIME,
+    threshold_count INTEGER DEFAULT 5,               -- 连续失败 N 次后开闸
+    cooldown_seconds INTEGER DEFAULT 300,            -- 熔断持续时间（秒）
+    half_open_max_success INTEGER DEFAULT 3,         -- 半开状态需连续成功 N 次才关闭
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(account_id, service_name)
+);
+
+CREATE INDEX idx_circuit_breaker_account ON circuit_breaker(account_id);
+CREATE INDEX idx_circuit_breaker_state ON circuit_breaker(state);
+
+-- 故障保护事件日志
+CREATE TABLE IF NOT EXISTS circuit_breaker_event (
+    id INTEGER PRIMARY KEY,
+    breaker_id INTEGER NOT NULL,
+    event_type VARCHAR(32) NOT NULL,                 -- FAILURE / SUCCESS / STATE_CHANGE / RESET
+    from_state VARCHAR(16),
+    to_state VARCHAR(16),
+    message TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (breaker_id) REFERENCES circuit_breaker(id)
+);
+
+CREATE INDEX idx_circuit_event_breaker ON circuit_breaker_event(breaker_id);
+CREATE INDEX idx_circuit_event_time ON circuit_breaker_event(created_at);
 

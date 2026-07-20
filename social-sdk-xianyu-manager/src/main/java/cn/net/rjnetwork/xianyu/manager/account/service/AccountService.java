@@ -346,7 +346,7 @@ public class AccountService {
             accountMapper.updateById(account);
             return true;
         } catch (Exception e) {
-            System.err.println("[ACCOUNT-SERVICE] 启动 Chrome 容器失败, accountId=" + id + ", err=" + e.getMessage());
+            System.err.println("[ACCOUNT-SERVICE] 启动 Chrome 容器失败, accountId=" + account.getId() + ", err=" + e.getMessage());
             // 不阻断登录，仅记录错误
             return false;
         }

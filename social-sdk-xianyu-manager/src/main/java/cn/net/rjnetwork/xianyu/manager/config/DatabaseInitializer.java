@@ -40,7 +40,6 @@ public class DatabaseInitializer {
 
     @PostConstruct
     public void init() {
-        // 确保数据目录存在
         try {
             String dbPath = System.getProperty("user.dir") + "/data";
             File dbDir = new File(dbPath);
@@ -48,8 +47,6 @@ public class DatabaseInitializer {
                 dbDir.mkdirs();
             }
 
-            // 执行 schema 初始化（逐行执行 + 容错：已存在的表/索引/列跳过，不让单行错回滚整个脚本）
-            // 不用 Spring ScriptUtils.executeSqlScript（默认 FAIL_ON_ERROR + 整脚本当事务遇错即全回滚）
             ClassPathResource resource = new ClassPathResource("db/schema.sql");
             if (resource.exists()) {
                 executeSchemaPerStatement();
@@ -64,11 +61,16 @@ public class DatabaseInitializer {
             ensureMessageColumns();
             ensureOpenAppTable();
             ensureImColumns();
+            // ===== 新增模块的列补齐 =====
+            ensureMarketColumns();
+            ensureMonitorColumns();
+            ensureBuyerProfileColumns();
+            ensureCircuitBreakerColumns();
+            ensureAiCsSessionStateColumns();
         } catch (Exception e) {
             logger.warn("Database initialization skipped (may already exist): {}", e.getMessage());
         }
 
-        // 初始化默认管理员账户
         try {
             authService.initDefaultAdmin("admin", "admin123");
             logger.info("Default admin account initialized (username: admin, password: admin123)");
@@ -77,15 +79,10 @@ public class DatabaseInitializer {
         }
     }
 
-    /** 兼容旧库：schema 的 CREATE TABLE IF NOT EXISTS 不会给已存在的表补列，这里手动补齐 */
     private void ensureNotifyRetryColumns() {
         ensureColumn("notify_retry", "vars_json", "TEXT");
     }
 
-    /**
-     * 兼容旧库：确保 notify_digest_config 表存在（早期 schema.sql 未包含此表，加上 CREATE IF NOT EXISTS
-     * 后新建库已有，但旧库里没有，启动时查此表会报 no such table）。
-     */
     private void ensureNotifyDigestConfigTable() {
         try (java.sql.Connection conn = dataSource.getConnection()) {
             boolean hasTable = false;
@@ -118,34 +115,19 @@ public class DatabaseInitializer {
         }
     }
 
-    /**
-     * 逐行执行 schema.sql + 容错：已存在的表/索引/列跳过，不让单行错回滚整个脚本。
-     * <p>不用 Spring ScriptUtils.executeSqlScript（默认 FAIL_ON_ERROR + 整脚本当事务遇错即全回滚，
-     * 导致第 12 行 CREATE INDEX 中断后前 11 张表也回滚 DB 最终 0 表）。</p>
-     *
-     * <p>用正常 Druid 池连接（try-with-resources 归还），不要 {@code unwrap(Connection)} 拿原生
-     * Connection —— unwrap 拿到的原生 Connection 脱离 Druid 代理管理，close 它并不会让池中
-     * 对应的代理槽位归还，结果初始化阶段永久占住一个池连接，后续 ensureColumn 拿不到连接
-     * 卡在 max-wait 上（日志里 `wait millis 30000, active 1, maxActive 1` 就是这个症状）。</p>
-     */
     private void executeSchemaPerStatement() {
         try (java.sql.Connection conn = dataSource.getConnection();
              Statement st = conn.createStatement();
              BufferedReader br = new BufferedReader(new InputStreamReader(
                      new ClassPathResource("db/schema.sql").getInputStream(), StandardCharsets.UTF_8))) {
 
-            // 拼多行语句（CREATE TABLE 多行直到 ; 结束），再逐句执行
             StringBuilder cur = new StringBuilder();
             List<String> stmts = new ArrayList<>();
             String line;
             while ((line = br.readLine()) != null) {
-                // 剥离行内 -- 注释：Druid WallFilter 对 SQLite 默认 commentAllow=false，
-                // 带 -- 注释的 CREATE TABLE 会被当 SQL 注入拦掉（"sql injection violation ...
-                // comment not allow"），导致 open_app / ai_ops_knowledge / ai_cs_knowledge 等
-                // 表建不出来，后续 CREATE INDEX 报 no such table。执行前先去掉行内注释即可。
                 line = stripInlineComment(line);
                 String stripped = line.trim();
-                if (stripped.isEmpty()) continue;  // 跳空行 + 已被剥成空的整行注释
+                if (stripped.isEmpty()) continue;
                 cur.append(line).append('\n');
                 if (stripped.endsWith(";")) {
                     String s = cur.toString().trim();
@@ -164,7 +146,6 @@ public class DatabaseInitializer {
                     st.execute(sql);
                     ok++;
                 } catch (Exception ex) {
-                    // 已存在 / 重复创建 / 不认的语法 → 跳过继续（CREATE IF NOT EXISTS 已容重，错也不当 fatal）
                     skip++;
                     String msg = ex.getMessage();
                     if (msg != null && msg.length() > 200) msg = msg.substring(0, 200);
@@ -177,11 +158,6 @@ public class DatabaseInitializer {
         }
     }
 
-    /**
-     * 剥离 SQL 行内的 -- 注释（保留单引号字符串字面量内的 --）。
-     * schema.sql 的建表语句普遍带 -- 中文注释，Druid WallFilter(sqlite) 默认不允许注释会整条拒绝，
-     * 因此执行前逐行去掉 -- 之后的内容。
-     */
     private String stripInlineComment(String line) {
         boolean inSingle = false;
         for (int i = 0; i < line.length(); i++) {
@@ -195,27 +171,21 @@ public class DatabaseInitializer {
         return line;
     }
 
-    /** 兼容旧库：xianyu_product 早期 DDL 缺 image_url 列，这里手动补齐 */
     private void ensureProductColumns() {
         ensureColumn("xianyu_product", "image_url", "VARCHAR(512)");
     }
 
-    /** 兼容旧库：补齐 AI 相关表缺失列（实体字段 ↔ DDL 列不匹配会导致 selectList 500） */
     private void ensureAiColumns() {
-        // xianyu_auto_reply_config.ai_model_id（实体 aiModelId 映射目标）
         ensureColumn("xianyu_auto_reply_config", "ai_model_id", "BIGINT");
-        // ai_ops_task / ai_ops_suggestion 缺 BaseEntity 的 updated_at
         ensureColumn("ai_ops_task", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
         ensureColumn("ai_ops_suggestion", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
     }
 
-    /** 兼容旧库：virtual_card_pool 缺 BaseEntity 的 updated_at */
     private void ensureVirtualColumns() {
         ensureColumn("virtual_card_pool", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
     }
 
     private void ensureOrderColumns() {
-        // 从 schema.sql 定义的完整 xianyu_order 表结构补齐可能缺失的列
         ensureColumn("xianyu_order", "type", "VARCHAR(16) DEFAULT 'BOUGHT'");
         ensureColumn("xianyu_order", "trade_status_enum", "VARCHAR(32)");
         ensureColumn("xianyu_order", "is_seller", "TINYINT(1)");
@@ -227,7 +197,6 @@ public class DatabaseInitializer {
     }
 
     private void ensureMessageColumns() {
-        // xianyu_message 兼容旧库补齐可能缺失的列
         ensureColumn("xianyu_message", "msg_id", "VARCHAR(64)");
         ensureColumn("xianyu_message", "sender_id", "VARCHAR(64)");
         ensureColumn("xianyu_message", "sender_name", "VARCHAR(128)");
@@ -237,10 +206,6 @@ public class DatabaseInitializer {
         ensureColumn("xianyu_message", "auto_reply", "BOOLEAN");
     }
 
-    /**
-     * 兼容旧库：补齐 xianyu_account 表 IM/滑块验证相关列（im_cookie_header 等）。
-     * schema.sql 的 CREATE TABLE IF NOT EXISTS 不会给已存在的表补列，这里手动 ALTER TABLE ADD COLUMN。
-     */
     private void ensureImColumns() {
         ensureColumn("xianyu_account", "im_cookie_header", "TEXT");
         ensureColumn("xianyu_account", "im_device_id", "VARCHAR(128)");
@@ -248,10 +213,6 @@ public class DatabaseInitializer {
         ensureColumn("xianyu_account", "im_token_expires_at", "DATETIME");
     }
 
-    /**
-     * 兼容旧库：确保 open_app 表存在（早期 schema.sql 未包含此表，加上 CREATE IF NOT EXISTS
-     * 后新建库已有，但旧库里没有，启动时执行 CREATE INDEX idx_open_app_key 会报 no such table）。
-     */
     private void ensureOpenAppTable() {
         try (java.sql.Connection conn = dataSource.getConnection()) {
             boolean hasTable = false;
@@ -286,14 +247,65 @@ public class DatabaseInitializer {
         }
     }
 
+    // ======================== 新增模块迁移 ========================
+
+    private void ensureMarketColumns() {
+        // market_snapshot 表补齐
+        ensureColumn("market_snapshot", "raw_data", "TEXT");
+        ensureColumn("market_snapshot", "total_results", "INTEGER DEFAULT 0");
+        // price_history 表补齐
+        ensureColumn("price_history", "currency", "VARCHAR(8) DEFAULT 'CNY'");
+        ensureColumn("price_history", "item_condition", "VARCHAR(32)");
+        // market_daily_stat 表补齐
+        ensureColumn("market_daily_stat", "p25_price", "REAL");
+        ensureColumn("market_daily_stat", "p75_price", "REAL");
+        ensureColumn("market_daily_stat", "volume", "INTEGER DEFAULT 0");
+        ensureColumn("market_daily_stat", "sampled_count", "INTEGER DEFAULT 0");
+    }
+
+    private void ensureMonitorColumns() {
+        // monitor_task 表补齐
+        ensureColumn("monitor_task", "ai_prompt", "TEXT");
+        ensureColumn("monitor_task", "ai_model_id", "BIGINT");
+        ensureColumn("monitor_task", "cron_expression", "VARCHAR(64)");
+        ensureColumn("monitor_task", "interval_minutes", "INTEGER DEFAULT 30");
+        ensureColumn("monitor_task", "circuit_open", "INTEGER DEFAULT 0");
+        ensureColumn("monitor_task", "circuit_open_until", "DATETIME");
+        // monitor_result 表补齐
+        ensureColumn("monitor_result", "matched_keywords", "TEXT");
+        ensureColumn("monitor_result", "ai_score", "REAL");
+        ensureColumn("monitor_result", "ai_reason", "TEXT");
+    }
+
+    private void ensureBuyerProfileColumns() {
+        // buyer_profile 表补齐
+        ensureColumn("buyer_profile", "credibility_score", "REAL DEFAULT 50");
+        ensureColumn("buyer_profile", "tags", "TEXT");
+        ensureColumn("buyer_profile", "notes", "TEXT");
+        ensureColumn("buyer_profile", "total_spent", "REAL DEFAULT 0");
+        // ai_cs_session_state 表补齐
+        ensureColumn("ai_cs_session_state", "lowest_offer", "REAL");
+        ensureColumn("ai_cs_session_state", "current_offer", "REAL");
+    }
+
+    private void ensureCircuitBreakerColumns() {
+        // circuit_breaker 表补齐
+        ensureColumn("circuit_breaker", "half_open_max_success", "INTEGER DEFAULT 3");
+        ensureColumn("circuit_breaker", "cooldown_seconds", "INTEGER DEFAULT 300");
+        ensureColumn("circuit_breaker", "threshold_count", "INTEGER DEFAULT 5");
+        ensureColumn("circuit_breaker", "last_failure_message", "TEXT");
+    }
+
+    private void ensureAiCsSessionStateColumns() {
+        // ai_cs_session 表补齐
+        ensureColumn("ai_cs_session", "product_id", "INTEGER");
+        ensureColumn("ai_cs_session", "order_id", "INTEGER");
+    }
+
     private void ensureColumn(String table, String column, String ddl) {
-        // 不用 PRAGMA table_info（Druid WallFilter 对 SQLite 不认 PRAGMA 会拦掉）。
-        // 改为：先用 WallFilter 允许的 SELECT * FROM <表> LIMIT 0 + ResultSetMetaData 查列是否存在，
-        // 存在则直接跳过（不再触发 ALTER → duplicate column 异常 → Druid 记 ERROR 日志）；
-        // 不存在才执行 ALTER TABLE ADD COLUMN。
         try (java.sql.Connection conn = dataSource.getConnection()) {
             if (columnExists(conn, table, column)) {
-                return;  // 列已存在，无需补
+                return;
             }
             try (java.sql.Statement st = conn.createStatement()) {
                 st.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + ddl);
@@ -304,12 +316,6 @@ public class DatabaseInitializer {
         }
     }
 
-    /**
-     * 通过查 sqlite_master 拿到表的 CREATE 语句，按词边界匹配列名是否存在。
-     * WallFilter 允许对 sqlite_master 的 SELECT（ensureOpenAppTable 同样用法，已验证），
-     * 且不触发 ALTER → duplicate column 异常 → Druid 记 ERROR 日志。
-     * 表不存在或查询失败时返回 false（让调用方后续 ALTER 自行处理）。
-     */
     private boolean columnExists(java.sql.Connection conn, String table, String column) {
         try (java.sql.Statement st = conn.createStatement();
              java.sql.ResultSet rs = st.executeQuery(
@@ -317,14 +323,11 @@ public class DatabaseInitializer {
             if (rs.next()) {
                 String createSql = rs.getString(1);
                 if (createSql == null) return false;
-                // 用 Matcher.find() 跨行搜索（CREATE SQL 多行，String.matches 的 .* 不匹配 \n）
-                // 词边界 \\b 避免 goods_type 误匹配 type 这种子串
                 return java.util.regex.Pattern.compile(
                         "\\b" + java.util.regex.Pattern.quote(column) + "\\b",
                         java.util.regex.Pattern.CASE_INSENSITIVE).matcher(createSql).find();
             }
         } catch (Exception ignored) {
-            // 表不存在或查询失败 → 当作列不存在
         }
         return false;
     }

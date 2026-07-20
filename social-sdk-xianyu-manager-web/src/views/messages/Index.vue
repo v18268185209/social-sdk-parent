@@ -1,4 +1,5 @@
 <template>
+  <div class="page-root">
   <!-- 顶部工具栏：账号、同步按钮始终可见 -->
   <div class="top-toolbar">
     <el-select v-model="selectedAccount" placeholder="选择账号" @change="onAccountChange" style="width: 180px;" size="default">
@@ -92,10 +93,7 @@
                     {{ avatarText(selectedSessionData.counterpartyName || '') }}
                   </el-avatar>
                   <div class="bubble">
-                    <div class="bubble-text" v-if="msg.msgType === 'TEXT'">{{ msg.content || '[空消息]' }}</div>
-                    <img v-else-if="msg.msgType === 'IMAGE'" :src="msg.content" alt="图片" class="bubble-img" @click="openMedia(msg.content)" />
-                    <video v-else-if="msg.msgType === 'VIDEO'" :src="msg.content" controls class="bubble-img"></video>
-                    <div v-else-if="msg.msgType === 'JSON' || isJsonCard(msg.content)" class="bubble-card">
+                    <div v-if="isJsonCard(msg.content)" class="bubble-card">
                       <div class="card-title">{{ parseJsonCard(msg.content).title }}</div>
                       <div class="card-subtitle">{{ parseJsonCard(msg.content).subtitle }}</div>
                       <img v-if="parseJsonCard(msg.content).leftImg" :src="parseJsonCard(msg.content).leftImg" class="card-left-img" />
@@ -108,6 +106,9 @@
                       >{{ parseJsonCard(msg.content).buttonText }}</el-button>
                       <div v-if="parseJsonCard(msg.content).subTitle" class="card-desc">{{ parseJsonCard(msg.content).subTitle }}</div>
                     </div>
+                    <div class="bubble-text" v-else-if="msg.msgType === 'TEXT'">{{ msg.content || '[空消息]' }}</div>
+                    <img v-else-if="msg.msgType === 'IMAGE'" :src="msg.content" alt="图片" class="bubble-img" @click="openMedia(msg.content)" />
+                    <video v-else-if="msg.msgType === 'VIDEO'" :src="msg.content" controls class="bubble-img"></video>
                     <div class="bubble-text" v-else>{{ msg.content || '[空消息]' }}</div>
                     <el-tag v-if="msg.autoReply" size="small" type="warning" effect="plain" class="auto-reply-tag">自动回复</el-tag>
                   </div>
@@ -148,6 +149,7 @@
         </div>
       </el-col>
     </el-row>
+  </div>
   </div>
 </template>
 
@@ -193,6 +195,8 @@ function handleImageUpload(file) {
   }).catch(() => ElMessage.error('图片发送失败'))
   return false
 }
+
+function openMedia(url) {
   if (url) window.open(url, '_blank')
 }
 
@@ -453,7 +457,14 @@ watch(selectedAccount, (val) => {
 
 onMounted(async () => {
   await loadAccounts()
+  // 自动选中第一个账号 → 触发 watch(selectedAccount) → 启动轮询 + 倒计时
+  if (accounts.value.length > 0 && !selectedAccount.value) {
+    selectedAccount.value = accounts.value[0].id
+  }
 })
+
+// 暴露给父级 layout 用：确保切回消息页时倒计时已启动
+watch(() => selectedSession.value, () => { if (selectedSession.value) loadHistory() })
 
 onUnmounted(() => {
   stopPolling()
@@ -461,8 +472,17 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ==================== 单屏根容器：占满 el-main，自身不滚动，内部区域滚动 ==================== */
+.page-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
 /* ==================== 顶部工具栏 ==================== */
 .top-toolbar {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -476,11 +496,14 @@ onUnmounted(() => {
   gap: 4px;
 }
 
+/* ==================== 主区域撑满剩余高度 ==================== */
 .message-container {
-  height: calc(100vh - 80px - 56px);
+  flex: 1;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
-.chat-row { height: 100%; }
+.chat-row { height: 100%; flex: 1; }
 .chat-row .el-col { height: 100%; }
 
 /* ==================== 会话列表 ==================== */
