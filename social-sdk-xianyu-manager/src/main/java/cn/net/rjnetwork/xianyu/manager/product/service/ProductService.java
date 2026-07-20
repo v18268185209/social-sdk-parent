@@ -1,9 +1,6 @@
 package cn.net.rjnetwork.xianyu.manager.product.service;
 
-import cn.net.rjnetwork.xianyu.api.XianyuMtopApiClient;
-import cn.net.rjnetwork.xianyu.api.XianyuProductApiService;
-import cn.net.rjnetwork.xianyu.api.XianyuProductEditApiService;
-import cn.net.rjnetwork.xianyu.api.XianyuPublishApiService;
+import cn.net.rjnetwork.xianyu.api.*;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import cn.net.rjnetwork.xianyu.manager.account.service.AccountService;
 import cn.net.rjnetwork.xianyu.manager.product.dto.ProductCreateRequest;
@@ -413,7 +410,7 @@ public class ProductService {
         }
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(account.getCookieHeader());
         XianyuPublishFormApiService formApi = new XianyuPublishFormApiService(mtopClient);
-        return formApi.getCategoryTree();
+        return formApi.getCategoryTree("1");
     }
 
     /**

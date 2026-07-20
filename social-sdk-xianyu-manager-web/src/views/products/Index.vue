@@ -343,7 +343,7 @@ async function loadCategoryTree(accountId) {
       let tree = res.data
       if (tree && tree.children) tree = tree.children
       else if (tree && Array.isArray(tree.data)) tree = tree.data
-      else if (tree && Array.isArray(tree)) /* ok */
+      else if (tree && Array.isArray(tree)) { /* ok */ }
       else tree = []
       categoryTree.value = tree
       categoryTreeLoadedAccountId.value = accountId
