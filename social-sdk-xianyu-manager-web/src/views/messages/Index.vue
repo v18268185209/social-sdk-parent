@@ -14,7 +14,10 @@
           <el-tag v-if="syncMsg" size="small" :type="syncMsg.includes('成功') ? 'success' : (syncMsg.includes('中') ? 'info' : 'error')" effect="plain">
             {{ syncMsg }}
           </el-tag>
-          <el-tag size="small" type="success" effect="plain">实时监听运行中（30s 轮询）</el-tag>
+          <el-tag v-if="selectedAccount" size="small" type="success" effect="plain" style="min-width: 110px; justify-content: center;">
+            <el-icon style="margin-right: 4px;"><Loading /></el-icon>
+            实时监听 {{ countdown }}s
+          </el-tag>
           <el-button type="warning" size="small" @click="openCaptchaPage" v-if="accounts.length > 0">
             打开滑块验证
           </el-button>
@@ -33,15 +36,22 @@
           <div
             v-for="s in sessions" :key="s.sessionId"
             class="session-item"
-            :class="{ active: s.sessionId === selectedSession }"
+            :class="{ active: s.sessionId === selectedSession, unread: unreadSet.has(s.sessionId) }"
             @click="selectSession(s)"
           >
-            <div class="session-header">
-              <strong>{{ s.counterpartyName }}</strong>
-              <span class="time">{{ formatTime(s.lastTime) }}</span>
-            </div>
-            <div class="session-last-msg" :class="{ mine: s.direction === 'OUTGOING' }">
-              {{ s.lastContent || '无消息' }}
+            <el-badge :is-dot="unreadSet.has(s.sessionId)" class="session-badge-wrapper">
+              <el-avatar :size="40" :src="s.counterpartyAvatar || ''" class="session-avatar">
+                {{ avatarText(s.counterpartyName || s.counterpartyId) }}
+              </el-avatar>
+            </el-badge>
+            <div class="session-main">
+              <div class="session-header">
+                <strong>{{ s.counterpartyName || s.counterpartyId || '未知用户' }}</strong>
+                <span class="time">{{ formatTime(s.lastTime) }}</span>
+              </div>
+              <div class="session-last-msg" :class="{ mine: s.direction === 'OUTGOING', unread: unreadSet.has(s.sessionId) }">
+                {{ s.lastContent || '无消息' }}
+              </div>
             </div>
           </div>
         </el-card>
@@ -89,8 +99,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, onMounted, nextTick, watch, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
 import api from '@/api/request'
 
 const accounts = ref([])
@@ -106,6 +117,11 @@ const captchaOpened = ref(false)
 
 const selectedSessionData = ref({ counterpartyName: '', lastContent: '' })
 
+// 会话最后消息时间缓存（用于检测新消息到达 -> 未读标红）
+const sessionLastTimeCache = ref({})
+// 未读会话 id 集合
+const unreadSet = ref(new Set())
+
 // ==================== 工具函数 ====================
 
 function formatTime(t) {
@@ -113,6 +129,11 @@ function formatTime(t) {
   const str = String(t)
   if (str.includes('T')) return str.replace('T', ' ').substring(0, 16)
   return str.substring(0, 16)
+}
+
+function avatarText(name) {
+  const str = String(name || '').trim()
+  return str ? str.slice(0, 1) : '?'
 }
 
 async function scrollToBottom() {
@@ -133,32 +154,42 @@ async function loadAccounts() {
 
 async function loadSessions() {
   if (!selectedAccount.value) return
-  sessions.value = []
-  selectedSession.value = ''
-  selectedSessionData.value = { counterpartyName: '', lastContent: '' }
+  const prevSelected = selectedSession.value
   try {
-    // 调新 /messages/list 按 accountId 拉本地已同步消息，前端按 sessionId 二次分组渲染会话卡片
-    const res = await api.get('/messages/list', { params: { accountId: selectedAccount.value, limit: 200 } })
+    // 会话摘要由后端按 sessionId 聚合，并且优先返回对方(INCOMING)用户信息；
+    // 不能在前端用最新消息 senderName 推断，否则最后一条是自己发出时会展示自己的账号名。
+    const res = await api.get('/messages/sessions', { params: { accountId: selectedAccount.value } })
     if (res.success && Array.isArray(res.data)) {
-      // 按 sessionId 分组 + 拿每会话最新消息作为 session 摘要
-      // 后端返回按 messageTime 倒序，所以遍历时第一次遇到的 sessionId 就是该会话最新消息
-      const sessionMap = new Map()
-      for (const msg of res.data) {
-        const sid = msg.sessionId
-        if (!sessionMap.has(sid)) {
-          sessionMap.set(sid, {
-            sessionId: sid,
-            counterpartyName: msg.direction === 'OUTGOING' ? (msg.senderName || '对方') : (msg.senderName || msg.senderId || '对方'),
-            lastContent: msg.content || '',
-            lastTime: msg.messageTime || '',
-            direction: msg.direction,
-            unread: 0
-          })
+      let list = res.data
+      // 按最后消息时间倒序（最新的在前面）
+      list.sort((a, b) => {
+        const ta = a.lastTime || ''
+        const tb = b.lastTime || ''
+        return tb.localeCompare(ta)
+      })
+      // 检测新消息 -> 未读标红（当前选中会话不标红）
+      const newUnread = new Set(unreadSet.value)
+      for (const s of list) {
+        const sid = s.sessionId
+        const newTime = s.lastTime || ''
+        const cached = sessionLastTimeCache.value[sid]
+        if (cached !== undefined && newTime > cached && sid !== selectedSession.value) {
+          newUnread.add(sid)
         }
+        sessionLastTimeCache.value[sid] = newTime
       }
-      sessions.value = Array.from(sessionMap.values())
-      if (sessions.value.length > 0 && !selectedSession.value) {
-        selectSession(sessions.value[0])
+      unreadSet.value = newUnread
+      sessions.value = list
+      // 保持之前选中的会话，或选第一个
+      if (prevSelected && list.find(s => s.sessionId === prevSelected)) {
+        const found = list.find(s => s.sessionId === prevSelected)
+        selectedSession.value = prevSelected
+        selectedSessionData.value = found
+      } else if (list.length > 0) {
+        selectSession(list[0])
+      } else {
+        selectedSession.value = ''
+        selectedSessionData.value = { counterpartyName: '', lastContent: '' }
       }
     } else {
       sessions.value = []
@@ -175,8 +206,18 @@ async function loadHistory() {
       params: { accountId: selectedAccount.value, sessionId: selectedSession.value, limit: 50 }
     })
     if (res.success) {
-      messages.value = Array.isArray(res.data) ? res.data : []
-      setTimeout(() => scrollToBottom(), 300)
+      // 后端 selectBySession 已按 message_time ASC 返回（最老在前、最新在后），
+      // 不再 reverse，直接渲染：最新消息在底部，与闲鱼客户端顺序一致。
+      const list = Array.isArray(res.data) ? [...res.data] : []
+      // 兜底：再按 messageTime 升序排一次，避免同时间戳乱序
+      list.sort((a, b) => {
+        const ta = a.messageTime ? String(a.messageTime) : ''
+        const tb = b.messageTime ? String(b.messageTime) : ''
+        if (ta === tb) return (a.id || 0) - (b.id || 0)
+        return ta.localeCompare(tb)
+      })
+      messages.value = list
+      setTimeout(() => scrollToBottom(), 100)
     }
   } catch (e) {
     messages.value = []
@@ -192,6 +233,12 @@ function onAccountChange() {
 function selectSession(s) {
   selectedSession.value = s.sessionId
   selectedSessionData.value = s
+  // 清除该会话未读标记
+  if (unreadSet.value.has(s.sessionId)) {
+    const n = new Set(unreadSet.value)
+    n.delete(s.sessionId)
+    unreadSet.value = n
+  }
   loadHistory()
 }
 
@@ -253,8 +300,49 @@ async function handleSend() {
   }
 }
 
+// ==================== 实时监听倒计时 ====================
+const POLL_INTERVAL = 30 // 秒
+const countdown = ref(POLL_INTERVAL)
+let pollTimer = null
+let countdownTimer = null
+
+function startPolling() {
+  stopPolling()
+  countdown.value = POLL_INTERVAL
+  // 每秒减一显示倒计时
+  countdownTimer = setInterval(() => {
+    countdown.value = countdown.value > 0 ? countdown.value - 1 : POLL_INTERVAL
+  }, 1000)
+  // 每 30s 自动刷新会话列表 + 当前聊天
+  pollTimer = setInterval(async () => {
+    if (!selectedAccount.value) return
+    await loadSessions()
+    if (selectedSession.value) await loadHistory()
+    countdown.value = POLL_INTERVAL
+  }, POLL_INTERVAL * 1000)
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+}
+
+// 选中账号后启动轮询
+watch(selectedAccount, (val) => {
+  if (val) {
+    loadSessions()
+    startPolling()
+  } else {
+    stopPolling()
+  }
+})
+
 onMounted(async () => {
   await loadAccounts()
+})
+
+onUnmounted(() => {
+  stopPolling()
 })
 </script>
 
@@ -274,6 +362,16 @@ onMounted(async () => {
   cursor: pointer;
   border-bottom: 1px solid #f0f0f0;
   transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.session-avatar {
+  flex-shrink: 0;
+}
+.session-main {
+  min-width: 0;
+  flex: 1;
 }
 .session-item:hover {
   background: #f5f7fa;
@@ -303,6 +401,18 @@ onMounted(async () => {
 .session-last-msg.mine {
   color: #999;
   text-align: right;
+}
+/* 未读：名字加粗、摘要文字标红 */
+.session-item.unread .session-header strong {
+  color: #f56c6c;
+  font-weight: 700;
+}
+.session-last-msg.unread {
+  color: #f56c6c;
+  font-weight: 600;
+}
+.session-badge-wrapper {
+  flex-shrink: 0;
 }
 
 .chat-card {

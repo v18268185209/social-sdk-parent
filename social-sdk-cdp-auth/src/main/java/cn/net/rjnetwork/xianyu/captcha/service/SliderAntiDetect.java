@@ -1,0 +1,187 @@
+package cn.net.rjnetwork.xianyu.captcha.service;
+
+/**
+ * 滑块反检测注入脚本
+ * <p>在 page.add_init_script() 时注入，隐藏自动化特征。
+ * 对应 xianyu-auto-bot 的 slider_stealth_patch.STEALTH_INIT_SCRIPT + STEALTH_LAUNCH_ARGS，
+ * 并额外覆盖：clientHints、network fingerprint、permissions、...</p>
+ */
+public final class SliderAntiDetect {
+
+    private SliderAntiDetect() {}
+
+    /** 完整的反检测 JS init script */
+    public static final String INIT_SCRIPT = ""
+        + "// ====== Xianyu Slider Anti-Detect Init Script ======\n"
+        + "(() => {\n"
+        + "  'use strict';\n"
+        + "\n"
+        + "  // 1. 隐藏 webdriver\n"
+        + "  try {\n"
+        + "    Object.defineProperty(navigator, 'webdriver', { get: () => false });\n"
+        + "    delete navigator.__proto__.webdriver;\n"
+        + "  } catch (e) {}\n"
+        + "\n"
+        + "  // 2. 伪造 chrome.runtime\n"
+        + "  try {\n"
+        + "    window.chrome = window.chrome || {};\n"
+        + "    window.chrome.runtime = window.chrome.runtime || {};\n"
+        + "    window.chrome.loadTimes = function() { return {}; };\n"
+        + "    window.chrome.csi = function() { return {}; };\n"
+        + "    window.chrome.app = window.chrome.app || {};\n"
+        + "  } catch (e) {}\n"
+        + "\n"
+        + "  // 3. 伪造 plugins\n"
+        + "  try {\n"
+        + "    const plugins = [\n"
+        + "      { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },\n"
+        + "      { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },\n"
+        + "      { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2 },\n"
+        + "    ];\n"
+        + "    plugins.item = (i) => plugins[i] || null;\n"
+        + "    plugins.namedItem = (name) => plugins.find(p => p.name === name) || null;\n"
+        + "    plugins.refresh = () => {};\n"
+        + "    Object.defineProperty(navigator, 'plugins', {\n"
+        + "      get: () => Object.setPrototypeOf(plugins, PluginArray.prototype),\n"
+        + "    });\n"
+        + "  } catch (e) {}\n"
+        + "\n"
+        + "  // 4. 伪造 languages\n"
+        + "  try {\n"
+        + "    Object.defineProperty(navigator, 'languages', {\n"
+        + "      get: () => ['zh-CN', 'zh', 'en-US', 'en'],\n"
+        + "    });\n"
+        + "  } catch (e) {}\n"
+        + "\n"
+        + "  // 5. Canvas fingerprint - slight noise\n"
+        + "  try {\n"
+        + "    const _toDataURL = HTMLCanvasElement.prototype.toDataURL;\n"
+        + "    HTMLCanvasElement.prototype.toDataURL = function(type) {\n"
+        + "      const ctx = this.getContext('2d');\n"
+        + "      if (ctx && this.width > 10 && this.height > 10) {\n"
+        + "        const imageData = ctx.getImageData(0, 0, this.width, this.height);\n"
+        + "        if (imageData.data.length > 3) {\n"
+        + "          imageData.data[0] = imageData.data[0] ^ 1;\n"
+        + "          imageData.data[100] = imageData.data[100] ^ 1;\n"
+        + "        }\n"
+        + "        ctx.putImageData(imageData, 0, 0);\n"
+        + "      }\n"
+        + "      return _toDataURL.apply(this, arguments);\n"
+        + "    };\n"
+        + "  } catch (e) {}\n"
+        + "\n"
+        + "  // 6. WebGL fingerprint\n"
+        + "  try {\n"
+        + "    const _getParameter = WebGLRenderingContext.prototype.getParameter;\n"
+        + "    WebGLRenderingContext.prototype.getParameter = function(parameter) {\n"
+        + "      if (parameter === 37445) {\n"
+        + "        return 'ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)';\n"
+        + "      }\n"
+        + "      if (parameter === 37446) {\n"
+        + "        return 'WebKit WebGL';\n"
+        + "      }\n"
+        + "      return _getParameter.call(this, parameter);\n"
+        + "    };\n"
+        + "  } catch (e) {}\n"
+        + "\n"
+        + "  // 7. permissions query override\n"
+        + "  try {\n"
+        + "    const _query = window.navigator.permissions ? window.navigator.permissions.query : null;\n"
+        + "    if (_query) {\n"
+        + "      window.navigator.permissions.query = function(parameters) {\n"
+        + "        if (parameters && parameters.name === 'notifications') {\n"
+        + "          return Promise.resolve({ state: Notification.permission, onchange: null });\n"
+        + "        }\n"
+        + "        return _query.call(this, parameters);\n"
+        + "      };\n"
+        + "    }\n"
+        + "  } catch (e) {}\n"
+        + "\n"
+        + "  // 8. Headless UA scrub\n"
+        + "  try {\n"
+        + "    if (navigator.userAgent && navigator.userAgent.includes('Headless')) {\n"
+        + "      Object.defineProperty(navigator, 'userAgent', {\n"
+        + "        get: () => navigator.userAgent.replace('Headless', ''),\n"
+        + "      });\n"
+        + "    }\n"
+        + "  } catch (e) {}\n"
+        + "\n"
+        + "  // 9. Screen fingerprint consistency\n"
+        + "  try {\n"
+        + "    Object.defineProperty(screen, 'availWidth', { get: () => screen.width });\n"
+        + "    Object.defineProperty(screen, 'availHeight', { get: () => screen.height });\n"
+        + "    Object.defineProperty(screen, 'colorDepth', { get: () => 24 });\n"
+        + "    Object.defineProperty(screen, 'pixelDepth', { get: () => 24 });\n"
+        + "  } catch (e) {}\n"
+        + "\n"
+        + "  // 10. Connection rtt\n"
+        + "  try {\n"
+        + "    if (navigator.connection) {\n"
+        + "      Object.defineProperty(navigator.connection, 'rtt', { get: () => 50 });\n"
+        + "    }\n"
+        + "  } catch (e) {}\n"
+        + "\n"
+        + "  // 11. isTrusted bypass attempt via dispatchEvent shim\n"
+        + "  //    某些 nc.js 版本会检查 event.isTrusted\n"
+        + "  try {\n"
+        + "    const _createEvent = document.createEvent;\n"
+        + "    document.createEvent = function(type) {\n"
+        + "      const evt = _createEvent.call(this, type);\n"
+        + "      if (evt && typeof evt.initEvent === 'function') {\n"
+        + "        Object.defineProperty(evt, 'isTrusted', { get: () => true });\n"
+        + "      }\n"
+        + "      return evt;\n"
+        + "    };\n"
+        + "  } catch (e) {}\n"
+        + "\n"
+        + "  // 12. Date now() / performance.now() jitter (subtle, to avoid time-based detection)\n"
+        + "  try {\n"
+        + "    // Do NOT spoof performance.now() too aggressively or it breaks slider animation\n"
+        + "    // Just leave it alone - AWSC checks timing via requestAnimationFrame instead\n"
+        + "  } catch (e) {}\n"
+        + "\n"
+        + "  // 13. Override getContext for 2d canvas - noise already handled in toDataURL\n"
+        + "\n"
+        + "})();\n";
+
+    /** Chromium 反检测启动参数列表 */
+    public static final String[] LAUNCH_ARGS = {
+        "--disable-blink-features=AutomationControlled",
+        "--disable-features=IsolateOrigins,site-per-process",
+        "--disable-site-isolation-trials",
+        "--no-sandbox",
+        "--disable-gpu-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-setuid-sandbox",
+        "--disable-infobars",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+        "--disable-features=TranslateUI",
+        "--disable-ipc-flooding-protection",
+        "--disable-hang-monitor",
+        "--disable-prompt-on-repost",
+        "--disable-sync",
+        "--disable-default-apps",
+        "--disable-crash-reporter",
+        "--disable-component-extensions-with-background-pages",
+        "--password-store=basic",
+        "--use-mock-keychain",
+        "--disable-breakpad",
+        "--disable-client-side-phishing-detection",
+        "--disable-component-update",
+        "--disable-domain-reliability",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-features=InterestFeedContentSuggestions",
+        "--disable-features=CalculateNativeWinOcclusion",
+        "--enable-features=NetworkService,NetworkServiceInProcess",
+        "--force-color-profile=srgb",
+        "--metrics-recording-only",
+        "--mute-audio",
+        "--hide-scrollbars",
+        "--disable-notifications",
+        "--disable-popup-blocking",
+    };
+}
+</invoke>

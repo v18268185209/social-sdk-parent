@@ -231,6 +231,7 @@ public class DatabaseInitializer {
         ensureColumn("xianyu_message", "msg_id", "VARCHAR(64)");
         ensureColumn("xianyu_message", "sender_id", "VARCHAR(64)");
         ensureColumn("xianyu_message", "sender_name", "VARCHAR(128)");
+        ensureColumn("xianyu_message", "sender_avatar", "VARCHAR(512)");
         ensureColumn("xianyu_message", "msg_type", "VARCHAR(16)");
         ensureColumn("xianyu_message", "direction", "VARCHAR(8)");
         ensureColumn("xianyu_message", "auto_reply", "BOOLEAN");

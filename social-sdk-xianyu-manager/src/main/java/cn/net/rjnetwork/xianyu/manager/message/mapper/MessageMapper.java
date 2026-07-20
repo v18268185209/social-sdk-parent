@@ -13,6 +13,9 @@ public interface MessageMapper extends BaseMapper<XianyuMessage> {
     @Select("SELECT DISTINCT session_id FROM xianyu_message WHERE account_id = #{accountId} AND deleted = 0 ORDER BY message_time DESC")
     List<String> selectDistinctSessions(Long accountId);
 
-    @Select("SELECT * FROM xianyu_message WHERE account_id = #{accountId} AND session_id = #{sessionId} AND deleted = 0 ORDER BY message_time DESC LIMIT #{limit}")
+    @Select("SELECT * FROM xianyu_message WHERE account_id = #{accountId} AND session_id = #{sessionId} AND deleted = 0 ORDER BY message_time ASC, id ASC LIMIT #{limit}")
     List<XianyuMessage> selectBySession(Long accountId, String sessionId, int limit);
+
+    @Select("SELECT * FROM xianyu_message WHERE account_id = #{accountId} AND session_id = #{sessionId} AND deleted = 0 AND direction = 'INCOMING' ORDER BY message_time DESC LIMIT 1")
+    XianyuMessage selectLatestIncoming(Long accountId, String sessionId);
 }

@@ -17,6 +17,7 @@ public class XianyuMessage extends BaseEntity {
     private String msgId;     // 消息唯一 id（去重用）
     private String senderId;
     private String senderName;
+    private String senderAvatar;
     private String content;
     private String msgType; // TEXT, IMAGE, SYSTEM
     private String direction; // INCOMING, OUTGOING

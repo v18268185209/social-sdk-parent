@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS xianyu_message (
     msg_id VARCHAR(64),
     sender_id VARCHAR(64),
     sender_name VARCHAR(128),
+    sender_avatar VARCHAR(512),
     content TEXT,
     msg_type VARCHAR(16) DEFAULT 'TEXT',
     direction VARCHAR(8) DEFAULT 'INCOMING',

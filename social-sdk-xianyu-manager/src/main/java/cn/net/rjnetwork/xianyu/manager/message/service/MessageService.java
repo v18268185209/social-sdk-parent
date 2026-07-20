@@ -73,19 +73,16 @@ public class MessageService {
                 row.put("direction", last.getDirection());
             }
 
-            // senderName / senderId 取自同一会话里出现的对方发送者
-            List<XianyuMessage> peers = messageMapper.selectBySession(accountId, sid, 5);
-            String peer = null, peerId = null;
-            for (XianyuMessage m : peers) {
-                if ("INCOMING".equals(m.getDirection())) {
-                    peerId = m.getSenderId();
-                    peer = m.getSenderName();
-                    break;
-                }
-            }
+            // 会话标题必须取“对方”信息：优先该会话最新 INCOMING 消息；
+            // 如果最近消息是我发出的，不能用 OUTGOING 的 senderName（那是自己的账号名）。
+            XianyuMessage peerMsg = messageMapper.selectLatestIncoming(accountId, sid);
+            String peer = peerMsg != null ? peerMsg.getSenderName() : null;
+            String peerId = peerMsg != null ? peerMsg.getSenderId() : null;
+            String peerAvatar = peerMsg != null ? peerMsg.getSenderAvatar() : null;
             if (peer == null || peer.isBlank()) peer = peerId != null ? peerId : "未知";
             row.put("counterpartyName", peer);
             row.put("counterpartyId", peerId);
+            row.put("counterpartyAvatar", peerAvatar);
             summaries.add(row);
         }
         return summaries;
@@ -244,6 +241,52 @@ public class MessageService {
         return ok;
     }
 
+    /**
+     * 给 IM WSS 长连接挂推送监听器，让实时帧（新消息/会话变更）直接落库。
+     * <p>闲鱼 IM 推送帧的 lwp 路径主要几类：</p>
+     * <ul>
+     *   <li>{@code /r/MessageManager/push} 或类似：新消息推送，body.userMessageModels 是消息列表</li>
+     *   <li>{@code /r/Conversation/notify} 或 {@code /r/Conversation/change}：会话变更</li>
+     *   <li>{@code /r/SyncStatus/notify}：增量同步通知，含新消息/会话变更</li>
+     * </ul>
+     * <p>监听器做兜底：把所有疑似包含消息数组的推送帧走 saveIncomingFromLwp 落库，
+     * 已有 msgId 会被去重，所以重复推送无害。</p>
+     *
+     * @param accountId 当前账号 id
+     * @param accsClient IM 长连接客户端
+     */
+    private void registerPushListener(Long accountId, XianyuImAccsClient accsClient) {
+        final String listenerKey = "msg-sync-" + accountId;
+        // 先移除旧监听器，避免账号切换时重复挂监听
+        accsClient.removePushListener(listenerKey);
+        accsClient.addPushListener(listenerKey, frame -> {
+            try {
+                JsonNode body = frame.path("body");
+                if (body.isMissingNode() || body.isNull()) return;
+
+                // 兼容多种推送结构：直接数组 / {userMessageModels:[...]} / {messages:[...]}
+                List<JsonNode> messages = extractArrayNodes(body,
+                        "userMessageModels", "messages", "messageList", "userMessages", "list");
+                if (messages.isEmpty()) return;
+
+                int saved = 0;
+                for (JsonNode msg : messages) {
+                    try {
+                        saveIncomingFromLwp(accountId, msg, "");
+                        saved++;
+                    } catch (Exception me) {
+                        log.warn("[MESSAGE] push-listener save failed: {}", me.getMessage());
+                    }
+                }
+                if (saved > 0) {
+                    log.info("[MESSAGE] push-listener saved {} new messages for account {}", saved, accountId);
+                }
+            } catch (Exception e) {
+                log.warn("[MESSAGE] push-listener parse failed: {}", e.getMessage());
+            }
+        });
+    }
+
     /** 通过 IM 长连接拉取指定会话或全量历史 */
     private boolean pullHistoryInternal(XianyuAccount acc, String targetCid, int limit, boolean allowCaptcha) throws Exception {
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(acc.getCookieHeader());
@@ -309,6 +352,18 @@ public class MessageService {
                 log.warn("[MESSAGE] all conversation histories failed, conversations={}", conversations.size());
                 return false;
             }
+
+            // 历史拉完后挂 pushListener，让 WSS 实时推送帧直接落库（图片/视频/文本/语音）
+            // 注意：getAccsClient() 内部会调 ensureAccs()，复用同一条已建立的长连接
+            try {
+                XianyuImAccsClient accsClient = msgApi.getAccsClient();
+                if (accsClient != null) {
+                    registerPushListener(acc.getId(), accsClient);
+                }
+            } catch (Exception pe) {
+                log.warn("[MESSAGE] registerPushListener failed for account {}: {}", acc.getId(), pe.getMessage());
+            }
+
             return true;
         } catch (Exception e) {
             log.warn("[MESSAGE] full history pull failed for account {}: {}", acc.getId(), e.getMessage());
@@ -541,6 +596,24 @@ public class MessageService {
         return "";
     }
 
+    private String firstTextDeep(JsonNode node, String... fields) {
+        if (node == null || node.isMissingNode() || node.isNull()) return "";
+        String direct = firstText(node, fields);
+        if (!direct.isEmpty()) return direct;
+        if (node.isObject()) {
+            for (java.util.Iterator<JsonNode> it = node.elements(); it.hasNext(); ) {
+                String nested = firstTextDeep(it.next(), fields);
+                if (!nested.isEmpty()) return nested;
+            }
+        } else if (node.isArray()) {
+            for (JsonNode child : node) {
+                String nested = firstTextDeep(child, fields);
+                if (!nested.isEmpty()) return nested;
+            }
+        }
+        return "";
+    }
+
     private String normalizeCid(String cid) {
         if (cid == null || cid.isBlank()) return "";
         String trimmed = cid.trim();
@@ -562,6 +635,9 @@ public class MessageService {
         entity.setMsgId(msgId);
         entity.setSenderId(msg.path("senderId").asText(""));
         entity.setSenderName(msg.path("senderNick").asText(""));
+        entity.setSenderAvatar(firstTextDeep(msg,
+                "avatar", "avatarUrl", "headUrl", "headImg", "headPic", "userAvatar", "userAvatarUrl",
+                "senderAvatar", "senderAvatarUrl", "senderHeadUrl", "logo", "portrait", "displayPic"));
         entity.setDirection(msg.path("senderRole").asText("INCOMING").equals("SENDER") ? "OUTGOING" : "INCOMING");
         entity.setMsgType(msg.path("msgType").asText("TEXT"));
         entity.setAutoReply(Boolean.TRUE.equals(msg.path("isAutoReply").asBoolean()));
@@ -610,13 +686,34 @@ public class MessageService {
         entity.setSessionId(cid);
         entity.setMsgId(msgId);
         JsonNode extension = messageNode.path("extension");
+        // 闲鱼 LWP 消息把发送方信息嵌在 extension.sender 里（nick / avatar / userId / openid），
+        // 顶层只有 senderId / senderUserId，没有 senderName 和 avatar。
+        // 因此昵称和头像必须用 firstTextDeep 往 extension.sender 里挖，否则永远为空。
         entity.setSenderId(firstText(messageNode, "senderId", "senderUserId", "uid"));
         if (entity.getSenderId().isEmpty()) {
             entity.setSenderId(firstText(extension, "senderUserId", "senderId"));
         }
-        entity.setSenderName(firstText(messageNode, "senderNickName", "senderNick", "senderName"));
+        entity.setSenderName(firstTextDeep(msg,
+                "senderNickName", "senderNick", "senderName", "nick", "nickname", "displayName"));
         if (entity.getSenderName().isEmpty()) {
             entity.setSenderName(firstText(extension, "reminderTitle", "senderNickName", "senderNick"));
+        }
+        if (entity.getSenderName().isEmpty()) {
+            entity.setSenderName(firstTextDeep(extension.path("sender"),
+                    "nick", "nickname", "displayName", "name"));
+        }
+        // 头像：闲鱼字段名有 sender.avatar / sender.avatarUrl / sender.head / sender.portrait 等
+        entity.setSenderAvatar(firstTextDeep(msg,
+                "avatar", "avatarUrl", "headUrl", "headImg", "headPic", "userAvatar", "userAvatarUrl",
+                "senderAvatar", "senderAvatarUrl", "senderHeadUrl", "logo", "portrait", "displayPic",
+                "senderIcon", "senderLogo"));
+        if (entity.getSenderAvatar().isEmpty()) {
+            entity.setSenderAvatar(firstTextDeep(extension.path("sender"),
+                    "avatar", "avatarUrl", "head", "headUrl", "headImg", "portrait", "logo", "icon"));
+        }
+        if (entity.getSenderAvatar().isEmpty()) {
+            entity.setSenderAvatar(firstTextDeep(extension,
+                    "senderAvatar", "senderAvatarUrl", "senderHeadUrl", "avatar", "headUrl"));
         }
 
         // direction: senderId == selfId（账号 cookie 里的 userId）是 OUTGOING，否则 INCOMING
@@ -625,39 +722,146 @@ public class MessageService {
         String senderId = entity.getSenderId();
         boolean isOutgoing = !selfUserId.isEmpty() && selfUserId.equals(senderId);
         entity.setDirection(isOutgoing ? "OUTGOING" : "INCOMING");
-        entity.setMsgType("TEXT");
         entity.setAutoReply(false);
         // messageTime: 用闲鱼返回的真实时间（msgTime / createTime / timestamp 字段，毫秒级 Unix）
         // 原 bug：写死 LocalDateTime.now()，导致所有消息时间戳错位（同步历史消息时间全是当下）
         entity.setMessageTime(parseMessageTime(messageNode));
 
-        // content.custom.data base64 -> JSON -> text
-        JsonNode content = messageNode.path("content");
-        if (content.has("custom") && content.path("custom").has("data")) {
-            try {
-                byte[] decoded = java.util.Base64.getDecoder().decode(content.path("custom").path("data").asText());
-                String plainJson = new String(decoded, StandardCharsets.UTF_8);
-                JsonNode plain = MAPPER.readTree(plainJson);
-                entity.setContent(plain.path("text").path("text").asText(""));
-            } catch (Exception e) {
-                entity.setContent(content.path("custom").path("data").asText(""));
-            }
-        } else if (content.has("text")) {
-            entity.setContent(content.path("text").asText(""));
-        } else if (content.has("body") && content.path("body").has("text")) {
-            entity.setContent(content.path("body").path("text").asText(""));
-        } else {
-            entity.setContent(content.asText(""));
-        }
-        if (entity.getContent() == null || entity.getContent().isBlank()) {
-            entity.setContent(firstText(extension, "reminderContent", "summary", "content"));
-        }
+        // 解析 content：闲鱼 IM 消息内容封装在 content 里，
+        // - contentType=1：文本，custom.data 是 base64({"text":{"text":"..."}})
+        // - contentType=2/3/4...：图片/视频/语音，custom.data 是 base64 JSON 含 url/path/pix
+        // 旧实现只认 text.text，导致图片/视频消息 content 解码失败落空，丢失同步
+        entity.setMsgType("TEXT");
+        entity.setContent(parseLwpContent(messageNode, extension, entity));
 
         messageMapper.insert(entity);
         if ("INCOMING".equals(entity.getDirection())) {
             eventPublisher.publishEvent(new NotifyEvent(this, entity, "NEW_MESSAGE"));
         }
-        log.info("[MESSAGE] pulled lwp msg {} in session {} from account {} (dir={})", msgId, cid, accountId, entity.getDirection());
+        log.info("[MESSAGE] pulled lwp msg {} in session {} from account {} (dir={}, type={})",
+                msgId, cid, accountId, entity.getDirection(), entity.getMsgType());
+    }
+
+    /**
+     * 解析 LWP 消息 content 字段，兼容 文本/图片/视频/语音/系统消息。
+     * <p>闲鱼 IM content 结构：</p>
+     * <ul>
+     *   <li>{@code contentType=1}：文本消息，{@code custom.data} 是 base64 编码的 JSON
+     *       {@code {"text":{"text":"消息内容"}}}（contentType 内层也可能是 1）</li>
+     *   <li>{@code contentType=2/3/101}：图片/视频消息，{@code custom.data} 解码后含
+     *       {@code url} / {@code path} / {@code pix} / {@code width} / {@code height} 等</li>
+     *   <li>{@code contentType=4/5}：语音/文件</li>
+     *   <li>系统消息（reminder 类）：{@code extension.reminderContent}</li>
+     * </ul>
+     *
+     * @return 解析后的展示内容；图片/视频返回 CDN URL，便于前端直接渲染
+     */
+    private String parseLwpContent(JsonNode messageNode, JsonNode extension, XianyuMessage entity) {
+        JsonNode content = messageNode.path("content");
+        int contentType = content.path("contentType").asInt(0);
+
+        // 1. custom.data base64 -> JSON（文本/图片/视频通用封装）
+        if (content.has("custom") && content.path("custom").has("data")) {
+            String decodedText = "";
+            try {
+                byte[] decoded = java.util.Base64.getDecoder().decode(content.path("custom").path("data").asText());
+                decodedText = new String(decoded, StandardCharsets.UTF_8);
+                JsonNode plain = MAPPER.readTree(decodedText);
+
+                // contentType==1 文本：{"text":{"text":"..."}}
+                if (contentType == 1 || contentType == 0) {
+                    String text = plain.path("text").path("text").asText("");
+                    if (!text.isEmpty()) {
+                        entity.setMsgType("TEXT");
+                        return text;
+                    }
+                }
+
+                // 图片消息：{"image":{"url":"http://...","width":W,"height":H}}
+                // 视频消息：{"video":{"url":"http://...","duration":D,"pic":"http://封面"}}
+                // 语音消息：{"audio":{"url":"http://...","duration":D}}
+                // 通用兜底：直接取 url/path 字段
+                String mediaUrl = firstTextDeep(plain,
+                        "url", "path", "imageUrl", "videoUrl", "audioUrl", "mediaUrl", "fileUrl");
+                String mediaPic = firstTextDeep(plain, "pic", "cover", "coverUrl", "thumbnail", "poster");
+                long duration = plain.path("video").path("duration").asLong(0);
+                if (duration == 0) duration = plain.path("audio").path("duration").asLong(0);
+
+                // 根据 contentType 判定类型；contentType==0 时尝试根据 JSON 子节点名推断
+                String detectedType = detectMediaType(contentType, plain);
+                if ("IMAGE".equals(detectedType)) {
+                    entity.setMsgType("IMAGE");
+                    return mediaUrl.isEmpty() ? decodedText : mediaUrl;
+                }
+                if ("VIDEO".equals(detectedType)) {
+                    entity.setMsgType("VIDEO");
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(mediaUrl.isEmpty() ? decodedText : mediaUrl);
+                    if (!mediaPic.isEmpty()) sb.append("|poster=").append(mediaPic);
+                    if (duration > 0) sb.append("|duration=").append(duration);
+                    return sb.toString();
+                }
+                if ("AUDIO".equals(detectedType)) {
+                    entity.setMsgType("AUDIO");
+                    return mediaUrl.isEmpty() ? decodedText : mediaUrl + (duration > 0 ? "|duration=" + duration : "");
+                }
+                if ("FILE".equals(detectedType)) {
+                    entity.setMsgType("FILE");
+                    return mediaUrl.isEmpty() ? decodedText : mediaUrl;
+                }
+
+                // 兜底：尝试 text.text
+                String text = plain.path("text").path("text").asText("");
+                if (!text.isEmpty()) {
+                    entity.setMsgType("TEXT");
+                    return text;
+                }
+                // 解码后没有可用字段，保留原始 base64 解码结果（便于排障）
+                return decodedText;
+            } catch (Exception e) {
+                // base64 解码或 JSON 解析失败：保留原始 custom.data 文本，避免丢消息
+                return content.path("custom").path("data").asText("");
+            }
+        }
+
+        // 2. 直接 text 字段（非 custom 封装）
+        if (content.has("text")) {
+            entity.setMsgType("TEXT");
+            return content.path("text").asText("");
+        }
+        if (content.has("body") && content.path("body").has("text")) {
+            entity.setMsgType("TEXT");
+            return content.path("body").path("text").asText("");
+        }
+
+        // 3. 系统提醒类消息（订单提醒、加购提醒等）：取 extension.reminderContent / summary
+        String reminder = firstText(extension, "reminderContent", "summary", "content", "reminderTitle");
+        if (!reminder.isEmpty()) {
+            entity.setMsgType("SYSTEM");
+            return reminder;
+        }
+
+        // 4. 完全无内容时，存 contentType 元信息便于排障
+        return content.asText("");
+    }
+
+    /** 根据 contentType 和 JSON 子节点名推断媒体类型 */
+    private String detectMediaType(int contentType, JsonNode plain) {
+        // 闲鱼已知 contentType：1=文本, 2=图片, 3=语音, 4=视频, 5=文件, 101=系统/卡片
+        switch (contentType) {
+            case 2: return "IMAGE";
+            case 3: return "AUDIO";
+            case 4: return "VIDEO";
+            case 5: return "FILE";
+            case 1: return "TEXT";
+            default: break;
+        }
+        // contentType 未知时根据 JSON 子节点名推断
+        if (plain.has("image")) return "IMAGE";
+        if (plain.has("video")) return "VIDEO";
+        if (plain.has("audio")) return "AUDIO";
+        if (plain.has("file")) return "FILE";
+        return "TEXT";
     }
 
     /**
@@ -722,11 +926,16 @@ public class MessageService {
         if (sendResp == null) {
             throw new IllegalStateException("sendMessage returned null");
         }
+        // 异步帧立即返回合成 ack（code=200, async=true），发送是否真正成功要靠
+        // pushListener 监听 sendByReceiverScope 回执或买家侧确认。
+        // 这里只要 WSS 写出没抛异常就认为「已发出」，落本地 OUTGOING 记录。
 
         // 构造本地落库记录
         XianyuMessage msg = new XianyuMessage();
         msg.setAccountId(request.getAccountId());
         msg.setSessionId(request.getSessionId());
+        // 生成客户端 msgId（与闲鱼服务端 msgId 不同），避免与 pushListener 拉回的消息冲突
+        msg.setMsgId("local-out-" + System.currentTimeMillis() + "-" + request.getAccountId());
         msg.setContent(request.getContent());
         msg.setMsgType("TEXT");
         msg.setDirection("OUTGOING");

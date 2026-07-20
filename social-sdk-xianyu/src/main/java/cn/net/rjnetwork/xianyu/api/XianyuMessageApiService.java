@@ -33,6 +33,15 @@ public class XianyuMessageApiService {
     }
 
     /**
+     * 取得（必要时建立）IM 长连接客户端。
+     * <p>供外部挂推送监听器（{@code addPushListener}）使用，让实时帧直接落库。</p>
+     */
+    public XianyuImAccsClient getAccsClient() throws Exception {
+        ensureAccs();
+        return accsClient;
+    }
+
+    /**
      * 获取当前登录用户 id — mtop.taobao.idlemessage.pc.loginuser.get
      * <p>返回 data.userId（数字形式闲鱼 uid）</p>
      */
@@ -171,7 +180,7 @@ public class XianyuMessageApiService {
         Map<String, Object> recv = new LinkedHashMap<>();
         recv.put("actualReceivers", receivers);
 
-        return accsClient.sendFrame("/r/MessageSend/sendByReceiverScope", new Object[]{msg, recv});
+        return accsClient.sendFrameAsync("/r/MessageSend/sendByReceiverScope", new Object[]{msg, recv});
     }
 
     /**

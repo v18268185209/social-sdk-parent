@@ -417,8 +417,25 @@ public class XianyuImAccsClient {
 
     /**
      * 发送 LWP 业务帧（如 /r/Conversation/listNewestPagination、/r/MessageManager/listUserMessages）。
+     * <p>同步 RPC 模式：等服务端 echo 回 mid 的回帧（8 秒超时）。</p>
+     * <p><b>注意</b>：异步业务帧（如 {@code /r/MessageSend/sendByReceiverScope}）服务端
+     * 不 echo mid，调用此方法会 8 秒后超时。这类帧应改用
+     * {@link #sendFrameAsync(String, Object)} 或在 {@link #sendFrame(String, Object, boolean)}
+     * 中传 {@code async=true}。</p>
      */
     public JsonNode sendFrame(String lwp, Object body) throws Exception {
+        return sendFrame(lwp, body, false);
+    }
+
+    /**
+     * 发送 LWP 业务帧，可选择同步等回帧或异步 fire-and-forget。
+     *
+     * @param lwp   LWP 路径
+     * @param body  帧体
+     * @param async true=异步业务帧，发送完立即返回 ack 帧（不等服务端 echo mid）；
+     *              false=同步 RPC，等 echo mid 回帧（8 秒超时）
+     */
+    public JsonNode sendFrame(String lwp, Object body, boolean async) throws Exception {
         ensureConnected();
         String mid = nextMid();
         Map<String, Object> frame = new LinkedHashMap<>();
@@ -436,6 +453,21 @@ public class XianyuImAccsClient {
         frame.put("body", body);
 
         String json = MAPPER.writeValueAsString(frame);
+
+        if (async) {
+            // 异步业务帧：发送完立即返回一个代表「已发出」的合成响应。
+            // 真实回帧（如 sendByReceiverScope 的 ack）通过 pushListeners 推送给订阅者。
+            writeFrame(json);
+            System.err.println("[IM-WSS] send ASYNC frame lwp=" + lwp + " mid=" + mid);
+            Map<String, Object> resp = new LinkedHashMap<>();
+            resp.put("code", 200);
+            resp.put("lwp", lwp);
+            resp.put("mid", mid);
+            resp.put("async", true);
+            return MAPPER.valueToTree(resp);
+        }
+
+        // 同步 RPC：等 echo mid 回帧
         CompletableFuture<JsonNode> future = new CompletableFuture<>();
         pending.put(mid, future);
 
@@ -448,6 +480,14 @@ public class XianyuImAccsClient {
             pending.remove(mid);
             throw new IllegalStateException("IM WSS frame timeout, lwp=" + lwp, e);
         }
+    }
+
+    /**
+     * 异步发送 LWP 业务帧（fire-and-forget）。
+     * <p>适用于 {@code /r/MessageSend/sendByReceiverScope} 这类服务端不 echo mid 的帧。</p>
+     */
+    public JsonNode sendFrameAsync(String lwp, Object body) throws Exception {
+        return sendFrame(lwp, body, true);
     }
 
     /**
