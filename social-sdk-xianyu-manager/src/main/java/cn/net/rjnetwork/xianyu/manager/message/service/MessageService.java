@@ -27,6 +27,8 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Service
 public class MessageService {
@@ -39,6 +41,7 @@ public class MessageService {
     private final ApplicationEventPublisher eventPublisher;
     private final AccountMapper accountMapper;
     private final XianyuCaptchaSolver captchaSolver;
+    private final Map<Long, ReentrantLock> accountSyncLocks = new ConcurrentHashMap<>();
 
     public MessageService(MessageMapper messageMapper, RuleService ruleService,
                           ApplicationEventPublisher eventPublisher, AccountMapper accountMapper,
@@ -103,7 +106,7 @@ public class MessageService {
             if (acc == null || acc.getCookieHeader() == null || acc.getCookieHeader().isBlank()) return;
             List<XianyuMessage> local = messageMapper.selectBySession(accountId, sessionId, 1);
             if (local != null && !local.isEmpty()) return;
-            pullHistoryInternal(acc, sessionId, limit);
+            pullHistoryInternal(acc, sessionId, limit, true);
         } catch (Exception e) {
             log.warn("[MESSAGE] pullHistoryIfEmpty failed: accountId={}, sessionId={}", accountId, sessionId, e);
         }
@@ -136,7 +139,7 @@ public class MessageService {
         for (XianyuAccount acc : accounts) {
             if (acc.getCookieHeader() == null || acc.getCookieHeader().isBlank()) continue;
             try {
-                pullMessages(acc);
+                pullMessages(acc, false, false);
             } catch (Exception e) {
                 log.warn("[MESSAGE] syncAllAccounts failed for account {}: {}", acc.getId(), e.getMessage());
             }
@@ -162,7 +165,15 @@ public class MessageService {
             throw new IllegalStateException("Account has no cookie, please re-login: " + accountId);
         }
         try {
-            pullMessages(acc);
+            // 如果已经保存过 IM 消息页 cookie，手动同步优先只用该 cookie 闭环，失败时不要再次自动打开验证码页；
+            // 否则用户刚人工过完滑块后，一次同步失败会立刻把 CDP 页面又带回滑块。
+            boolean hasImCookie = acc.getImCookieHeader() != null && !acc.getImCookieHeader().isBlank();
+            boolean ok = pullMessages(acc, true, !hasImCookie);
+            if (!ok) {
+                throw new IllegalStateException(hasImCookie
+                        ? "IM 同步失败：已使用 imCookieHeader 但仍被风控或接口失败，请重新完成消息页验证后重试"
+                        : "IM 同步失败：可能仍被风控拦截，请完成滑块验证后重试");
+            }
         } catch (Exception e) {
             log.warn("[MESSAGE] syncSingleAccount failed for account {}: {}", accountId, e.getMessage());
             throw new IllegalStateException("Sync failed: " + e.getMessage(), e);
@@ -194,27 +205,47 @@ public class MessageService {
      * 轮询方式拉取消息。
      * 先通过 WSS 获取会话列表，再逐条拉历史消息。
      */
-    public void pullMessages(XianyuAccount acc) throws Exception {
+    public boolean pullMessages(XianyuAccount acc) throws Exception {
+        return pullMessages(acc, true, true);
+    }
+
+    private boolean pullMessages(XianyuAccount acc, boolean waitForLock, boolean allowCaptcha) throws Exception {
+        ReentrantLock lock = accountSyncLocks.computeIfAbsent(acc.getId(), id -> new ReentrantLock());
+        boolean locked;
+        if (waitForLock) {
+            lock.lock();
+            locked = true;
+        } else {
+            locked = lock.tryLock();
+        }
+        if (!locked) {
+            log.info("[MESSAGE] account {} sync already running, skip scheduled pull", acc.getId());
+            return true;
+        }
+        try {
+            return pullMessagesLocked(acc, allowCaptcha);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private boolean pullMessagesLocked(XianyuAccount acc, boolean allowCaptcha) throws Exception {
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(acc.getCookieHeader());
         // 传递 IM/滑块验证 cookie（x5sec 等），与登录 cookie 合并用于 IM 连接
         if (acc.getImCookieHeader() != null && !acc.getImCookieHeader().isBlank()) {
             mtopClient.setImCookieHeader(acc.getImCookieHeader());
         }
-        XianyuMessageApiService msgApi = new XianyuMessageApiService(mtopClient);
 
-        // 1. 先拿 IM accessToken / 建立长连接，才能拉真实历史
-        try {
-            pullHistoryInternal(acc, null, 50);
-        } catch (Exception e) {
-            log.warn("[MESSAGE] IM history pull failed for account {}: {}", acc.getId(), e.getMessage());
-        }
+        // 先拿 IM accessToken / 建立长连接，才能拉真实历史
+        boolean ok = pullHistoryInternal(acc, null, 50, allowCaptcha);
 
         // mtop.taobao.idlemessage.pc.session.sync 当前返回 FAIL_SYS_API_NOT_FOUNDED，
         // 会话与历史统一走 IM WSS /r/Conversation/listNewestPagination + /r/MessageManager/listUserMessages。
+        return ok;
     }
 
     /** 通过 IM 长连接拉取指定会话或全量历史 */
-    private void pullHistoryInternal(XianyuAccount acc, String targetCid, int limit) throws Exception {
+    private boolean pullHistoryInternal(XianyuAccount acc, String targetCid, int limit, boolean allowCaptcha) throws Exception {
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(acc.getCookieHeader());
         if (acc.getImCookieHeader() != null && !acc.getImCookieHeader().isBlank()) {
             mtopClient.setImCookieHeader(acc.getImCookieHeader());
@@ -225,37 +256,60 @@ public class MessageService {
             if (targetCid != null && !targetCid.isEmpty()) {
                 // 单会话拉取
                 JsonNode historyData = msgApi.getMessageHistory(normalizeCid(targetCid), Math.max(1, limit));
+                if (isLwpError(historyData)) return false;
                 saveMessagesFromHistoryResponse(acc.getId(), historyData, normalizeCid(targetCid));
-                return;
+                return true;
             }
 
             // 全量拉取：先获取会话列表，再逐条拉历史
             JsonNode convList = msgApi.getConversationList(limit > 0 ? limit : 50);
             if (convList == null) {
                 log.warn("[MESSAGE] getConversationList returned null");
-                return;
+                return false;
+            }
+            if (isLwpError(convList)) {
+                log.warn("[MESSAGE] conversation list lwp error, resp={}", truncate(convList.toString(), 2000));
+                if (isRiskControlText(convList.toString())) {
+                    return allowCaptcha && solveCaptchaAndRetry(acc, mtopClient, convList.toString());
+                }
+                return false;
             }
             List<JsonNode> conversations = extractArrayNodes(convList, "userConvs", "conversations", "conversationList", "sessions", "list");
             if (conversations.isEmpty()) {
-                log.warn("[MESSAGE] conversation list empty, keys={}, resp={}", fieldNames(convList), truncate(convList.toString(), 2000));
-                return;
+                log.info("[MESSAGE] conversation list empty, keys={}, resp={}", fieldNames(convList), truncate(convList.toString(), 2000));
+                return true;
             }
             log.info("[MESSAGE] found {} conversations", conversations.size());
 
+            int historySuccess = 0;
+            int historyFailure = 0;
             for (JsonNode conv : conversations) {
                 String cid = extractConversationId(conv);
                 if (cid.isEmpty()) {
                     log.warn("[MESSAGE] cannot find cid from conv: {}", truncate(conv.toString(), 1000));
+                    historyFailure++;
                     continue;
                 }
                 try {
                     String normalizedCid = normalizeCid(cid);
                     JsonNode historyData = msgApi.getMessageHistory(normalizedCid, 20);
+                    if (isLwpError(historyData)) {
+                        log.warn("[MESSAGE] history lwp error for cid={}, resp={}", cid, truncate(String.valueOf(historyData), 1000));
+                        historyFailure++;
+                        continue;
+                    }
                     saveMessagesFromHistoryResponse(acc.getId(), historyData, normalizedCid);
+                    historySuccess++;
                 } catch (Exception e) {
+                    historyFailure++;
                     log.warn("[MESSAGE] failed to pull history for cid={}: {}", cid, e.getMessage());
                 }
             }
+            if (historySuccess == 0 && historyFailure > 0) {
+                log.warn("[MESSAGE] all conversation histories failed, conversations={}", conversations.size());
+                return false;
+            }
+            return true;
         } catch (Exception e) {
             log.warn("[MESSAGE] full history pull failed for account {}: {}", acc.getId(), e.getMessage());
             
@@ -263,17 +317,21 @@ public class MessageService {
             String errorMessage = e.getMessage();
             if (errorMessage != null && (errorMessage.contains("FAIL_SYS_USER_VALIDATE") || 
                 errorMessage.contains("punish") || errorMessage.contains("captcha"))) {
-                
+                if (!allowCaptcha) {
+                    log.info("[MESSAGE] risk control detected during scheduled pull, skip captcha solving for account {}", acc.getId());
+                    return false;
+                }
                 log.warn("[MESSAGE] Risk control detected! Attempting automatic slider captcha...");
-                solveCaptchaAndRetry(acc, mtopClient, errorMessage);
+                return solveCaptchaAndRetry(acc, mtopClient, errorMessage);
             }
+            return false;
         }
     }
 
     /**
      * 自动解决滑块验证码并刷新 cookie
      */
-    private void solveCaptchaAndRetry(XianyuAccount acc, XianyuMtopApiClient mtopClient, String exceptionMessage) {
+    private boolean solveCaptchaAndRetry(XianyuAccount acc, XianyuMtopApiClient mtopClient, String exceptionMessage) {
         try {
             // 风控信息可能出现在：1.MTOP lastErrorResponse；2.当前异常消息本身（LWP/WebSocket层）
             String rawError = mtopClient.getLastErrorResponse();
@@ -291,7 +349,7 @@ public class MessageService {
 
             if (url == null || url.isEmpty()) {
                 log.warn("[MESSAGE] No punish URL found in error");
-                return;
+                return false;
             }
 
             log.info("[CDP-AUTH] Punish URL: {}", truncate(url, 250));
@@ -307,15 +365,17 @@ public class MessageService {
                 log.info("[MESSAGE] Saved IM cookie (x5sec etc.) to imCookieHeader, login cookie preserved. imCookie={}",
                         truncate(result.getNewCookie(), 200));
 
-                // 重新同步消息
-                log.info("[MESSAGE] Retrying message sync with new cookie...");
-                pullMessages(acc);
+                // 重新同步消息：已拿到新的 IM cookie 后只验证消息链路，不要在重试失败时再次打开验证码页，避免循环拉起滑块。
+                log.info("[MESSAGE] Retrying message sync with new IM cookie (captcha disabled for retry)...");
+                return pullMessages(acc, true, false);
 
             } else {
                 log.error("[MESSAGE] Slider captcha failed: {}", result.getError());
+                return false;
             }
         } catch (Exception e) {
             log.error("[MESSAGE] Failed to solve captcha and retry: {}", e.getMessage(), e);
+            return false;
         }
     }
 
@@ -426,6 +486,28 @@ public class MessageService {
             }
         }
         return result;
+    }
+
+    private boolean isLwpError(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) return true;
+        JsonNode code = node.path("code");
+        return !code.isMissingNode() && code.asInt(200) >= 400;
+    }
+
+    /**
+     * 判断 LWP / MTOP 响应文本是否含闲鱼风控关键字。
+     * 用于在 WSS 业务帧返回 code>=400 时决定是否触发自动滑块。
+     * 关键字覆盖：FAIL_SYS_USER_VALIDATE / punish / captcha / x5sec / 安全拦截 / 验证码。
+     */
+    private boolean isRiskControlText(String text) {
+        if (text == null || text.isEmpty()) return false;
+        String lower = text.toLowerCase();
+        return text.contains("FAIL_SYS_USER_VALIDATE")
+                || text.contains("punish")
+                || text.contains("captcha")
+                || lower.contains("x5sec")
+                || text.contains("验证")
+                || text.contains("拦截");
     }
 
     private List<String> fieldNames(JsonNode node) {

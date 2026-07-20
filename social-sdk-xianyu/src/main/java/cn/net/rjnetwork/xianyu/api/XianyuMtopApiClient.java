@@ -154,7 +154,7 @@ public class XianyuMtopApiClient {
 
         try {
             XianyuMtopRequestBuilder builder = new XianyuMtopRequestBuilder(api)
-                    .setCookie(cookie)
+                    .setCookie(getMergedCookie())
                     .setVersion(v)
                     .setDataJson(dataJson != null ? dataJson : "{}");
 
@@ -169,7 +169,7 @@ public class XianyuMtopApiClient {
                 tokenPrimed = false;
                 primeTokenIfNeeded();
                 XianyuMtopRequestBuilder retry = new XianyuMtopRequestBuilder(api)
-                        .setCookie(cookie)
+                        .setCookie(getMergedCookie())
                         .setVersion(v)
                         .setDataJson(dataJson != null ? dataJson : "{}");
                 JsonNode retryResp = send(retry.buildUrl(), "POST", retry.buildPostBody());
@@ -192,7 +192,7 @@ public class XianyuMtopApiClient {
             for (Map.Entry<String, String> e : baseHeaders.entrySet()) {
                 builder.header(e.getKey(), e.getValue());
             }
-            builder.header("Cookie", cookie != null ? cookie : "");
+            builder.header("Cookie", getMergedCookie());
 
             if ("GET".equals(method)) {
                 builder.GET();
@@ -249,7 +249,7 @@ public class XianyuMtopApiClient {
             String dataJson = "{\"bizScene\":\"home\"}";
             XianyuMtopRequestBuilder builder = new XianyuMtopRequestBuilder(
                     "mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get")
-                    .setCookie(cookie != null ? cookie : "")
+                    .setCookie(getMergedCookie())
                     .setDataJson(dataJson);
             String url = builder.buildUrl();
             String body = builder.buildPostBody();
@@ -260,7 +260,7 @@ public class XianyuMtopApiClient {
             for (Map.Entry<String, String> e : baseHeaders.entrySet()) {
                 rb.header(e.getKey(), e.getValue());
             }
-            rb.header("Cookie", cookie != null ? cookie : "")
+            rb.header("Cookie", getMergedCookie())
                     .header("Content-Type", "application/x-www-form-urlencoded")
                     .POST(HttpRequest.BodyPublishers.ofString(body));
 

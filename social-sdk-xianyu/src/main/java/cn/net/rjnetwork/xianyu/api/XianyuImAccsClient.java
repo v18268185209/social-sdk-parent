@@ -59,6 +59,8 @@ public class XianyuImAccsClient {
     private volatile boolean connected = false;
     private Thread readThread;
     private volatile String deviceId;
+    private volatile String accessToken;
+    private volatile String sessionId;
 
     public XianyuImAccsClient(XianyuMtopApiClient apiClient) {
         this.apiClient = apiClient;
@@ -82,17 +84,18 @@ public class XianyuImAccsClient {
         ));
         JsonNode tokenResp = apiClient.callMtop("mtop.taobao.idlemessage.pc.login.token", tokenReqData);
         JsonNode data = tokenResp != null ? tokenResp.path("data") : null;
-        String accessToken = "";
+        String fetchedToken = "";
         if (data != null) {
-            accessToken = data.path("accessToken").asText("");
-            if (accessToken.isEmpty()) accessToken = data.path("access_token").asText("");
-            if (accessToken.isEmpty()) accessToken = data.path("token").asText("");
-            if (accessToken.isEmpty()) accessToken = data.path("tk").asText("");
+            fetchedToken = data.path("accessToken").asText("");
+            if (fetchedToken.isEmpty()) fetchedToken = data.path("access_token").asText("");
+            if (fetchedToken.isEmpty()) fetchedToken = data.path("token").asText("");
+            if (fetchedToken.isEmpty()) fetchedToken = data.path("tk").asText("");
         }
-        if (accessToken.isEmpty()) {
+        if (fetchedToken.isEmpty()) {
             throw new IllegalStateException("Failed to fetch IM accessToken via pc.login.token, resp=" + tokenResp);
         }
-        System.err.println("[IM-WSS] got accessToken len=" + accessToken.length());
+        this.accessToken = fetchedToken;
+        System.err.println("[IM-WSS] got accessToken len=" + fetchedToken.length());
 
         // 2. TLS 直连
         SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
@@ -110,7 +113,7 @@ public class XianyuImAccsClient {
         connected = true;
 
         // 5. 发送 /reg 注册帧（同步等待回帧确认注册成功）
-        sendRegFrame(accessToken);
+        sendRegFrame(fetchedToken);
 
         // 6. 注册后必须同步并确认 sync 状态，否则业务 LWP 容易返回 code=400
         initializeSyncState();
@@ -303,6 +306,10 @@ public class XianyuImAccsClient {
         try {
             JsonNode json = MAPPER.readTree(text);
             String mid = json.path("headers").path("mid").asText("");
+            String sid = json.path("headers").path("sid").asText("");
+            if (!sid.isEmpty()) {
+                this.sessionId = sid;
+            }
             ackFrame(json, mid);
 
             // 1. mid 匹配的同步回帧
@@ -316,7 +323,7 @@ public class XianyuImAccsClient {
 
             // 2. 推送帧（无 mid 或 mid 未匹配）
             String lwp = json.path("lwp").asText("");
-            System.err.println("[IM-WSS] push frame lwp=" + lwp + " mid=" + mid);
+            System.err.println("[IM-WSS] push frame lwp=" + lwp + " mid=" + mid + " payload=" + truncate(text, 1200));
             for (Consumer<JsonNode> listener : pushListeners.values()) {
                 try {
                     listener.accept(json);
@@ -336,18 +343,19 @@ public class XianyuImAccsClient {
         Map<String, Object> regMsg = new LinkedHashMap<>();
         regMsg.put("lwp", "/reg");
         Map<String, String> headers = new LinkedHashMap<>();
-        headers.put("cache-header", "app-key token ua wv");
+        headers.put("cache-header", "app-key token ua dt did wv sync");
         headers.put("app-key", APP_KEY);
         headers.put("token", accessToken);
         headers.put("ua", UA);
         headers.put("dt", "j");
+        headers.put("did", deviceId != null && !deviceId.isEmpty() ? deviceId : generateDeviceId(extractUserIdFromCookie()));
         headers.put("wv", "im:3,au:3,sy:6");
         headers.put("sync", "0,0;0;0;");
-        headers.put("did", deviceId != null && !deviceId.isEmpty() ? deviceId : generateDeviceId(extractUserIdFromCookie()));
         String frameId = nextMid();
         headers.put("mid", frameId);
         regMsg.put("headers", headers);
-        regMsg.put("body", new LinkedHashMap<>());
+        // /reg 注册帧真实实现不带 body；带空 JSON body 会被 LWPFramework 判为
+        // "serialization error as dataType (j)" 并返回 code=400。
 
         CompletableFuture<JsonNode> future = new CompletableFuture<>();
         pending.put(frameId, future);
@@ -356,7 +364,11 @@ public class XianyuImAccsClient {
 
         try {
             JsonNode resp = future.get(10, TimeUnit.SECONDS);
-            System.err.println("[IM-WSS] /reg response received: " + resp.path("ret").path(0).asText("ok"));
+            int code = resp.path("code").asInt(200);
+            System.err.println("[IM-WSS] /reg response received: code=" + code + " resp=" + truncate(resp.toString(), 1200));
+            if (code >= 400) {
+                throw new IllegalStateException("IM /reg failed, resp=" + resp);
+            }
         } catch (Exception e) {
             pending.remove(frameId);
             throw new IllegalStateException("IM /reg timeout", e);
@@ -411,7 +423,16 @@ public class XianyuImAccsClient {
         String mid = nextMid();
         Map<String, Object> frame = new LinkedHashMap<>();
         frame.put("lwp", lwp);
-        frame.put("headers", Map.of("mid", mid));
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("cache-header", "app-key token ua dt did sid");
+        headers.put("mid", mid);
+        headers.put("app-key", APP_KEY);
+        if (accessToken != null && !accessToken.isEmpty()) headers.put("token", accessToken);
+        headers.put("ua", UA);
+        headers.put("dt", "j");
+        if (deviceId != null && !deviceId.isEmpty()) headers.put("did", deviceId);
+        if (sessionId != null && !sessionId.isEmpty()) headers.put("sid", sessionId);
+        frame.put("headers", headers);
         frame.put("body", body);
 
         String json = MAPPER.writeValueAsString(frame);
@@ -508,6 +529,11 @@ public class XianyuImAccsClient {
     private String nextMid() {
         int randomPart = RANDOM.nextInt(1000);
         return String.valueOf(randomPart) + System.currentTimeMillis() + " 0";
+    }
+
+    private String truncate(String text, int maxLen) {
+        if (text == null) return "";
+        return text.length() <= maxLen ? text : text.substring(0, maxLen) + "...";
     }
 
     private String generateDeviceId(String userId) {

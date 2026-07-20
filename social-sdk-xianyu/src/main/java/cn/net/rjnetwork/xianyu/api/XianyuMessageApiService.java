@@ -84,12 +84,29 @@ public class XianyuMessageApiService {
      */
     public JsonNode getConversationList(int limit) throws Exception {
         ensureAccs();
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("startTimeStamp", 9007199254740991L); // Number.MAX_SAFE_INTEGER
-        params.put("limitNum", Math.max(1, Math.min(limit, 100)));
-        JsonNode resp = accsClient.sendFrame("/r/Conversation/listNewestPagination", new Object[]{params});
+        int pageSize = Math.max(1, Math.min(limit, 100));
+        long now = System.currentTimeMillis();
+
+        // 闲鱼 IM 当前实现对 startTimeStamp 边界很敏感：真实页面首次分页用当前毫秒时间戳，
+        // 过大的 Number.MAX_SAFE_INTEGER 会导致 WSS 业务层直接返回 code=400。
+        JsonNode resp = accsClient.sendFrame("/r/Conversation/listNewestPagination", new Object[]{now, pageSize});
+        if (isLwpBadRequest(resp)) {
+            log.warn("[MESSAGE] conversation list with [now, limit] returned code=400, retry with object body");
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("startTimeStamp", now);
+            body.put("limitNum", pageSize);
+            resp = accsClient.sendFrame("/r/Conversation/listNewestPagination", body);
+        }
+        if (isLwpBadRequest(resp)) {
+            log.warn("[MESSAGE] conversation list object body returned code=400, retry with max timestamp array");
+            resp = accsClient.sendFrame("/r/Conversation/listNewestPagination", new Object[]{9007199254740991L, pageSize});
+        }
         log.info("[MESSAGE] conversation list response: {}", resp != null ? resp.toString() : "null");
         return resp;
+    }
+
+    private boolean isLwpBadRequest(JsonNode resp) {
+        return resp != null && resp.path("code").asInt(200) == 400;
     }
 
     /**

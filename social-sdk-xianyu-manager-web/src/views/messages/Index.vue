@@ -225,11 +225,10 @@ async function handleSyncNow() {
 }
 
 const openCaptchaPage = () => {
-  // 打开新窗口到闲鱼主页，让用户手动完成滑块验证
-  const url = window.location.origin.replace(':3000', ':9333') + '/json'
-  window.open(url, '_blank')
+  // 打开真实闲鱼 IM 页触发同域登录/滑块；CDP 调试端口不是验证码页面，不能打开 /json。
+  window.open('https://www.goofish.com/im', '_blank')
   captchaOpened.value = true
-  ElMessage.info('请在浏览器中完成滑块验证')
+  ElMessage.info('请在新窗口完成闲鱼滑块验证后，再点击同步消息')
 }
 
 function onEnterKey(e) {
