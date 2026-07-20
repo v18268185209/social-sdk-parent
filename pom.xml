@@ -17,6 +17,7 @@
         <module>social-sdk-xianyu</module>
         <module>social-sdk-spring-boot-starter</module>
         <module>social-sdk-cdp-auth</module>
+        <module>social-sdk-proxys</module>
         <module>social-sdk-xianyu-manager</module>
     </modules>
 

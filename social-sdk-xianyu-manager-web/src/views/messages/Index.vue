@@ -1,118 +1,129 @@
 <template>
-  <div class="message-container">
-    <!-- 顶部栏：选择账号 + 同步按钮 -->
-    <el-card shadow="never" style="margin-bottom: 12px;">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div style="display: flex; gap: 12px; align-items: center;">
-          <span style="font-weight: 600;">消息管理</span>
-          <el-select v-model="selectedAccount" placeholder="选择账号" @change="onAccountChange" style="width: 200px;">
-            <el-option v-for="a in accounts" :key="a.id" :label="a.accountName || a.displayName" :value="a.id" />
-          </el-select>
-          <el-button type="primary" size="small" :loading="syncing" @click="handleSyncNow">
-            同步消息
-          </el-button>
-          <el-tag v-if="syncMsg" size="small" :type="syncMsg.includes('成功') ? 'success' : (syncMsg.includes('中') ? 'info' : 'error')" effect="plain">
-            {{ syncMsg }}
-          </el-tag>
-          <el-tag v-if="selectedAccount" size="small" type="success" effect="plain" style="min-width: 110px; justify-content: center;">
-            <el-icon style="margin-right: 4px;"><Loading /></el-icon>
-            实时监听 {{ countdown }}s
-          </el-tag>
-          <el-button type="warning" size="small" @click="openCaptchaPage" v-if="accounts.length > 0">
-            打开滑块验证
-          </el-button>
-        </div>
-      </div>
-    </el-card>
+  <!-- 顶部工具栏：账号、同步按钮始终可见 -->
+  <div class="top-toolbar">
+    <el-select v-model="selectedAccount" placeholder="选择账号" @change="onAccountChange" style="width: 180px;" size="default">
+      <el-option v-for="a in accounts" :key="a.id" :label="a.accountName || a.displayName" :value="a.id" />
+    </el-select>
+    <el-button type="primary" :loading="syncing" @click="handleSyncNow">
+      {{ syncing ? '同步中...' : '同步消息' }}
+    </el-button>
+    <el-tag v-if="selectedAccount" type="success" effect="plain" class="countdown-tag">
+      <el-icon><Loading /></el-icon>
+      {{ countdown }}s
+    </el-tag>
+  </div>
 
-    <el-row :gutter="12" style="height: calc(100vh - 220px);">
+  <div class="message-container">
+    <el-row :gutter="0" class="chat-row">
       <!-- 左栏：会话列表 -->
-      <el-col :span="7">
-        <el-card shadow="never" class="session-list-card" body-style="padding: 0;">
-          <div style="padding: 12px 16px; border-bottom: 1px solid #f0f0f0; font-weight: 600;">会话列表</div>
-          <div v-if="sessions.length === 0" style="padding: 40px 16px; text-align: center; color: #999;">
-            暂无会话，请先选择账号并点击同步
+      <el-col :span="6">
+        <div class="session-list">
+          <div class="session-list-header">
+            <span class="title">会话列表</span>
+            <el-badge :value="unreadSet.size" :hidden="unreadSet.size === 0" />
           </div>
-          <div
-            v-for="s in sessions" :key="s.sessionId"
-            class="session-item"
-            :class="{ active: s.sessionId === selectedSession, unread: unreadSet.has(s.sessionId) }"
-            @click="selectSession(s)"
-          >
-            <el-badge :is-dot="unreadSet.has(s.sessionId)" class="session-badge-wrapper">
-              <el-avatar :size="40" :src="s.counterpartyAvatar || ''" class="session-avatar">
-                {{ avatarText(s.counterpartyName || s.counterpartyId) }}
-              </el-avatar>
-            </el-badge>
-            <div class="session-main">
-              <div class="session-header">
-                <strong>{{ s.counterpartyName || s.counterpartyId || '未知用户' }}</strong>
-                <span class="time">{{ formatTime(s.lastTime) }}</span>
-              </div>
-              <div class="session-last-msg" :class="{ mine: s.direction === 'OUTGOING', unread: unreadSet.has(s.sessionId) }">
-                {{ s.lastContent || '无消息' }}
+          <div class="session-search">
+            <el-input v-model="searchText" placeholder="搜索会话" size="small" clearable :prefix-icon="Search" />
+          </div>
+          <div class="session-list-body">
+            <div v-if="filteredSessions.length === 0" class="empty-tip">
+              暂无会话
+            </div>
+            <div
+              v-for="s in filteredSessions" :key="s.sessionId"
+              class="session-item"
+              :class="{ active: s.sessionId === selectedSession, unread: unreadSet.has(s.sessionId) }"
+              @click="selectSession(s)"
+            >
+              <el-badge :is-dot="unreadSet.has(s.sessionId)">
+                <el-avatar :size="44" :src="s.counterpartyAvatar || ''">
+                  {{ avatarText(s.counterpartyName || s.counterpartyId) }}
+                </el-avatar>
+              </el-badge>
+              <div class="session-info">
+                <div class="session-row-1">
+                  <span class="name">{{ s.counterpartyName || s.counterpartyId || '未知用户' }}</span>
+                  <span class="time">{{ formatTime(s.lastTime) }}</span>
+                </div>
+                <div class="session-row-2">
+                  <span class="last-msg">{{ s.lastContent || '无消息' }}</span>
+                </div>
               </div>
             </div>
           </div>
-        </el-card>
+        </div>
       </el-col>
 
       <!-- 右栏：聊天窗口 -->
-      <el-col :span="17">
-        <el-card shadow="never" class="chat-card">
-          <div style="padding: 12px 16px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 600;">{{ selectedSessionData.counterpartyName || (selectedSession || '未选择会话') }}</span>
+      <el-col :span="18">
+        <div class="chat-panel">
+          <!-- 聊天头部 -->
+          <div class="chat-header" v-if="selectedSession">
+            <div class="chat-title">
+              <span class="name">{{ selectedSessionData.counterpartyName || '未选择会话' }}</span>
+              <span class="status" v-if="selectedSessionData.lastTime">最后消息 {{ formatTime(selectedSessionData.lastTime) }}</span>
+            </div>
+          </div>
+          <div class="chat-header empty" v-else>
+            <span>请从左侧选择会话</span>
           </div>
 
+          <!-- 消息列表 -->
           <div ref="chatBoxRef" class="chat-messages">
-            <el-empty v-if="!selectedSession" description="请先选择一个会话" />
-            <template v-else>
+            <div v-if="!selectedSession" class="chat-empty">
+              <el-empty description="请先选择一个会话开始聊天" />
+            </div>
+            <div v-else class="messages-list">
               <div
                 v-for="msg in messages" :key="msg.id"
-                class="chat-bubble"
-                :class="{ outgoing: msg.direction === 'OUTGOING', incoming: msg.direction === 'INCOMING' }"
+                class="msg-wrapper"
+                :class="{ mine: msg.direction === 'OUTGOING' }"
               >
-                <div class="bubble-meta">
-                  <span class="sender">{{ msg.senderName || msg.senderId || (msg.direction === 'OUTGOING' ? '我' : '') }}</span>
-                  <span class="time" v-if="msg.messageTime">{{ formatTime(msg.messageTime.toString()) }}</span>
+                <div class="msg-time" v-if="msg.messageTime">
+                  <span>{{ formatTime(msg.messageTime.toString()) }}</span>
                 </div>
-                <div class="bubble-body">
-                  <template v-if="msg.msgType === 'IMAGE'">
-                    <img :src="msg.content" alt="图片" class="bubble-media" @click="openMedia(msg.content)" />
-                  </template>
-                  <template v-else-if="msg.msgType === 'VIDEO'">
-                    <video :src="msg.content" controls class="bubble-media" @click="openMedia(msg.content)"></video>
-                  </template>
-                  <template v-else>
-                    {{ msg.content || '[空消息]' }}
-                  </template>
+                <div class="msg-row">
+                  <el-avatar v-if="msg.direction === 'INCOMING'" :size="32">
+                    {{ avatarText(selectedSessionData.counterpartyName || '') }}
+                  </el-avatar>
+                  <div class="bubble">
+                    <div class="bubble-text" v-if="msg.msgType === 'TEXT'">{{ msg.content || '[空消息]' }}</div>
+                    <img v-else-if="msg.msgType === 'IMAGE'" :src="msg.content" alt="图片" class="bubble-img" @click="openMedia(msg.content)" />
+                    <video v-else-if="msg.msgType === 'VIDEO'" :src="msg.content" controls class="bubble-img"></video>
+                    <div class="bubble-text" v-else>{{ msg.content || '[空消息]' }}</div>
+                    <el-tag v-if="msg.autoReply" size="small" type="warning" effect="plain" class="auto-reply-tag">自动回复</el-tag>
+                  </div>
+                  <el-avatar v-if="msg.direction === 'OUTGOING'" :size="32">我</el-avatar>
                 </div>
-                <el-tag v-if="msg.autoReply" size="small" type="warning" effect="plain" style="margin-top: 4px;">自动回复</el-tag>
               </div>
-            </template>
+            </div>
           </div>
 
-          <div class="chat-input-bar">
+          <!-- 输入框 -->
+          <div class="chat-input">
             <el-input
               v-model="newMessage"
               type="textarea"
-              :rows="2"
+              :rows="3"
               placeholder="输入消息，按 Enter 发送（Shift+Enter 换行）"
               @keydown.enter.prevent="onEnterKey"
+              :disabled="!selectedSession"
             />
-            <el-button type="primary" :disabled="!newMessage.trim()" @click="handleSend">发送</el-button>
+            <div class="input-footer">
+              <span class="tip">Enter 发送 | Shift+Enter 换行</span>
+              <el-button type="primary" :disabled="!newMessage.trim() || !selectedSession" @click="handleSend">发送</el-button>
+            </div>
           </div>
-        </el-card>
+        </div>
       </el-col>
     </el-row>
-
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch, onUnmounted } from 'vue'
+import { ref, onMounted, nextTick, watch, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Loading } from '@element-plus/icons-vue'
+import { Loading, Search } from '@element-plus/icons-vue'
 import api from '@/api/request'
 
 const accounts = ref([])
@@ -123,13 +134,23 @@ const selectedSession = ref('')
 const newMessage = ref('')
 const syncing = ref(false)
 const chatBoxRef = ref(null)
-const previewMedia = ref('') // 点击放大预览的图片/视频 URL
+const searchText = ref('')
+
+// 搜索过滤会话
+const filteredSessions = computed(() => {
+  if (!searchText.value) return sessions.value
+  const kw = searchText.value.toLowerCase()
+  return sessions.value.filter(s =>
+    (s.counterpartyName || '').toLowerCase().includes(kw) ||
+    (s.counterpartyId || '').toLowerCase().includes(kw) ||
+    (s.lastContent || '').toLowerCase().includes(kw)
+  )
+})
 
 function openMedia(url) {
   if (url) window.open(url, '_blank')
 }
 const syncMsg = ref('')
-const captchaOpened = ref(false)
 
 const selectedSessionData = ref({ counterpartyName: '', lastContent: '' })
 
@@ -287,13 +308,6 @@ async function handleSyncNow() {
   }
 }
 
-const openCaptchaPage = () => {
-  // 打开真实闲鱼 IM 页触发同域登录/滑块；CDP 调试端口不是验证码页面，不能打开 /json。
-  window.open('https://www.goofish.com/im', '_blank')
-  captchaOpened.value = true
-  ElMessage.info('请在新窗口完成闲鱼滑块验证后，再点击同步消息')
-}
-
 function onEnterKey(e) {
   if (e.shiftKey) return // Shift+Enter 不换行（textarea 默认行为）
   handleSend()
@@ -369,134 +383,230 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.message-container {
-  height: calc(100vh - 80px);
-  overflow: hidden;
-}
-
-.session-list-card {
-  height: calc(100vh - 220px);
-  overflow-y: auto;
-}
-
-.session-item {
-  padding: 12px 16px;
-  cursor: pointer;
-  border-bottom: 1px solid #f0f0f0;
-  transition: background 0.15s;
+/* ==================== 顶部工具栏 ==================== */
+.top-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  padding: 12px 20px;
+  background: #fcfcfc;
+  border-bottom: 1px solid #e5e5e5;
 }
-.session-avatar {
-  flex-shrink: 0;
+.countdown-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
-.session-main {
-  min-width: 0;
-  flex: 1;
+
+.message-container {
+  height: calc(100vh - 80px - 56px);
+  overflow: hidden;
 }
-.session-item:hover {
-  background: #f5f7fa;
+.chat-row { height: 100%; }
+.chat-row .el-col { height: 100%; }
+
+/* ==================== 会话列表 ==================== */
+.session-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #f7f7f7;
+  border-right: 1px solid #e5e5e5;
 }
-.session-item.active {
-  background: #ecf5ff;
-}
-.session-header {
+.session-list-header {
+  padding: 16px;
+  font-weight: 600;
+  font-size: 16px;
+  border-bottom: 1px solid #e5e5e5;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
 }
-.time {
-  font-size: 12px;
+.session-search {
+  padding: 8px 12px;
+  background: #f7f7f7;
+  border-bottom: 1px solid #e5e5e5;
+}
+.session-list-body {
+  flex: 1;
+  overflow-y: auto;
+}
+.empty-tip {
+  text-align: center;
   color: #999;
-  white-space: nowrap;
-}
-.session-last-msg {
+  padding: 40px 0;
   font-size: 13px;
-  color: #666;
-  white-space: nowrap;
+}
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid #ececec;
+  transition: background 0.1s;
+}
+.session-item:hover { background: #ebebeb; }
+.session-item.active { background: #e0e0e0; }
+.unread .name { color: #e74c3c; font-weight: 600; }
+.unread .last-msg { color: #e74c3c; }
+.session-info {
+  flex: 1;
+  min-width: 0;
+}
+.session-row-1 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.name {
+  font-size: 14px;
+  color: #333;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
+  white-space: nowrap;
 }
-.session-last-msg.mine {
-  color: #999;
-  text-align: right;
-}
-/* 未读：名字加粗、摘要文字标红 */
-.session-item.unread .session-header strong {
-  color: #f56c6c;
-  font-weight: 700;
-}
-.session-last-msg.unread {
-  color: #f56c6c;
-  font-weight: 600;
-}
-.session-badge-wrapper {
+.session-row-1 .time {
+  font-size: 11px;
+  color: #b0b0b0;
   flex-shrink: 0;
+  margin-left: 8px;
+}
+.session-row-2 .last-msg {
+  font-size: 12px;
+  color: #999;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.chat-card {
-  height: calc(100vh - 220px);
+/* 底部账号选择 */
+.session-list-footer {
+  padding: 12px;
+  border-top: 1px solid #e5e5e5;
+  background: #f3f3f3;
   display: flex;
   flex-direction: column;
+  gap: 8px;
+}
+.footer-btns {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
+/* ==================== 聊天面板 ==================== */
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #f5f5f5;
+}
+.chat-header {
+  padding: 14px 20px;
+  background: #fcfcfc;
+  border-bottom: 1px solid #e5e5e5;
+}
+.chat-header.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 14px;
+  flex: 1;
+}
+.chat-title .name {
+  font-weight: 600;
+  font-size: 15px;
+}
+.chat-title .status {
+  font-size: 12px;
+  color: #999;
+  margin-left: 12px;
+}
+
+/* 消息列表 */
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: 16px 20px;
 }
-
-.chat-bubble {
-  max-width: 70%;
-  margin-bottom: 12px;
-}
-.chat-bubble.outgoing {
-  margin-left: auto;
-}
-.chat-bubble.incoming {
-  margin-right: auto;
-}
-.bubble-meta {
+.chat-empty {
+  height: 100%;
   display: flex;
-  gap: 8px;
-  font-size: 12px;
-  color: #999;
-  margin-bottom: 4px;
+  align-items: center;
+  justify-content: center;
 }
-.bubble-body {
+.messages-list {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.msg-wrapper {
+  margin-bottom: 16px;
+}
+.msg-time {
+  text-align: center;
+  font-size: 11px;
+  color: #b0b0b0;
+  margin-bottom: 8px;
+}
+.msg-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.msg-wrapper.mine .msg-row {
+  flex-direction: row-reverse;
+}
+.bubble {
+  max-width: 65%;
   padding: 10px 14px;
-  border-radius: 12px;
-  line-height: 1.5;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.6;
   word-break: break-word;
 }
-.chat-bubble.incoming .bubble-body {
-  background: #f0f0f0;
+.msg-wrapper:not(.mine) .bubble {
+  background: #fff;
   color: #333;
+  border-top-left-radius: 0;
 }
-.chat-bubble.outgoing .bubble-body {
-  background: #409eff;
-  color: #fff;
-  margin-left: auto;
+.msg-wrapper.mine .bubble {
+  background: #95ec69;
+  color: #333;
+  border-top-right-radius: 0;
 }
-.bubble-media {
-  max-width: 120px;
-  max-height: 120px;
-  border-radius: 6px;
-  display: block;
+.bubble-text {
+  white-space: pre-wrap;
+}
+.bubble-img {
+  max-width: 140px;
+  max-height: 140px;
+  border-radius: 4px;
   cursor: zoom-in;
+  display: block;
+}
+.auto-reply-tag {
+  margin-top: 4px;
 }
 
-.chat-input-bar {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #eee;
+/* 输入框 */
+.chat-input {
+  padding: 12px 16px;
+  border-top: 1px solid #e5e5e5;
+  background: #fcfcfc;
 }
-.chat-input-bar .el-button {
-  flex-shrink: 0;
+.input-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+.input-footer .tip {
+  font-size: 11px;
+  color: #b0b0b0;
 }
 </style>

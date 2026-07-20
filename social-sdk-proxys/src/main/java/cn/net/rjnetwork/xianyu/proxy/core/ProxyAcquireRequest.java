@@ -1,5 +1,6 @@
 package cn.net.rjnetwork.xianyu.proxy.core;
 
+import cn.net.rjnetwork.xianyu.proxy.config.ProxyInfo;
 import cn.net.rjnetwork.xianyu.proxy.config.ProxyType;
 import cn.net.rjnetwork.xianyu.proxy.config.SessionType;
 import lombok.AllArgsConstructor;
