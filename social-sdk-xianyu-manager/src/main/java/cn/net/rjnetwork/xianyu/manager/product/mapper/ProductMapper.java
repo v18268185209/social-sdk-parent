@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.product.mapper;
+package cn.net.rjnetwork.xianyu.manager.product.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.product.model.XianyuProduct;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

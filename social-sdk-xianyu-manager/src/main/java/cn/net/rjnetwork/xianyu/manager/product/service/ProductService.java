@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.product.service;
+package cn.net.rjnetwork.xianyu.manager.product.service;
 
 import cn.net.rjnetwork.xianyu.api.*;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;

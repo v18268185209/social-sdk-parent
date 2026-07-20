@@ -219,9 +219,14 @@ public final class SliderAntiDetect {
     }
 
     /** 完整的反检测 JS init script — 保留为 buildScript(DEFAULT_SEED) 的别名。 */
-        + "(() => {\n"
-        + "  'use strict';\n"
-        + "\n"
+    public static final String INIT_SCRIPT_INLINE = INIT_SCRIPT;
+    static {
+        // 原始字面量版本（兜底）保留在 buildScript 中。
+    }
+
+    private static final String LEGACY_SCRIPT_START =
+        "(() => {\n" +
+        "  'use strict';\n" +
         + "  // 1. 隐藏 webdriver\n"
         + "  try {\n"
         + "    Object.defineProperty(navigator, 'webdriver', { get: () => false });\n"

@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.reply.model;
+package cn.net.rjnetwork.xianyu.manager.reply.model;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Getter;

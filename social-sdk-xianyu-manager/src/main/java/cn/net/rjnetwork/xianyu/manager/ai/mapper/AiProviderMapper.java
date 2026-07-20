@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.ai.mapper;
+package cn.net.rjnetwork.xianyu.manager.ai.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.ai.model.AiProvider;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

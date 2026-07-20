@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.config;
+package cn.net.rjnetwork.xianyu.manager.config;
 
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;

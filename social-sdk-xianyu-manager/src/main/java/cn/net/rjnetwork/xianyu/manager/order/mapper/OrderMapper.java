@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.order.mapper;
+package cn.net.rjnetwork.xianyu.manager.order.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.order.model.XianyuOrder;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

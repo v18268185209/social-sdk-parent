@@ -284,10 +284,20 @@ public class XianyuConsoleService {
         XianyuApiFacade facade = acc.api();
 
         try {
+            // facade.sendMessage 需要 selfUserId + peerUserId 两个 userId，二者均兜底用 receiverId
+            String selfUserId = request.getSelfUserId();
+            if (selfUserId == null || selfUserId.isBlank()) {
+                selfUserId = request.getReceiverId();
+            }
+            String peerUserId = request.getPeerUserId();
+            if (peerUserId == null || peerUserId.isBlank()) {
+                peerUserId = request.getReceiverId();
+            }
             JsonNode result = facade.sendMessage(
                     request.getSessionId(),
                     request.getContent(),
-                    request.getReceiverId());
+                    selfUserId,
+                    peerUserId);
 
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("success", true);

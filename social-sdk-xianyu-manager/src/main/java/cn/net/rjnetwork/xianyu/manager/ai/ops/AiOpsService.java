@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.ai.ops;
+package cn.net.rjnetwork.xianyu.manager.ai.ops;
 
 import cn.net.rjnetwork.xianyu.manager.ai.service.AiChatService;
 import cn.net.rjnetwork.xianyu.manager.ops.dto.OpsBatchCreateRequest;

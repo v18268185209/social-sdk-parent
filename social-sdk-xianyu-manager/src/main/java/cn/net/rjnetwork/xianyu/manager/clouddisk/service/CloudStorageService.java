@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.clouddisk.service;
+package cn.net.rjnetwork.xianyu.manager.clouddisk.service;
 
 import cn.net.rjnetwork.xianyu.manager.clouddisk.client.OpenListClient;
 import cn.net.rjnetwork.xianyu.manager.clouddisk.dto.FileUploadRequest;

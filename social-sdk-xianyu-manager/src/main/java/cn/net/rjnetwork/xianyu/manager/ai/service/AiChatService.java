@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.ai.service;
+package cn.net.rjnetwork.xianyu.manager.ai.service;
 
 import cn.net.rjnetwork.core.ai.client.AiClient;
 import cn.net.rjnetwork.core.ai.client.OpenAiCompatibleClient;

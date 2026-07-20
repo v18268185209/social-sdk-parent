@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.config;
+package cn.net.rjnetwork.xianyu.manager.config;
 
 import cn.net.rjnetwork.xianyu.api.XianyuWalletApiService;
 import org.springframework.beans.factory.annotation.Value;

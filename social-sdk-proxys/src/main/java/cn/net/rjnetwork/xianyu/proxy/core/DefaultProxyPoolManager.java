@@ -31,8 +31,14 @@ import java.util.stream.Collectors;
  *   <li>否则找优先级最高的可用供应商 acquire 一条</li>
  *   <li>如果首家供应商失败 → 重试下一家（重试次数由配置决定）</li>
  *   <li>全部失败 → 尝试分配冷名单中的 IP（最后兜底）</li>
- *   <li>仍失败 → 抛出 {@link ProxyException#noAvailableProxy()}</li>
+ *   <li>仍失败且 {@code directModeAutoFallback=true}（默认）→ 返回直连 lease（{@link ProxyInfo#isDirect()}=true，不走代理）</li>
+ *   <li>仍失败且 {@code directModeAutoFallback=false} → 抛出 {@link ProxyException#noAvailableProxy()}</li>
  * </ol>
+ *
+ * <h3>直连模式</h3>
+ * <p>当未配置任何供应商、或所有供应商都不可用时，如果 {@link #directModeAutoFallback} 为 true（默认），
+ * {@link #acquire(ProxyAcquireRequest)} 永远不会抛异常，而是返回一个 {@link ProxyInfo#isDirect()=true} 的直连 lease。
+ * 业务方看到 {@code proxy.isDirect()=true} 时，构造不带代理的 HttpClient 即可。</p>
  *
  * <h3>线程安全</h3>
  * <p>本类线程安全。所有共享状态用 {@link ConcurrentHashMap} 和 {@link java.util.concurrent.atomic} 保护。</p>
@@ -63,6 +69,12 @@ public class DefaultProxyPoolManager implements ProxyPoolManager {
 
     /** 泄露检测：租约 acquire 多久没 release 算泄露（分钟） */
     private volatile int leaseLeakThresholdMinutes = 60;
+
+    /**
+     * 无供应商或全部失败时，是否自动退化为直连模式（返回 {@link ProxyInfo#isDirect()=true} 的 lease）。
+     * 默认 true，保证业务方永远不需为"无代理配置"做特殊编码。
+     */
+    private volatile boolean directModeAutoFallback = true;
 
     /** 绑定持久化回调（由 BindingPersistenceAutoConfiguration 注入） */
     private volatile BindingPersistenceCallback bindingPersistenceCallback;
@@ -258,7 +270,14 @@ public class DefaultProxyPoolManager implements ProxyPoolManager {
         }
 
         totalAcquireFailCount.incrementAndGet();
-        // 组装错误信息
+
+        // 4. 直连兜底（默认开启）：返回不走代理的 lease，业务方通过 ProxyInfo.isDirect() 识别
+        if (directModeAutoFallback) {
+            log.warn("[POOL] 所有供应商不可用，退化为直连模式, accountId={}", accountId);
+            return createLease(ProxyInfo.direct(), accountId);
+        }
+
+        // 5. 不兜底则抛异常
         StringBuilder sb = new StringBuilder("所有供应商均不可用: ");
         for (int i = 0; i < errors.size(); i++) {
             sb.append(errors.get(i).getMessage());
@@ -274,6 +293,13 @@ public class DefaultProxyPoolManager implements ProxyPoolManager {
         if (holder == null || holder.released) return;
 
         holder.released = true;
+
+        // 直连模式：无需归还供应商，直接返回
+        if (holder.proxy != null && holder.proxy.isDirect()) {
+            log.debug("[POOL] 释放直连 lease, leaseId={}", leaseId);
+            return;
+        }
+
         try {
             if (holder.releaseCallback != null) {
                 holder.releaseCallback.run();
@@ -478,6 +504,11 @@ public class DefaultProxyPoolManager implements ProxyPoolManager {
     /** 设置泄露检测阈值（分钟） */
     public void setLeaseLeakThresholdMinutes(int leaseLeakThresholdMinutes) {
         this.leaseLeakThresholdMinutes = Math.max(1, leaseLeakThresholdMinutes);
+    }
+
+    /** 设置无供应商时是否自动退化为直连模式（默认 true） */
+    public void setDirectModeAutoFallback(boolean directModeAutoFallback) {
+        this.directModeAutoFallback = directModeAutoFallback;
     }
 
     // ==================== 内部方法 ====================

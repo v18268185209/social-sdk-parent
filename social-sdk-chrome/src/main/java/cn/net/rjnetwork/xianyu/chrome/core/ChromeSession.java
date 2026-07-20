@@ -225,19 +225,6 @@ public class ChromeSession {
     }
 
     /**
-     * 在指定 CDP 端口列出所有 targets。
-     */
-    public JsonNode listTargets(int port) throws IOException {
-        Request req = new Request.Builder()
-                .url(String.format("http://127.0.0.1:%d/json/list", port))
-                .build();
-        try (Response resp = httpClient.newCall(req).execute()) {
-            ResponseBody rb = resp.body();
-            return rb != null ? JSON.readTree(rb.string()) : null;
-        }
-    }
-
-    /**
      * 通过 CDP 打开一个新 target 并导航到指定 URL。
      */
     public String createTarget(int port, String url) throws IOException {

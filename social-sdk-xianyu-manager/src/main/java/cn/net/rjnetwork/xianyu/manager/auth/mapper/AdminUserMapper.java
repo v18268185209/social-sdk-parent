@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.auth.mapper;
+package cn.net.rjnetwork.xianyu.manager.auth.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.auth.model.AdminUser;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

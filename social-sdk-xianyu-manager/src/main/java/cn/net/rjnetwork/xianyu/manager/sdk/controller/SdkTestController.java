@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.sdk.controller;
+package cn.net.rjnetwork.xianyu.manager.sdk.controller;
 
 import cn.net.rjnetwork.xianyu.api.XianyuApiFacade;
 import cn.net.rjnetwork.xianyu.api.XianyuCaptchaService;

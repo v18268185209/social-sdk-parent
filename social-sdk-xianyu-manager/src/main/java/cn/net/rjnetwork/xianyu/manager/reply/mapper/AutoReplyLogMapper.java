@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.reply.mapper;
+package cn.net.rjnetwork.xianyu.manager.reply.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.reply.model.XianyuAutoReplyLog;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

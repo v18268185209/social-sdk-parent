@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.message.websocket;
+package cn.net.rjnetwork.xianyu.manager.message.websocket;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

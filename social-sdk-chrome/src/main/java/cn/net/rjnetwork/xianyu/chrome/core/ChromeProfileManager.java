@@ -122,9 +122,7 @@ public class ChromeProfileManager {
                 ProxyAcquireRequest req = ProxyAcquireRequest.defaultRequest(accountId);
                 var lease = proxyPoolManager.acquire(req);
                 ProxyInfo proxyInfo = lease.getProxy();
-                proxyUrl = String.format("%s://%s:%d",
-                        proxyInfo.getScheme() != null ? proxyInfo.getScheme().toLowerCase() : "http",
-                        proxyInfo.getHost(), proxyInfo.getPort());
+                proxyUrl = proxyInfo.toProxyUri();
                 proxyLeaseId = lease.getLeaseId();
                 log.info("[LAUNCH] 代理绑定, accountId={}, proxy={}", accountId, proxyUrl);
             } catch (ProxyException pe) {

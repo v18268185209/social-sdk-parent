@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.openapi.model;
+package cn.net.rjnetwork.xianyu.manager.openapi.model;
 
 import cn.net.rjnetwork.xianyu.manager.common.BaseEntity;
 import com.baomidou.mybatisplus.annotation.TableName;

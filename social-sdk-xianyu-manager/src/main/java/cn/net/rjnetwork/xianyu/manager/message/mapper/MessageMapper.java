@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.message.mapper;
+package cn.net.rjnetwork.xianyu.manager.message.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.message.model.XianyuMessage;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

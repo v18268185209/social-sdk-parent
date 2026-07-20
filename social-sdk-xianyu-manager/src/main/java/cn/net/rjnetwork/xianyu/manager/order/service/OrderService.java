@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.order.service;
+package cn.net.rjnetwork.xianyu.manager.order.service;
 
 import cn.net.rjnetwork.xianyu.manager.order.mapper.OrderMapper;
 import cn.net.rjnetwork.xianyu.manager.order.model.XianyuOrder;

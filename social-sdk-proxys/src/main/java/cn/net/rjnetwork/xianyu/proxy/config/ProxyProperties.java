@@ -63,6 +63,12 @@ public class ProxyProperties {
     /** 泄露检测阈值（分钟） */
     private int leaseLeakThresholdMinutes = 60;
 
+    /**
+     * 无供应商或全部失败时，是否自动退化为直连模式（返回 ProxyInfo.isDirect()=true 的 lease）。
+     * 默认 true，保证业务方永远不需为"无代理配置"做特殊编码。
+     */
+    private boolean directModeAutoFallback = true;
+
     /** 健康检查子配置 */
     private HealthCheck healthCheck = new HealthCheck();
 

@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.notify;
+package cn.net.rjnetwork.xianyu.manager.notify;
 
 import java.util.Map;
 import java.util.regex.Matcher;

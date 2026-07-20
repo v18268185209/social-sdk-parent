@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.message.service;
+package cn.net.rjnetwork.xianyu.manager.message.service;
 
 import cn.net.rjnetwork.xianyu.api.XianyuImAccsClient;
 import cn.net.rjnetwork.xianyu.api.XianyuMtopApiClient;

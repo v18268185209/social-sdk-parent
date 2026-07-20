@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.message.websocket;
+package cn.net.rjnetwork.xianyu.manager.message.websocket;
 
 import cn.net.rjnetwork.xianyu.manager.message.model.XianyuMessage;
 import cn.net.rjnetwork.xianyu.manager.message.service.MessageService;

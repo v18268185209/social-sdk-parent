@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.account.service;
+package cn.net.rjnetwork.xianyu.manager.account.service;
 
 import cn.net.rjnetwork.xianyu.api.XianyuLoginApiService;
 import cn.net.rjnetwork.xianyu.api.XianyuMtopApiClient;

@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.clouddisk.mapper;
+package cn.net.rjnetwork.xianyu.manager.clouddisk.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.clouddisk.model.CloudStorageFile;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

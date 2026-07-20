@@ -27,6 +27,8 @@ public class XianyuCaptchaService {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                     + "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
 
+    private static final java.util.logging.Logger log = java.util.logging.Logger.getLogger(XianyuCaptchaService.class.getName());
+
     private final String cookie;
     private final cn.net.rjnetwork.xianyu.proxy.core.ProxyPoolManager proxyPoolManager;
     private final Long accountId;
@@ -62,7 +64,10 @@ public class XianyuCaptchaService {
             proxy = proxyPoolManager.findBoundProxy(accountId).orElse(null);
         }
 
-        if (proxy != null && proxy.getHost() != null && !proxy.getHost().isBlank()) {
+        if (proxy != null && proxy.isDirect()) {
+            // 直连模式：跳过代理绑定
+            log.debug("[Captcha] 直连模式，跳过代理绑定, accountId=" + accountId);
+        } else if (proxy != null && proxy.getHost() != null && !proxy.getHost().isBlank()) {
             builder.proxy(java.net.ProxySelector.of(
                     new java.net.InetSocketAddress(proxy.getHost(), proxy.getPort())));
             final cn.net.rjnetwork.xianyu.proxy.config.ProxyInfo p = proxy;

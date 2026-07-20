@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.system.controller;
+package cn.net.rjnetwork.xianyu.manager.system.controller;
 
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import org.springframework.web.bind.annotation.GetMapping;

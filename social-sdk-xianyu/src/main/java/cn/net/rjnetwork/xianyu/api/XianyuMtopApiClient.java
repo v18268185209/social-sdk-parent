@@ -45,6 +45,9 @@ public class XianyuMtopApiClient {
     /** 当前使用的 httpClient（代理感知，每次创建时绑定当前代理） */
     private HttpClient httpClient;
 
+    /** 日志（java.util.logging 零依赖） */
+    private static final java.util.logging.Logger log = java.util.logging.Logger.getLogger(XianyuMtopApiClient.class.getName());
+
     /** 代理池管理器（可选，为 null 时退化为直连） */
     private final cn.net.rjnetwork.xianyu.proxy.core.ProxyPoolManager proxyPoolManager;
 
@@ -96,7 +99,10 @@ public class XianyuMtopApiClient {
             proxy = proxyPoolManager.findBoundProxy(accountId).orElse(null);
         }
 
-        if (proxy != null && proxy.getHost() != null && !proxy.getHost().isBlank()) {
+        if (proxy != null && proxy.isDirect()) {
+            // 直连模式：跳过代理绑定
+            log.info("[MTOP] 直连模式，跳过代理绑定, accountId=" + accountId);
+        } else if (proxy != null && proxy.getHost() != null && !proxy.getHost().isBlank()) {
             builder.proxy(java.net.ProxySelector.of(
                     new java.net.InetSocketAddress(proxy.getHost(), proxy.getPort())));
             // 使用 final 局部变量捕获，确保匿名内部类可引用

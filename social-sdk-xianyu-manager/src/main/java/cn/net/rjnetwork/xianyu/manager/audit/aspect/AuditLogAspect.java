@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.audit.aspect;
+package cn.net.rjnetwork.xianyu.manager.audit.aspect;
 
 import cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit;
 import cn.net.rjnetwork.xianyu.manager.audit.model.AuditLog;

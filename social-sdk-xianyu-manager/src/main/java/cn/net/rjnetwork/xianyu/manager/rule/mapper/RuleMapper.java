@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.rule.mapper;
+package cn.net.rjnetwork.xianyu.manager.rule.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.rule.model.XianyuKeywordRule;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

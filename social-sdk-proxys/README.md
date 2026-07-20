@@ -26,6 +26,61 @@
 
 ---
 
+## 无代理直连模式
+
+**默认行为**：当没有配置任何供应商（或所有供应商都不可用）时，代理池自动退化为 **直连模式**，
+`ProxyPoolManager.acquire()` 永远不会抛异常，而是返回一个 `ProxyInfo.isDirect() == true` 的特殊 lease。
+
+### 什么会触发直连模式
+
+| 场景 | 行为 |
+|---|---|
+| 没配置任何供应商 | 启动时 `ProxyPoolRegistrar` 发现 `providers=0`，日志 WARN，然后自动直连 |
+| 供应商都挂了 / 全部被风控 | acquire 走完所有供应商 → 冷名单兜底失败 → 返回 `ProxyInfo.direct()` |
+| 测试环境直接关代理 | `proxy.enabled=false` 即可（和旧版行为一致） |
+
+### 业务方如何识别直连
+
+```java
+try (ProxyLease lease = proxyPoolManager.acquire(request)) {
+    ProxyInfo proxy = lease.getProxy();
+    if (proxy.isDirect()) {
+        // 直连模式：走本地网络，不经过代理
+        httpClient = HttpClient.newBuilder().build();
+    } else {
+        // 代理模式
+        httpClient = HttpClient.newBuilder()
+                .proxy(ProxySelector.of(new InetSocketAddress(proxy.getHost(), proxy.getPort())))
+                .build();
+    }
+    // ...用 httpClient 发请求
+}
+```
+
+**注意**：`XianyuMtopApiClient` 和 `XianyuCaptchaService` 已经内置这个判断，业务方无需手动处理。
+
+### 关闭直连兜底（默认开启）
+
+如果你希望"没代理就报错"而不是默默直连，可以关闭：
+
+```yaml
+proxy:
+  direct-mode-auto-fallback: false   # 默认 true
+```
+
+关闭后，所有供应商失败会抛出 `ProxyException.noAvailableProxy()`，适用于**必须走代理**的线上风控场景。
+
+### 直连模式的内部实现
+
+```java
+ProxyInfo direct = ProxyInfo.direct();   // host="DIRECT", port=0
+// acquire 返回直连 lease
+// release 识别 isDirect()，跳过 provider.release()
+// 健康检查和绑定关系：直连 lease 不会进冷名单、不会进 binding 表
+```
+
+---
+
 ## 快速接入
 
 ### 1. 加依赖
@@ -47,6 +102,7 @@ proxy:
   max-binding-use-count: 100    # 一条绑定最多使用次数
   cool-down-recovery-minutes: 30
   lease-leak-threshold-minutes: 60
+  direct-mode-auto-fallback: true   # 无代理时自动直连（false=抛异常）
 
   health-check:
     enabled: true

@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.openapi.mapper;
+package cn.net.rjnetwork.xianyu.manager.openapi.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.openapi.model.OpenApp;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

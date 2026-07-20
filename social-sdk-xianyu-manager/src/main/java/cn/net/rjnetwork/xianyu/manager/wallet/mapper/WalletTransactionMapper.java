@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.wallet.mapper;
+package cn.net.rjnetwork.xianyu.manager.wallet.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.wallet.model.XianyuWalletTransaction;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

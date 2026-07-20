@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.ai.controller;
+package cn.net.rjnetwork.xianyu.manager.ai.controller;
 
 import cn.net.rjnetwork.xianyu.manager.ai.service.AiChatService;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;

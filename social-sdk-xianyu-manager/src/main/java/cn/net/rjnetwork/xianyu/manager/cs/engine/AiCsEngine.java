@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.cs.engine;
+package cn.net.rjnetwork.xianyu.manager.cs.engine;
 
 import cn.net.rjnetwork.core.ai.model.AiMessage;
 import cn.net.rjnetwork.core.ai.model.AiRequest;

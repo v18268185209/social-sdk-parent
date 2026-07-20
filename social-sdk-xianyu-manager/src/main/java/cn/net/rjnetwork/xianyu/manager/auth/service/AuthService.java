@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.auth.service;
+package cn.net.rjnetwork.xianyu.manager.auth.service;
 
 import cn.net.rjnetwork.xianyu.manager.auth.dto.JwtResponse;
 import cn.net.rjnetwork.xianyu.manager.auth.dto.JwtResponse.AdminUserInfo;

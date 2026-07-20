@@ -1,4 +1,3 @@
-^
 import cn.net.rjnetwork.xianyu.chrome.model.ChromeProfile;
 import cn.net.rjnetwork.xianyu.manager.account.dto.AccountLoginRequest;
 import cn.net.rjnetwork.xianyu.manager.account.dto.AccountStatusUpdateRequest;

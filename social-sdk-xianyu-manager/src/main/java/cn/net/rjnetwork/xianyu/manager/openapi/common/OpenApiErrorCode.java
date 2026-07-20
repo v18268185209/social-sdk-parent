@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.openapi.common;
+package cn.net.rjnetwork.xianyu.manager.openapi.common;
 
 import org.springframework.http.HttpStatus;
 

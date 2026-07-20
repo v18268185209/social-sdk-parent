@@ -105,7 +105,9 @@ public class ProxyAutoConfiguration {
         manager.setMaxBindingUseCount(properties.getMaxBindingUseCount());
         manager.setCoolDownRecoveryMinutes(properties.getCoolDownRecoveryMinutes());
         manager.setLeaseLeakThresholdMinutes(properties.getLeaseLeakThresholdMinutes());
-        log.info("[PROXY-AUTOCONFIG] 创建 DefaultProxyPoolManager");
+        manager.setDirectModeAutoFallback(properties.isDirectModeAutoFallback());
+        log.info("[PROXY-AUTOCONFIG] 创建 DefaultProxyPoolManager, directModeAutoFallback={}",
+                properties.isDirectModeAutoFallback());
         return manager;
     }
 

@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.auth.dto;
+package cn.net.rjnetwork.xianyu.manager.auth.dto;
 
 import lombok.Data;
 

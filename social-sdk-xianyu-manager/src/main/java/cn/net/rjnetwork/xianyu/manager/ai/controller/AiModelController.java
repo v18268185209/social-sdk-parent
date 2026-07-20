@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.ai.controller;
+package cn.net.rjnetwork.xianyu.manager.ai.controller;
 
 import cn.net.rjnetwork.xianyu.manager.ai.dto.AiModelRequest;
 import cn.net.rjnetwork.xianyu.manager.ai.dto.AiModelUpdateRequest;

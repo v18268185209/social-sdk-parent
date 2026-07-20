@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.order.controller;
+package cn.net.rjnetwork.xianyu.manager.order.controller;
 
 import cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;

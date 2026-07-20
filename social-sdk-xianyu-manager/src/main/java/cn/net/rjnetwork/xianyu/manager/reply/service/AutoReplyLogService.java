@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.reply.service;
+package cn.net.rjnetwork.xianyu.manager.reply.service;
 
 import cn.net.rjnetwork.xianyu.manager.reply.mapper.AutoReplyLogMapper;
 import cn.net.rjnetwork.xianyu.manager.reply.model.XianyuAutoReplyLog;

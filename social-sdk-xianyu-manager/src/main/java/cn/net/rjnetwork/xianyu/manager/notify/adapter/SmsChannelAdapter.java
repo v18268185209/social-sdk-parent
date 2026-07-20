@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.notify.adapter;
+package cn.net.rjnetwork.xianyu.manager.notify.adapter;
 
 import cn.net.rjnetwork.xianyu.manager.notify.model.NotifyChannel;
 import com.fasterxml.jackson.databind.JsonNode;

@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.config;
+package cn.net.rjnetwork.xianyu.manager.config;
 
 import cn.net.rjnetwork.xianyu.manager.auth.filter.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;

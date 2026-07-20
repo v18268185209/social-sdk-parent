@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.clouddisk.client;
+package cn.net.rjnetwork.xianyu.manager.clouddisk.client;
 
 import cn.net.rjnetwork.xianyu.manager.config.OpenListProperties;
 import org.springframework.stereotype.Component;

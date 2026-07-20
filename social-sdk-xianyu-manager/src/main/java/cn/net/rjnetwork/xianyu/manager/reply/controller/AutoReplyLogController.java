@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.reply.controller;
+package cn.net.rjnetwork.xianyu.manager.reply.controller;
 
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import cn.net.rjnetwork.xianyu.manager.reply.model.XianyuAutoReplyLog;

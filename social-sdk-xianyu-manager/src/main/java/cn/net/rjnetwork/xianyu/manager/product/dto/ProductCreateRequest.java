@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.product.dto;
+package cn.net.rjnetwork.xianyu.manager.product.dto;
 
 import lombok.Data;
 

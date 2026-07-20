@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.config;
+package cn.net.rjnetwork.xianyu.manager.config;
 
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import org.apache.ibatis.reflection.MetaObject;

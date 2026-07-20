@@ -1,4 +1,4 @@
-^package cn.net.rjnetwork.xianyu.manager.collect.mapper;
+package cn.net.rjnetwork.xianyu.manager.collect.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.collect.model.XianyuCollect;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
