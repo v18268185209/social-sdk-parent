@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.ops.mapper;
+^package cn.net.rjnetwork.xianyu.manager.ops.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.ops.model.AiOpsKnowledge;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

@@ -28,14 +28,67 @@ public class XianyuCaptchaService {
                     + "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
 
     private final String cookie;
-    private final HttpClient httpClient;
+    private final cn.net.rjnetwork.xianyu.proxy.core.ProxyPoolManager proxyPoolManager;
+    private final Long accountId;
+    private HttpClient httpClient;
 
     public XianyuCaptchaService(String cookie) {
+        this(cookie, null, null);
+    }
+
+    /**
+     * 代理感知的构造函数。
+     *
+     * @param cookie           当前账号 cookie
+     * @param proxyPoolManager 代理池管理器，为 null 时退化为直连
+     * @param accountId        当前请求的闲鱼账号 ID，用于从代理池获取对应的代理 IP
+     */
+    public XianyuCaptchaService(String cookie,
+                                cn.net.rjnetwork.xianyu.proxy.core.ProxyPoolManager proxyPoolManager,
+                                Long accountId) {
         this.cookie = cookie;
-        this.httpClient = HttpClient.newBuilder()
+        this.proxyPoolManager = proxyPoolManager;
+        this.accountId = accountId;
+        refreshHttpClient();
+    }
+
+    private synchronized void refreshHttpClient() {
+        java.net.http.HttpClient.Builder builder = java.net.http.HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
+                .followRedirects(java.net.http.HttpClient.Redirect.NORMAL);
+
+        cn.net.rjnetwork.xianyu.proxy.config.ProxyInfo proxy = null;
+        if (proxyPoolManager != null && accountId != null) {
+            proxy = proxyPoolManager.findBoundProxy(accountId).orElse(null);
+        }
+
+        if (proxy != null && proxy.getHost() != null && !proxy.getHost().isBlank()) {
+            builder.proxy(java.net.ProxySelector.of(
+                    new java.net.InetSocketAddress(proxy.getHost(), proxy.getPort())));
+            final cn.net.rjnetwork.xianyu.proxy.config.ProxyInfo p = proxy;
+            if (p.getUsername() != null && !p.getUsername().isBlank()) {
+                builder.authenticator(new java.net.Authenticator() {
+                    @Override
+                    protected java.net.PasswordAuthentication getPasswordAuthentication() {
+                        return new java.net.PasswordAuthentication(
+                                p.getUsername(),
+                                (p.getPassword() != null ? p.getPassword() : "").toCharArray()
+                        );
+                    }
+                });
+            }
+        }
+
+        this.httpClient = builder.build();
+    }
+
+    /**
+     * 代理被封/失效时自动换一个新代理。
+     */
+    private void switchProxyOnFailure() {
+        if (proxyPoolManager == null || accountId == null) return;
+        proxyPoolManager.unbind(accountId);
+        refreshHttpClient();
     }
 
     // ==================== 风控检测 / 处理 ====================

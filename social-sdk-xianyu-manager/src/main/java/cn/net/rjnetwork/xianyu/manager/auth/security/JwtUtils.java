@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.auth.security;
+^package cn.net.rjnetwork.xianyu.manager.auth.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;

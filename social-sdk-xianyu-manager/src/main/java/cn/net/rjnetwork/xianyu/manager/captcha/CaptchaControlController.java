@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.captcha;
+^package cn.net.rjnetwork.xianyu.manager.captcha;
 
 import cn.net.rjnetwork.xianyu.captcha.service.XianyuCaptchaSolver;
 import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;

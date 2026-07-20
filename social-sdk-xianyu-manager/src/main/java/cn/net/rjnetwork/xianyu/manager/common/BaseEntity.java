@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.common;
+^package cn.net.rjnetwork.xianyu.manager.common;
 
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;

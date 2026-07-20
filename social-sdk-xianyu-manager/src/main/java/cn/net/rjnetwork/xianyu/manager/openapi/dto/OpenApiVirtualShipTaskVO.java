@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.openapi.dto;
+^package cn.net.rjnetwork.xianyu.manager.openapi.dto;
 
 import lombok.Data;
 

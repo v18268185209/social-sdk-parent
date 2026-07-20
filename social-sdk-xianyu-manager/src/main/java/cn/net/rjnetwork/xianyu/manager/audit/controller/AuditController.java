@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.audit.controller;
+^package cn.net.rjnetwork.xianyu.manager.audit.controller;
 
 import cn.net.rjnetwork.xianyu.manager.audit.model.AuditLog;
 import cn.net.rjnetwork.xianyu.manager.audit.service.AuditService;

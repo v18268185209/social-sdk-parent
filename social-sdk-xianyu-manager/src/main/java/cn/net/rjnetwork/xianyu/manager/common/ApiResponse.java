@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.common;
+^package cn.net.rjnetwork.xianyu.manager.common;
 
 import java.time.LocalDateTime;
 import java.util.List;

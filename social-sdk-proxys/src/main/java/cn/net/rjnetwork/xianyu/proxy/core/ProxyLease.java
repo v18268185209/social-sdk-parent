@@ -1,7 +1,6 @@
 package cn.net.rjnetwork.xianyu.proxy.core;
 
 import cn.net.rjnetwork.xianyu.proxy.config.ProxyInfo;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 /**
@@ -18,7 +17,6 @@ import lombok.Getter;
  * <p>不可重入。同一个 lease 不能并发调用业务，否则代理 IP 被并发操作的风险。</p>
  */
 @Getter
-@AllArgsConstructor
 public class ProxyLease implements AutoCloseable {
 
     /** 租约唯一 ID */
@@ -32,6 +30,13 @@ public class ProxyLease implements AutoCloseable {
 
     /** 是否已释放 */
     private volatile boolean released = false;
+
+    public ProxyLease(String leaseId, ProxyInfo proxy, Runnable releaseCallback) {
+        this.leaseId = leaseId;
+        this.proxy = proxy;
+        this.releaseCallback = releaseCallback;
+        this.released = false;
+    }
 
     /**
      * 归还代理到池中。支持 try-with-resources 自动释放。

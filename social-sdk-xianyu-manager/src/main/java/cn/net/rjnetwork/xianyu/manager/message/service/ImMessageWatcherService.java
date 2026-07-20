@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.message.service;
+^package cn.net.rjnetwork.xianyu.manager.message.service;
 
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;

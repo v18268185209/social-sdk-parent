@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.audit.service;
+^package cn.net.rjnetwork.xianyu.manager.audit.service;
 
 import cn.net.rjnetwork.xianyu.manager.audit.mapper.AuditLogMapper;
 import cn.net.rjnetwork.xianyu.manager.audit.model.AuditLog;

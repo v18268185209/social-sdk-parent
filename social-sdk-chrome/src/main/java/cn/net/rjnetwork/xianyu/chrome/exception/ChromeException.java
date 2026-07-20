@@ -1,6 +1,6 @@
 package cn.net.rjnetwork.xianyu.chrome.exception;
 
-import cn.net.rjnetwork.xianyu.proxy.core.ProviderType;
+import cn.net.rjnetwork.xianyu.proxy.config.ProviderType;
 import lombok.Getter;
 
 /**

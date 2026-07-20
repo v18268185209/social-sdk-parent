@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.clouddisk.controller;
+^package cn.net.rjnetwork.xianyu.manager.clouddisk.controller;
 
 import cn.net.rjnetwork.xianyu.manager.clouddisk.dto.FileUploadRequest;
 import cn.net.rjnetwork.xianyu.manager.clouddisk.model.CloudStorageAccount;

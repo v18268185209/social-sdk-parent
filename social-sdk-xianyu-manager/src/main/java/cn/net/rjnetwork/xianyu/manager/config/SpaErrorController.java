@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.config;
+^package cn.net.rjnetwork.xianyu.manager.config;
 
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.http.HttpServletRequest;

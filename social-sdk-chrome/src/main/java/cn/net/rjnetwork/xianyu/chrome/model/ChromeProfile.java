@@ -97,7 +97,6 @@ public class ChromeProfile {
     @Data
     @Builder
     public static class FingerprintOverride {
-        override
         private String webglVendor;
         private String webglRenderer;
         private String canvasNoisePattern;
@@ -106,7 +105,7 @@ public class ChromeProfile {
         private Integer colorDepth;
         private Integer pixelDepth;
         private String languages;
-        private String plat form;
+        private String platform;
         private String hardwareConcurrency;
         private String deviceMemory;
     }

@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.cs.controller;
+^package cn.net.rjnetwork.xianyu.manager.cs.controller;
 
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import cn.net.rjnetwork.xianyu.manager.cs.model.AiCsKnowledge;

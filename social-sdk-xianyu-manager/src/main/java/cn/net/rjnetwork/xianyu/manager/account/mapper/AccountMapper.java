@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.account.mapper;
+^package cn.net.rjnetwork.xianyu.manager.account.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

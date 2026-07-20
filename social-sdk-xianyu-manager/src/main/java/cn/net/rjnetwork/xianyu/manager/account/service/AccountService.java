@@ -1,8 +1,10 @@
-package cn.net.rjnetwork.xianyu.manager.account.service;
+^package cn.net.rjnetwork.xianyu.manager.account.service;
 
 import cn.net.rjnetwork.xianyu.api.XianyuLoginApiService;
 import cn.net.rjnetwork.xianyu.api.XianyuMtopApiClient;
 import cn.net.rjnetwork.xianyu.api.XianyuProfileApiService;
+import cn.net.rjnetwork.xianyu.chrome.core.ChromeProfileManager;
+import cn.net.rjnetwork.xianyu.chrome.model.ChromeProfile;
 import cn.net.rjnetwork.xianyu.manager.account.dto.AccountLoginRequest;
 import cn.net.rjnetwork.xianyu.manager.account.dto.AccountStatusUpdateRequest;
 import cn.net.rjnetwork.xianyu.manager.account.dto.QrLoginRequest;
@@ -11,6 +13,7 @@ import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,8 +32,17 @@ public class AccountService {
     /** 缓存每个二维码会话对应的创建请求（含 accountName / remark）*/
     private final Map<String, QrLoginRequest> qrLoginRequests = new ConcurrentHashMap<>();
 
+    /** Chrome 容器管理器（可选，非 Chrome 环境为 null） */
+    private ChromeProfileManager chromeProfileManager;
+
     public AccountService(AccountMapper accountMapper) {
         this.accountMapper = accountMapper;
+    }
+
+    /** Spring 自动注入 ChromeProfileManager（如果容器中存在）。 */
+    @Autowired(required = false)
+    public void setChromeProfileManager(ChromeProfileManager chromeProfileManager) {
+        this.chromeProfileManager = chromeProfileManager;
     }
 
     @Transactional
@@ -95,7 +107,7 @@ public class AccountService {
         System.err.println("[ACCOUNT-SERVICE] pollQrLoginStatus called, sessionId=" + sessionId);
         System.err.println("[ACCOUNT-SERVICE] Current sessions in map: " + qrLoginServices.keySet());
         System.err.println("[ACCOUNT-SERVICE] Map size: " + qrLoginServices.size());
-        
+
         XianyuLoginApiService loginService = qrLoginServices.get(sessionId);
         if (loginService == null) {
             System.err.println("[ACCOUNT-SERVICE] Session NOT FOUND for sessionId: " + sessionId);
@@ -226,6 +238,10 @@ public class AccountService {
         }
 
         accountMapper.insert(account);
+
+        // Chrome 容器：为账号启动独占 Chrome 容器
+        launchChromeContainer(account);
+
         return account;
     }
 
@@ -300,6 +316,82 @@ public class AccountService {
 
     @Transactional
     public void removeById(Long id) {
+        // 关闭 Chrome 容器（如果存在）
+        stopChromeContainer(id);
         accountMapper.deleteById(id);
+    }
+
+    // ==================== Chrome 容器生命周期集成 ====================
+
+    /**
+     * 为账号启动独立的 Chrome 容器。
+     * ChromeProfileManager 不可用时（如非 Chrome 环境）静默跳过。
+     */
+    public boolean launchChromeContainer(XianyuAccount account) {
+        if (chromeProfileManager == null) {
+            return false;
+        }
+        try {
+            ChromeProfile profile = chromeProfileManager.launchAccount(account.getId(), account.getAccountName());
+
+            // 将容器信息回填到数据库
+            account.setChromeProfilePath(profile.getProfileDir());
+            account.setCdpPort(profile.getCdpPort());
+            account.setProxyUrl(profile.getProxyUrl());
+            account.setChromeSeed(profile.getSeed());
+            account.setChromeStatus(profile.getStatus().name());
+            account.setChromeCrashCount(0);
+            account.setChromeLaunchedAt(profile.getLaunchedAt());
+            account.setUpdatedAt(LocalDateTime.now());
+            accountMapper.updateById(account);
+            return true;
+        } catch (Exception e) {
+            System.err.println("[ACCOUNT-SERVICE] 启动 Chrome 容器失败, accountId=" + id + ", err=" + e.getMessage());
+            // 不阻断登录，仅记录错误
+            return false;
+        }
+    }
+
+    /**
+     * 关闭账号的 Chrome 容器。
+     */
+    public boolean stopChromeContainer(long accountId) {
+        if (chromeProfileManager == null) {
+            return false;
+        }
+        try {
+            chromeProfileManager.stopAccount(accountId);
+            return true;
+        } catch (Exception e) {
+            System.err.println("[ACCOUNT-SERVICE] 关闭 Chrome 容器失败, accountId=" + accountId + ", err=" + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 获取账号的 Chrome 容器状态。
+     */
+    public Optional<ChromeProfile> getChromeProfile(long accountId) {
+        if (chromeProfileManager == null) {
+            return Optional.empty();
+        }
+        return chromeProfileManager.getProfile(accountId);
+    }
+
+    /**
+     * 判断账号是否有存活的 Chrome 容器。
+     */
+    public boolean isChromeAlive(long accountId) {
+        if (chromeProfileManager == null) {
+            return false;
+        }
+        return chromeProfileManager.isAlive(accountId);
+    }
+
+    /**
+     * 获取 ChromeProfileManager 实例（用于外部直接调用）。
+     */
+    public ChromeProfileManager getChromeProfileManager() {
+        return chromeProfileManager;
     }
 }

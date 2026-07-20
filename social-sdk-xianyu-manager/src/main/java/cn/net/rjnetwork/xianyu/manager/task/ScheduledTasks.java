@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.task;
+^package cn.net.rjnetwork.xianyu.manager.task;
 
 import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;

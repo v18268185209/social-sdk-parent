@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.collect.controller;
+^package cn.net.rjnetwork.xianyu.manager.collect.controller;
 
 import cn.net.rjnetwork.xianyu.manager.collect.model.XianyuCollect;
 import cn.net.rjnetwork.xianyu.manager.collect.service.CollectService;

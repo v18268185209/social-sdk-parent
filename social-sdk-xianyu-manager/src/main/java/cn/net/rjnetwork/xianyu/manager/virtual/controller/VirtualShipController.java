@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.virtual.controller;
+^package cn.net.rjnetwork.xianyu.manager.virtual.controller;
 
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit;

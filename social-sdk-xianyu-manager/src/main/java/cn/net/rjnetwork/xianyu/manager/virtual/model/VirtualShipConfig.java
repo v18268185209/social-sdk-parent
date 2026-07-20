@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.virtual.model;
+^package cn.net.rjnetwork.xianyu.manager.virtual.model;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;

@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.order.model;
+^package cn.net.rjnetwork.xianyu.manager.order.model;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;

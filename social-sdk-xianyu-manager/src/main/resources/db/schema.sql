@@ -1,4 +1,4 @@
--- 闲鱼多账号管理平台 -- SQLite 数据库初始化脚本
+^-- 闲鱼多账号管理平台 -- SQLite 数据库初始化脚本
 
 -- 管理员用户表
 CREATE TABLE IF NOT EXISTS admin_user (
@@ -31,6 +31,21 @@ CREATE TABLE IF NOT EXISTS xianyu_account (
     last_error VARCHAR(512),
     last_login_at DATETIME,
     cookie_expires_at DATETIME,
+    -- ===== Chrome 容器隔离字段 =====
+    /** 账号独占 Chrome user-data-dir 路径 */
+    chrome_profile_path VARCHAR(512),
+    /** 账号独占 Chrome CDP 端口 */
+    cdp_port INTEGER,
+    /** 账号绑定的代理 URL（http://host:port 或 socks5://host:port） */
+    proxy_url VARCHAR(256),
+    /** Chrome 容器当前状态（RUNNING/CRASHED/STOPPED 等） */
+    chrome_status VARCHAR(32),
+    /** Chrome 容器崩溃次数 */
+    chrome_crash_count INTEGER DEFAULT 0,
+    /** Chrome 容器指纹 seed（用于派生反检测噪声） */
+    chrome_seed BIGINT,
+    /** Chrome 容器启动时间 */
+    chrome_launched_at DATETIME,
     -- 个人信息（从闲鱼 API 获取）
     avatar VARCHAR(512),
     introduction TEXT,

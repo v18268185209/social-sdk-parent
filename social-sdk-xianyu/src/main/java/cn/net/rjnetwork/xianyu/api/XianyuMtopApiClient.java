@@ -38,22 +38,92 @@ public class XianyuMtopApiClient {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                     + "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
 
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(30))
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
-
     private String cookie;
     private boolean tokenPrimed = false;
     private final Map<String, String> baseHeaders = new HashMap<>();
 
+    /** 当前使用的 httpClient（代理感知，每次创建时绑定当前代理） */
+    private HttpClient httpClient;
+
+    /** 代理池管理器（可选，为 null 时退化为直连） */
+    private final cn.net.rjnetwork.xianyu.proxy.core.ProxyPoolManager proxyPoolManager;
+
+    /** 当前请求对应的账号 ID（用于从代理池获取代理） */
+    private final Long accountId;
+
+    /** 连接超时（毫秒） */
+    private static final long CONNECT_TIMEOUT_MS = 30_000L;
+
+    /** 失败重试次数 */
+    private static final int MAX_RETRY_ON_PROXY_FAILURE = 3;
+
     public XianyuMtopApiClient(String cookie) {
+        this(cookie, null, null);
+    }
+
+    /**
+     * 代理感知的构造函数。
+     *
+     * @param cookie           当前账号 cookie
+     * @param proxyPoolManager 代理池管理器，为 null 时退化为直连
+     * @param accountId        当前请求的闲鱼账号 ID，用于从代理池获取对应的代理 IP
+     */
+    public XianyuMtopApiClient(String cookie,
+                               cn.net.rjnetwork.xianyu.proxy.core.ProxyPoolManager proxyPoolManager,
+                               Long accountId) {
         this.cookie = cookie != null ? cookie : "";
+        this.proxyPoolManager = proxyPoolManager;
+        this.accountId = accountId;
         this.baseHeaders.put("User-Agent", USER_AGENT);
         this.baseHeaders.put("Accept", "application/json");
         this.baseHeaders.put("Content-Type", "application/x-www-form-urlencoded");
         this.baseHeaders.put("Referer", REFERER);
         this.baseHeaders.put("Origin", ORIGIN);
+        refreshHttpClient();
+    }
+
+    /**
+     * 刷新 HttpClient，绑定当前账号对应的代理 IP。
+     */
+    private synchronized void refreshHttpClient() {
+        java.net.http.HttpClient.Builder builder = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(Duration.ofMillis(CONNECT_TIMEOUT_MS))
+                .followRedirects(java.net.http.HttpClient.Redirect.NORMAL);
+
+        // 绑定代理
+        cn.net.rjnetwork.xianyu.proxy.config.ProxyInfo proxy = null;
+        if (proxyPoolManager != null && accountId != null) {
+            proxy = proxyPoolManager.findBoundProxy(accountId).orElse(null);
+        }
+
+        if (proxy != null && proxy.getHost() != null && !proxy.getHost().isBlank()) {
+            builder.proxy(java.net.ProxySelector.of(
+                    new java.net.InetSocketAddress(proxy.getHost(), proxy.getPort())));
+            // 使用 final 局部变量捕获，确保匿名内部类可引用
+            final cn.net.rjnetwork.xianyu.proxy.config.ProxyInfo p = proxy;
+            if (p.getUsername() != null && !p.getUsername().isBlank()) {
+                builder.authenticator(new java.net.Authenticator() {
+                    @Override
+                    protected java.net.PasswordAuthentication getPasswordAuthentication() {
+                        return new java.net.PasswordAuthentication(
+                                p.getUsername(),
+                                (p.getPassword() != null ? p.getPassword() : "").toCharArray()
+                        );
+                    }
+                });
+            }
+        }
+
+        this.httpClient = builder.build();
+    }
+
+    /**
+     * 当代理被封/失效时，自动换一个新代理。
+     */
+    private void switchProxyOnFailure() {
+        if (proxyPoolManager == null || accountId == null) return;
+        proxyPoolManager.unbind(accountId);
+        refreshHttpClient();
     }
 
     /** 发送 GET 请求 */
@@ -184,6 +254,20 @@ public class XianyuMtopApiClient {
     }
 
     private JsonNode send(String url, String method, String body) {
+        return sendWithRetry(url, method, body, MAX_RETRY_ON_PROXY_FAILURE);
+    }
+
+    /**
+     * 带代理失败重试的 send。
+     *
+     * <p>重试策略：</p>
+     * <ul>
+     *   <li>连接超时 / IO 异常 → 换代理重试（最多 {@link #MAX_RETRY_ON_PROXY_FAILURE} 次）</li>
+     *   <li>HTTP 5xx → 直接返回，由上层处理</li>
+     *   <li>风控拦截 / 4xx → 直接返回，由上层 {@link #isRiskControlTriggered(JsonNode)} 识别</li>
+     * </ul>
+     */
+    private JsonNode sendWithRetry(String url, String method, String body, int remainRetry) {
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -209,6 +293,16 @@ public class XianyuMtopApiClient {
             this.cookie = mergeCookieFromResponse(cookie, response);
             return MAPPER.readTree(response.body());
         } catch (Exception e) {
+            // 代理连接失败（超时/拒绝/重置），且还有重试次数
+            boolean isProxyError = e instanceof java.net.ConnectException
+                    || e instanceof java.net.SocketTimeoutException
+                    || e instanceof java.io.IOException;
+            if (isProxyError && remainRetry > 0) {
+                System.err.println("[MTOP] 代理连接失败，换代理重试, remainRetry=" + (remainRetry - 1) + ", err=" + e.getMessage());
+                switchProxyOnFailure();
+                return sendWithRetry(url, method, body, remainRetry - 1);
+            }
+
             lastErrorResponse = "Error: " + e.getMessage();
             System.err.println("[MTOP " + method + " Error] " + e.getMessage());
             return null;

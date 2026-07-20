@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.collect.service;
+^package cn.net.rjnetwork.xianyu.manager.collect.service;
 
 import cn.net.rjnetwork.xianyu.manager.collect.mapper.CollectMapper;
 import cn.net.rjnetwork.xianyu.manager.collect.model.XianyuCollect;

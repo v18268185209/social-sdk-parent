@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.wallet.service;
+^package cn.net.rjnetwork.xianyu.manager.wallet.service;
 
 import cn.net.rjnetwork.xianyu.manager.wallet.mapper.WalletMapper;
 import cn.net.rjnetwork.xianyu.manager.wallet.mapper.WalletTransactionMapper;

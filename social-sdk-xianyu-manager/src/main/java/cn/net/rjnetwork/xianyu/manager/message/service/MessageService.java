@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.message.service;
+^package cn.net.rjnetwork.xianyu.manager.message.service;
 
 import cn.net.rjnetwork.xianyu.api.XianyuImAccsClient;
 import cn.net.rjnetwork.xianyu.api.XianyuMtopApiClient;
@@ -1019,12 +1019,46 @@ public class MessageService {
         }
 
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(acc.getCookieHeader());
+        // IM/滑块 cookie（x5sec）与登录 cookie 合并，用于 IM 连接与 MTOP 风控后重试
+        if (acc.getImCookieHeader() != null && !acc.getImCookieHeader().isBlank()) {
+            mtopClient.setImCookieHeader(acc.getImCookieHeader());
+        }
         XianyuMessageApiService msgApi = new XianyuMessageApiService(mtopClient);
 
         // 通过 IM 长连接发送文本消息
-        JsonNode sendResp = msgApi.sendMessage(request.getSessionId(), request.getContent(), selfUserId, peerUserId);
+        // 风控链路：ensureAccs/connect 拿 token 被 punish → 抛 IllegalStateException(含 punish URL)
+        // → 抽 URL 调 captchaSolver → 拿到 x5sec 写入 imCookieHeader → 重建 mtopClient + msgApi 重试
+        JsonNode sendResp = null;
+        String lastRiskError = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                sendResp = msgApi.sendMessage(request.getSessionId(), request.getContent(), selfUserId, peerUserId);
+                break;
+            } catch (IllegalStateException ie) {
+                String msg = ie.getMessage() != null ? ie.getMessage() : "";
+                boolean isRisk = msg.contains("FAIL_SYS_USER_VALIDATE") || msg.contains("punish")
+                        || msg.contains("captcha") || msg.contains("RGV587_ERROR");
+                if (!isRisk || attempt > 0) {
+                    // 非风控异常，或重试后仍失败：原样抛
+                    throw ie;
+                }
+                lastRiskError = msg;
+                log.warn("[MESSAGE] sendMessage hit risk control on attempt {}, solving captcha...", attempt + 1);
+                boolean solved = solveCaptchaForSend(acc, msg);
+                if (!solved) {
+                    // 滑块没解出来：把 punish URL 带回去给前端，而不是抱一个赤裸的 IllegalStateException
+                    throw new IllegalStateException("发送失败：闲鱼风控拦截，滑块未通过。错误摘要："
+                            + truncate(msg, 300), ie);
+                }
+                // 滑块通过：用新 cookie 重建 mtopClient / msgApi，下一轮重试发送
+                mtopClient = new XianyuMtopApiClient(acc.getCookieHeader());
+                mtopClient.setImCookieHeader(acc.getImCookieHeader());
+                msgApi = new XianyuMessageApiService(mtopClient);
+            }
+        }
         if (sendResp == null) {
-            throw new IllegalStateException("sendMessage returned null");
+            // 重试后仍拿不到响应（理论上上面 catch 已抛过），保险兜底
+            throw new IllegalStateException("sendMessage returned null after retry, lastRisk=" + truncate(lastRiskError, 200));
         }
         // 异步帧立即返回合成 ack（code=200, async=true），发送是否真正成功要靠
         // pushListener 监听 sendByReceiverScope 回执或买家侧确认。

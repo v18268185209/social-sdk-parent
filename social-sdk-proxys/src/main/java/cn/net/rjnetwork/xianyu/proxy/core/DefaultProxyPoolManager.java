@@ -2,7 +2,6 @@ package cn.net.rjnetwork.xianyu.proxy.core;
 
 import cn.net.rjnetwork.xianyu.proxy.config.*;
 import cn.net.rjnetwork.xianyu.proxy.health.DefaultHealthChecker;
-import cn.net.rjnetwork.xianyu.proxy.health.ProxyHealthChecker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.TaskScheduler;

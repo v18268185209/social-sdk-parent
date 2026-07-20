@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.openapi.common;
+^package cn.net.rjnetwork.xianyu.manager.openapi.common;
 
 import cn.net.rjnetwork.xianyu.manager.openapi.model.OpenApp;
 

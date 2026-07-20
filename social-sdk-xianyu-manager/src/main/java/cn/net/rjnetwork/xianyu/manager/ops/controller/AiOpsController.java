@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.ops.controller;
+^package cn.net.rjnetwork.xianyu.manager.ops.controller;
 
 import cn.net.rjnetwork.xianyu.manager.ai.ops.AiOpsService;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;

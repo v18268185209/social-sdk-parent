@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.cs.mapper;
+^package cn.net.rjnetwork.xianyu.manager.cs.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.cs.model.AiCsSession;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

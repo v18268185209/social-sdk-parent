@@ -95,6 +95,19 @@
                     <div class="bubble-text" v-if="msg.msgType === 'TEXT'">{{ msg.content || '[空消息]' }}</div>
                     <img v-else-if="msg.msgType === 'IMAGE'" :src="msg.content" alt="图片" class="bubble-img" @click="openMedia(msg.content)" />
                     <video v-else-if="msg.msgType === 'VIDEO'" :src="msg.content" controls class="bubble-img"></video>
+                    <div v-else-if="msg.msgType === 'JSON' || isJsonCard(msg.content)" class="bubble-card">
+                      <div class="card-title">{{ parseJsonCard(msg.content).title }}</div>
+                      <div class="card-subtitle">{{ parseJsonCard(msg.content).subtitle }}</div>
+                      <img v-if="parseJsonCard(msg.content).leftImg" :src="parseJsonCard(msg.content).leftImg" class="card-left-img" />
+                      <el-button
+                        v-if="parseJsonCard(msg.content).buttonText"
+                        size="small"
+                        :color="parseJsonCard(msg.content).buttonBgColor || '#409eff'"
+                        class="card-btn"
+                        @click="parseJsonCard(msg.content).targetUrl && window.open(parseJsonCard(msg.content).targetUrl, '_blank')"
+                      >{{ parseJsonCard(msg.content).buttonText }}</el-button>
+                      <div v-if="parseJsonCard(msg.content).subTitle" class="card-desc">{{ parseJsonCard(msg.content).subTitle }}</div>
+                    </div>
                     <div class="bubble-text" v-else>{{ msg.content || '[空消息]' }}</div>
                     <el-tag v-if="msg.autoReply" size="small" type="warning" effect="plain" class="auto-reply-tag">自动回复</el-tag>
                   </div>
@@ -154,6 +167,39 @@ const filteredSessions = computed(() => {
 
 function openMedia(url) {
   if (url) window.open(url, '_blank')
+}
+
+function isJsonCard(content) {
+  if (!content || typeof content !== 'string') return false
+  try {
+    const obj = JSON.parse(content)
+    return obj && (obj.dxCard || obj.contentType)
+  } catch {
+    return false
+  }
+}
+
+function parseJsonCard(content) {
+  const fallback = { title: '', subtitle: '', buttonText: '', buttonBgColor: '', targetUrl: '', leftImg: '', subTitle: '' }
+  if (!content) return fallback
+  try {
+    const obj = typeof content === 'string' ? JSON.parse(content) : content
+    const dxCard = obj?.dxCard || obj?.dxcard
+    const main = dxCard?.item?.main || dxCard?.item || {}
+    const exContent = main?.exContent || main?.excontent || {}
+    const button = exContent?.button || {}
+    return {
+      title: exContent?.title || main?.title || '',
+      subtitle: exContent?.subtitle || main?.subtitle || '',
+      subTitle: exContent?.subTitle || main?.subTitle || '',
+      buttonText: button?.text || '',
+      buttonBgColor: button?.bgColor || '',
+      targetUrl: button?.targetUrl || main?.targetUrl || dxCard?.item?.main?.targetUrl || '',
+      leftImg: button?.leftImg || ''
+    }
+  } catch {
+    return fallback
+  }
 }
 const syncMsg = ref('')
 
@@ -596,6 +642,41 @@ onUnmounted(() => {
 }
 .auto-reply-tag {
   margin-top: 4px;
+}
+.bubble-card {
+  padding: 12px 16px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #e5e5e5;
+  min-width: 200px;
+  max-width: 280px;
+}
+.card-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: #333;
+  margin-bottom: 4px;
+}
+.card-subtitle {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 8px;
+}
+.card-desc {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 8px;
+}
+.card-left-img {
+  width: 24px;
+  height: 24px;
+  margin-bottom: 8px;
+  display: block;
+}
+.card-btn {
+  color: #fff !important;
+  border: none !important;
+  font-weight: 500;
 }
 
 /* 输入框 */

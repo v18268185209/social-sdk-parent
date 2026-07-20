@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.openapi.config;
+^package cn.net.rjnetwork.xianyu.manager.openapi.config;
 
 import cn.net.rjnetwork.xianyu.manager.openapi.security.OpenApiAuthInterceptor;
 import io.swagger.v3.oas.models.Components;

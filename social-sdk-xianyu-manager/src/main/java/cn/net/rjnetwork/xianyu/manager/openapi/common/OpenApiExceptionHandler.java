@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.openapi.common;
+^package cn.net.rjnetwork.xianyu.manager.openapi.common;
 
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;

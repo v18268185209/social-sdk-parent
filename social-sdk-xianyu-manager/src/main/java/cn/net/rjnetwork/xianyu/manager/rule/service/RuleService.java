@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.rule.service;
+^package cn.net.rjnetwork.xianyu.manager.rule.service;
 
 import cn.net.rjnetwork.xianyu.manager.ai.service.AiChatService;
 import cn.net.rjnetwork.xianyu.manager.reply.service.AutoReplyLogService;

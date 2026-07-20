@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.openapi.controller;
+^package cn.net.rjnetwork.xianyu.manager.openapi.controller;
 
 import cn.net.rjnetwork.xianyu.manager.openapi.common.OpenApiResponse;
 import cn.net.rjnetwork.xianyu.manager.openapi.dto.TokenRequest;

@@ -1,4 +1,4 @@
-# 闲鱼多账号管理平台 (Xianyu Manager)
+^# 闲鱼多账号管理平台 (Xianyu Manager)
 
 轻量级闲鱼多账号管理平台，基于 SQLite3 + In-Memory Cache，单管理员多账号管理。
 

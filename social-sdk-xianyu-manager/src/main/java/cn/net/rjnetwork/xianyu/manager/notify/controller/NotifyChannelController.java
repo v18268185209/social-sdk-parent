@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.notify.controller;
+^package cn.net.rjnetwork.xianyu.manager.notify.controller;
 
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import cn.net.rjnetwork.xianyu.manager.common.CryptoUtil;

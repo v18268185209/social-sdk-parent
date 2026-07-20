@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.notify.service;
+^package cn.net.rjnetwork.xianyu.manager.notify.service;
 
 import cn.net.rjnetwork.xianyu.manager.common.CryptoUtil;
 import cn.net.rjnetwork.xianyu.manager.message.websocket.MessageBroadcaster;

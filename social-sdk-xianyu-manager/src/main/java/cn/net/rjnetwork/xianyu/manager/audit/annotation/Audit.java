@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.audit.annotation;
+^package cn.net.rjnetwork.xianyu.manager.audit.annotation;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

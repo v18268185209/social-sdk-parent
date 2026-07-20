@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.rule.dto;
+^package cn.net.rjnetwork.xianyu.manager.rule.dto;
 
 import lombok.Data;
 

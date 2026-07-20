@@ -41,6 +41,13 @@
             <artifactId>social-sdk-cdp-auth</artifactId>
         </dependency>
 
+        <!-- Chrome 容器隔离管理 -->
+        <dependency>
+            <groupId>cn.net.rjnetwork</groupId>
+            <artifactId>social-sdk-chrome</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Core (AI client/model 等基础能力，供 ai / cs 模块使用) -->
         <dependency>
             <groupId>cn.net.rjnetwork</groupId>

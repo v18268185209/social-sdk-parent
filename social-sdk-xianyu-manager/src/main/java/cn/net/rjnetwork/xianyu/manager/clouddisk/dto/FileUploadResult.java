@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.clouddisk.dto;
+^package cn.net.rjnetwork.xianyu.manager.clouddisk.dto;
 
 import lombok.Data;
 

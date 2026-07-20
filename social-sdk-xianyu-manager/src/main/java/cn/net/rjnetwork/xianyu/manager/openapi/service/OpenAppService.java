@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.openapi.service;
+^package cn.net.rjnetwork.xianyu.manager.openapi.service;
 
 import cn.net.rjnetwork.xianyu.manager.common.CryptoUtil;
 import cn.net.rjnetwork.xianyu.manager.openapi.common.OpenApiContext;

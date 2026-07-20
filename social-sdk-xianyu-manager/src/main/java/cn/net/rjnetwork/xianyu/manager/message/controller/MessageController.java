@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.message.controller;
+^package cn.net.rjnetwork.xianyu.manager.message.controller;
 
 import cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
@@ -36,9 +36,20 @@ public class MessageController {
 
     @PostMapping("/send")
     @Audit("发送消息")
-    public ApiResponse<XianyuMessage> send(@RequestBody MessageSendRequest request) throws Exception {
-        XianyuMessage sent = messageService.sendMessage(request);
-        return ApiResponse.ok(sent);
+    public ApiResponse<XianyuMessage> send(@RequestBody MessageSendRequest request) {
+        try {
+            XianyuMessage sent = messageService.sendMessage(request);
+            return ApiResponse.ok(sent);
+        } catch (IllegalStateException ie) {
+            // 风控拦截 / cookie 失效 / userId 缺失 等业务异常：带友好摘要回前端，不出 500
+            // MessageService.sendMessage 已在摘要里包含 punish URL 关键信息
+            String msg = ie.getMessage() != null ? ie.getMessage() : "发送失败";
+            String code = msg.contains("风控") || msg.contains("punish") || msg.contains("FAIL_SYS_USER_VALIDATE")
+                    || msg.contains("RGV587") || msg.contains("滑块") ? "RISK_CONTROL" : "SEND_FAILED";
+            return ApiResponse.fail(code, msg);
+        } catch (Exception e) {
+            return ApiResponse.fail("SEND_FAILED", "发送失败: " + e.getMessage());
+        }
     }
 
     @PostMapping("/syncNow")

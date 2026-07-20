@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.openapi.common;
+^package cn.net.rjnetwork.xianyu.manager.openapi.common;
 
 /**
  * 对外 OpenAPI 业务异常。由控制器层抛出，被 OpenApiExceptionHandler 统一转换为 OpenApiResponse。

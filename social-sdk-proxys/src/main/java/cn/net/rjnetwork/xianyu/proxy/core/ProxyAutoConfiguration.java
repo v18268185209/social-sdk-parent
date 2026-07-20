@@ -4,7 +4,6 @@ import cn.net.rjnetwork.xianyu.proxy.config.ProviderType;
 import cn.net.rjnetwork.xianyu.proxy.config.ProxyProperties;
 import cn.net.rjnetwork.xianyu.proxy.config.ProxyType;
 import cn.net.rjnetwork.xianyu.proxy.health.DefaultHealthChecker;
-import cn.net.rjnetwork.xianyu.proxy.health.ProxyHealthChecker;
 import cn.net.rjnetwork.xianyu.proxy.provider.AbuyunProvider;
 import cn.net.rjnetwork.xianyu.proxy.provider.KuaidailiProvider;
 import cn.net.rjnetwork.xianyu.proxy.provider.SmartproxyProvider;

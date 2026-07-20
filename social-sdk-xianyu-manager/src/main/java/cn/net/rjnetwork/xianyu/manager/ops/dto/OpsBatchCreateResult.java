@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.ops.dto;
+^package cn.net.rjnetwork.xianyu.manager.ops.dto;
 
 import lombok.Data;
 import java.util.ArrayList;

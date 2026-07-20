@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.notify.mapper;
+^package cn.net.rjnetwork.xianyu.manager.notify.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.notify.model.NotifyMessage;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

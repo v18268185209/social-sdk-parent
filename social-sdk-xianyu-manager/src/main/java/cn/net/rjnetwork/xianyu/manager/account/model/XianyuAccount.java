@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.account.model;
+^package cn.net.rjnetwork.xianyu.manager.account.model;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -89,4 +89,27 @@ public class XianyuAccount extends BaseEntity {
 
     /** 上次 profile 同步时间 */
     private LocalDateTime profileSyncedAt;
+
+    // ===== Chrome 容器隔离字段 =====
+
+    /** 账号独占 Chrome user-data-dir 路径 */
+    private String chromeProfilePath;
+
+    /** 账号独占 Chrome CDP 端口 */
+    private Integer cdpPort;
+
+    /** 账号绑定的代理 URL（http://host:port 或 socks5://host:port） */
+    private String proxyUrl;
+
+    /** Chrome 容器当前状态（RUNNING/CRASHED/STOPPED/LAUNCHING 等） */
+    private String chromeStatus;
+
+    /** Chrome 容器崩溃次数 */
+    private Integer chromeCrashCount;
+
+    /** Chrome 容器指纹 seed（用于派生反检测噪声） */
+    private Long chromeSeed;
+
+    /** Chrome 容器启动时间 */
+    private LocalDateTime chromeLaunchedAt;
 }

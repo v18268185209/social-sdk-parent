@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.notify.service;
+^package cn.net.rjnetwork.xianyu.manager.notify.service;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;

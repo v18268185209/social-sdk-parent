@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.config;
+^package cn.net.rjnetwork.xianyu.manager.config;
 
 import cn.net.rjnetwork.xianyu.manager.captcha.CdpWebSocketProxyHandler;
 import org.springframework.context.annotation.Configuration;

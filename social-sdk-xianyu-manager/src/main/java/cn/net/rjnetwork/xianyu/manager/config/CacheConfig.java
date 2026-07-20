@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.config;
+^package cn.net.rjnetwork.xianyu.manager.config;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.springframework.cache.CacheManager;

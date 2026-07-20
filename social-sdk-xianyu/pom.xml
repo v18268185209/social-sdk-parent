@@ -22,6 +22,13 @@
             <artifactId>social-sdk-core</artifactId>
         </dependency>
 
+        <!-- 代理池 SDK -->
+        <dependency>
+            <groupId>cn.net.rjnetwork</groupId>
+            <artifactId>social-sdk-proxys</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- social-sdk-chrome removed: CDP/browser no longer needed -->
 
         <dependency>

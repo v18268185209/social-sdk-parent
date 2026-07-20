@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.captcha;
+^package cn.net.rjnetwork.xianyu.manager.captcha;
 
 import cn.net.rjnetwork.xianyu.captcha.config.CdpCaptchaConfig;
 import org.slf4j.Logger;

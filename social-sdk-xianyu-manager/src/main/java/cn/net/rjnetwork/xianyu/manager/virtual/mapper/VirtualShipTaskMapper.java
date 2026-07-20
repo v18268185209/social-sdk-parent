@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.virtual.mapper;
+^package cn.net.rjnetwork.xianyu.manager.virtual.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.virtual.model.VirtualShipTask;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

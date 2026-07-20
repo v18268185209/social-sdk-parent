@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.wallet.controller;
+^package cn.net.rjnetwork.xianyu.manager.wallet.controller;
 
 import cn.net.rjnetwork.xianyu.api.XianyuWalletApiService;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;

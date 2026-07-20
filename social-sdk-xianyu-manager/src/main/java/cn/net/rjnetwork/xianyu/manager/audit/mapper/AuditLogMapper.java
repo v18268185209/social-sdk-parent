@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.audit.mapper;
+^package cn.net.rjnetwork.xianyu.manager.audit.mapper;
 
 import cn.net.rjnetwork.xianyu.manager.audit.model.AuditLog;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;

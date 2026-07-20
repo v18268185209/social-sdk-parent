@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.virtual.service;
+^package cn.net.rjnetwork.xianyu.manager.virtual.service;
 
 import cn.net.rjnetwork.xianyu.manager.order.model.XianyuOrder;
 

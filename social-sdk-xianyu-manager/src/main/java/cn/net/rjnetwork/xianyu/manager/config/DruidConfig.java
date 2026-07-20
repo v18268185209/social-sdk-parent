@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.config;
+^package cn.net.rjnetwork.xianyu.manager.config;
 
 import com.alibaba.druid.pool.DruidDataSource;
 import org.slf4j.Logger;

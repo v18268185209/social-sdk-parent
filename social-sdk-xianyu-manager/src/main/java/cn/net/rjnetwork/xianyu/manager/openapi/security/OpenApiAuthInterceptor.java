@@ -1,4 +1,4 @@
-package cn.net.rjnetwork.xianyu.manager.openapi.security;
+^package cn.net.rjnetwork.xianyu.manager.openapi.security;
 
 import cn.net.rjnetwork.xianyu.manager.openapi.common.OpenApiContext;
 import cn.net.rjnetwork.xianyu.manager.openapi.common.OpenApiErrorCode;
