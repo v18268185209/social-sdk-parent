@@ -1,0 +1,38 @@
+/*
+ * 全局单屏布局样式：所有管理页共享
+ * - 不让整页 body 滚动（单屏固定）
+ * - 让子元素在自己区域内滚动
+ * - 撑满 el-main 的剩余高度
+ */
+
+/* ========= 管理页根容器：page-root ========= */
+.page-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+  overflow: hidden;       /* 自身不滚动 */
+}
+
+/* page-root 内第一个 el-card：撑满剩余高度 */
+.page-root > .el-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 表格区域自动滚动 */
+.page-root > .el-card .el-table,
+.page-root .el-card .el-table {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* ========= 纯列表页（单 card + table，无需 flex） ========= */
+.page-root.noflex {
+  display: block;
+  overflow-y: auto;
+}

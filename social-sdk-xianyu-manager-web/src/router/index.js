@@ -20,6 +20,12 @@ const routes = [
     meta: { public: true, title: '隐私政策' }
   },
   {
+    path: '/data-board',
+    name: 'DataBoard',
+    component: () => import('@/views/data-board/Index.vue'),
+    meta: { title: '实时大屏', fullscreen: true }
+  },
+  {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
     redirect: '/dashboard',
@@ -114,6 +120,30 @@ const routes = [
         name: 'Notify',
         component: () => import('@/views/notify/Index.vue'),
         meta: { title: '消息通知' }
+      },
+      {
+        path: 'market',
+        name: 'Market',
+        component: () => import('@/views/market/Index.vue'),
+        meta: { title: '市场情报' }
+      },
+      {
+        path: 'buyer',
+        name: 'Buyer',
+        component: () => import('@/views/buyer/Index.vue'),
+        meta: { title: '买家画像' }
+      },
+      {
+        path: 'ai-cs',
+        name: 'AiCs',
+        component: () => import('@/views/aiCs/Index.vue'),
+        meta: { title: 'AI 客服' }
+      },
+      {
+        path: 'tasks',
+        name: 'Tasks',
+        component: () => import('@/views/tasks/Index.vue'),
+        meta: { title: '监控任务' }
       }
     ]
   }

@@ -39,7 +39,46 @@ public enum NotifyScenario {
     WALLET_LARGE_TXN("大额交易",
             "账号 {accountName} 发生大额交易",
             "账号 {accountName} 发生大额交易：{amount}（{bizType}），当前余额 {balance}。",
-            300);
+            300),
+
+    // ===== 新增场景 =====
+    // 监控匹配
+    MONITOR_MATCH("监控发现匹配商品",
+            "关键词 {keyword} 发现匹配商品",
+            "任务 {taskName} 发现匹配商品：{itemTitle}，价格 {price} 元，卖家 {sellerNickname}。AI 评分：{aiScore} 分。理由：{aiReason}。链接：{itemUrl}",
+            0),
+
+    // AI 客服会话
+    AI_CS_DEAL_CLOSED("AI客服成交",
+            "AI 客服促成成交",
+            "账号 {accountName} 与买家 {buyerNickname} 经 {bargainRound} 轮议价，以 {dealPrice} 元成交。商品：{productTitle}",
+            0),
+    AI_CS_DEAL_LOST("AI客服丢单",
+            "AI 客服未能成交",
+            "账号 {accountName} 与买家 {buyerNickname} 议价 {bargainRound} 轮未达成一致，买家最后出价 {lowestOffer} 元，商品原价 {originalPrice} 元",
+            300),
+
+    // 账号健康
+    ACCOUNT_HEALTH_DROP("账号健康度下降",
+            "账号 {accountName} 健康度降至 {healthScore}",
+            "账号 {accountName} 健康度从 {oldScore} 降至 {newScore}。原因：{reason}。建议：{suggestion}",
+            1800),
+
+    // 熔断器事件
+    CIRCUIT_BREAKER_OPENED("熔断器开闸",
+            "服务 {serviceName} 触发熔断",
+            "账号 {accountName} 的服务 {serviceName} 连续失败 {failureCount} 次，已熔断 {cooldownSeconds} 秒。最后错误：{lastError}",
+            600),
+    CIRCUIT_BREAKER_RECOVERED("熔断器恢复",
+            "服务 {serviceName} 已恢复",
+            "账号 {accountName} 的服务 {serviceName} 在熔断后已自动恢复运行",
+            600),
+
+    // 市场情报
+    MARKET_PRICE_DROP("市场价格下降",
+            "关键词 {keyword} 市场均价下降",
+            "关键词 {keyword} 今日均价 {avgPrice} 元，较昨日变化 {changePercent}%。最低价 {minPrice} 元，最高价 {maxPrice} 元，成交量 {volume}。",
+            86400);
 
     private final String label;
     private final String defaultTitle;

@@ -35,6 +35,11 @@ public class ApiResponse<T> {
         return response;
     }
 
+    /** 兼容旧调用方：success 等价于 ok。 */
+    public static <T> ApiResponse<T> success(T data) {
+        return ok(data);
+    }
+
     public static <T> ApiResponse<T> fail(String code, String message) {
         ApiResponse<T> response = new ApiResponse<>();
         response.setSuccess(false);

@@ -1,0 +1,68 @@
+{
+  "name": "xianyu-manager-desktop",
+  "version": "0.0.1",
+  "description": "闲鱼管理器桌面版 (Electron)",
+  "main": "main.js",
+  "author": "social-sdk",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build:mac": "../build.sh mac",
+    "build:win": "../build.sh win",
+    "build:all": "../build.sh all"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0",
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.0"
+  },
+  "build": {
+    "appId": "cn.net.rjnetwork.xianyu.manager",
+    "productName": "闲鱼管理器",
+    "directories": {
+      "output": "dist_electron",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "icons/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../../social-sdk-xianyu-manager/target/",
+        "to": "app/",
+        "filter": ["*.jar"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "icons/icon.icns"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "icons/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "闲鱼管理器"
+    },
+    "portable": {
+      "artifactName": "闲鱼管理器-Windows-Portable-${version}.exe"
+    }
+  }
+}

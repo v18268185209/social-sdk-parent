@@ -22,6 +22,9 @@ public enum ProviderType {
     /** Smartproxy — 国际住宅代理 */
     SMARTPROXY("Smartproxy", "Smartproxy"),
 
+    /** 青果网络 (qg.net) — 国内短效/隧道代理 */
+    QG("QG", "青果网络"),
+
     /** GoLogin / AdsPower 等反指纹浏览器内置代理 */
     ANTIDETECT_BROWSER("AntiDetectBrowser", "反指纹浏览器"),
 

@@ -15,7 +15,7 @@ spring:
   datasource:
     type: com.alibaba.druid.pool.DruidDataSource
     driver-class-name: org.sqlite.JDBC
-    url: jdbc:sqlite:${user.dir}/data/xianyu-manager.db
+    url: jdbc:sqlite:/Users/vim/Desktop/codes/github/social-sdk-parent/data/xianyu-manager.db
     druid:
       # ===== 连接池核心参数 =====
       initial-size: 5

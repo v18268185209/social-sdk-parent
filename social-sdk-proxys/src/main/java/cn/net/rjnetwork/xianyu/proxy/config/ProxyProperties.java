@@ -72,8 +72,103 @@ public class ProxyProperties {
     /** 健康检查子配置 */
     private HealthCheck healthCheck = new HealthCheck();
 
-    /** 供应商子配置（key = provider type name） */
+    /** 供应商子配置（key = provider type name，_abuyun_, _kuaidaili_, _smartproxy_, _qg_） */
     private Map<String, ProviderConfig> providers = new HashMap<>();
+
+    /** 青果网络 (qg.net) 专属配置 */
+    private QgConfig qg = new QgConfig();
+
+    /**
+     * 青果网络 (qg.net) 专属配置。top-level <b>apiKey</b> 被隧道代理和短效代理共用。
+     *
+     * <p>yaml 结构：</p>
+     * <pre>{@code
+     * proxy:
+     *   providers:
+     *     qg:
+     *       enabled: true
+     *       apiKey: xxxxxx               # 产品唯一标识（隧道/短效共用）
+     *       authKey: your_user            # 账密鉴权用户名（白名单模式可为空）
+     *       authPwd: your_pass            # 账密鉴权密码
+     *       tunnel:
+     *         enabled: true
+     *         host: tun-szbhry.qg.net
+     *         port: 25889
+     *         areaCode: "110100"
+     *         keepAliveSec: 60
+     *         protocol: http
+     *       shortLived:
+     *         enabled: false
+     *         plan: extract_by_count
+     *         areaCode: ""
+     *         isp: 0
+     *         distinct: true
+     *         num: 1
+     *         keepAliveSec: 60
+     *         maxLatencyMs: 3000
+     * }</pre>
+     *
+     * <p>参考 QG 文档：https://www.qg.net/doc/1851.html (按量提取) / https://www.qg.net/doc/1927.html (开发者指南)</p>
+     */
+    @Data
+    public static class QgConfig {
+        /** 是否启用 QG 代理（含隧道和短效，各自再用内部开关控制） */
+        private boolean enabled = false;
+
+        /** 产品唯一标识 key（隧道/短效共用，QG 控制台获取） */
+        private String apiKey;
+
+        /** 账密鉴权 — 用户名（白名单模式可不填） */
+        private String authKey;
+
+        /** 账密鉴权 — 密码 */
+        private String authPwd;
+
+        /** 隧道代理子配置 */
+        private QgSubConfig tunnel = new QgSubConfig();
+
+        /** 短效代理子配置 */
+        private QgShortLivedSubConfig shortLived = new QgShortLivedSubConfig();
+    }
+
+    /**
+     * 隧道代理子配置。
+     * Note: 账密鉴权字段（authKey/authPwd）定义在顶层 {@link QgConfig}，自动装配时由 Spring 注入，
+     * 不在子配置里重复存储。
+     */
+    @Data
+    public static class QgSubConfig {
+        private boolean enabled = false;
+        private String host;
+        private int port;
+        private String areaCode;
+        private int keepAliveSec;
+        private String protocol = "http";
+    }
+
+    /** 短效代理子配置（按量提取模式） */
+    @Data
+    public static class QgShortLivedSubConfig {
+        private boolean enabled = false;
+        private String plan = "extract_by_count";
+        private String areaCode;
+        private int isp;
+        private boolean distinct = true;
+        private int num = 1;
+        private int keepAliveSec = 60;
+        private long maxLatencyMs = 3000L;
+
+        public String resolveApiDomain() { return "https://share.proxy.qg.net"; }
+
+        public String buildExtractUrl(String apiKey) {
+            StringBuilder url = new StringBuilder(resolveApiDomain()).append("/get?key=").append(apiKey);
+            if (areaCode != null && !areaCode.isBlank()) url.append("&area=").append(areaCode);
+            if (isp > 0) url.append("&isp=").append(isp);
+            url.append("&distinct=").append(distinct).append("&num=").append(num);
+            if (keepAliveSec > 0) url.append("&keep_alive=").append(keepAliveSec);
+            return url.toString();
+        }
+    }
 
     /**
      * 健康检查配置

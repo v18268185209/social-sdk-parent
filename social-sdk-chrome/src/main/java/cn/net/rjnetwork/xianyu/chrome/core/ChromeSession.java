@@ -3,12 +3,16 @@ package cn.net.rjnetwork.xianyu.chrome.core;
 import cn.net.rjnetwork.xianyu.chrome.config.ChromeConfig;
 import cn.net.rjnetwork.xianyu.chrome.exception.ChromeException;
 import cn.net.rjnetwork.xianyu.chrome.model.ChromeProfile;
+import cn.net.rjnetwork.xianyu.captcha.service.SliderAntiDetect;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import okhttp3.WebSocket;
+import okhttp3.WebSocketListener;
+import okio.ByteString;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,7 +28,10 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -57,9 +64,22 @@ public class ChromeSession {
      */
     private static final String CDP_READY_MARKER = "webSocketDebuggerUrl";
 
+    /** CDP WS 调用默认超时（秒） */
+    private static final int WS_CALL_TIMEOUT_SECONDS = 10;
+
+    /** evaluate / addScript 时最大重试次数 */
+    private static final int INJECT_RETRY_MAX = 3;
+
+    /** evaluate / addScript 重试间隔（毫秒） */
+    private static final long INJECT_RETRY_INTERVAL_MS = 300;
+
     private final ChromeConfig config;
     private final OkHttpClient httpClient;
     private final ChromePortPool portPool;
+    /** 长连接 WebSocket 客户端（注入脚本专用，超长 readTimeout） */
+    private final OkHttpClient wsClient;
+
+    private final AtomicLong wsRequestId = new AtomicLong(0);
 
     public ChromeSession(ChromeConfig config, ChromePortPool portPool, OkHttpClient httpClient) {
         this.config = config;
@@ -67,6 +87,10 @@ public class ChromeSession {
         this.httpClient = httpClient != null ? httpClient : new OkHttpClient.Builder()
                 .connectTimeout(3, TimeUnit.SECONDS)
                 .readTimeout(5, TimeUnit.SECONDS)
+                .build();
+        // WebSocket 客户端：注入脚本时需要长连接等待 Runtime.evaluate 返回
+        this.wsClient = (httpClient != null ? httpClient : this.httpClient).newBuilder()
+                .readTimeout(WS_CALL_TIMEOUT_SECONDS + 5, TimeUnit.SECONDS)
                 .build();
     }
 
@@ -248,6 +272,186 @@ public class ChromeSession {
             ResponseBody rb = resp.body();
             return rb != null ? rb.string() : null;
         }
+    }
+
+    // ==================== 指纹注入（双通道 CD WebSocket） ====================
+
+    /**
+     * 向指定容器的所有 page target 注入反检测脚本。
+     *
+     * <p>双通道：
+     * <ol>
+     *   <li>{@code Page.addScriptToEvaluateOnNewDocument} — 持久化，后续每次 SPA 跳转/页面刷新都自动注入</li>
+     *   <li>{@code Runtime.evaluate} — 立刻在当前页面生效</li>
+     * </ol>
+     *
+     * <p>脚本内容由 {@code scriptProvider} 提供（调用方传入 {@code SliderAntiDetect.buildScript(seed)}），
+     * ChromeSession 不关心脚本实现，只负责注入通道。
+     *
+     * @param port          CDP 端口
+     * @param scriptProvider 反检测脚本提供者（per-account seed 派生）
+     */
+    public void injectFingerprintScript(int port, java.util.function.LongSupplier scriptProvider) {
+        String script = SliderAntiDetect.buildScript(scriptProvider.getAsLong());
+        // 找到第一个 page target 的 webSocketDebuggerUrl
+        String wsUrl = findPageTargetWsUrl(port);
+        if (wsUrl == null || wsUrl.isEmpty()) {
+            log.warn("[INJECT] 未找到 page target, 无法注入, port={}", port);
+            return;
+        }
+        // 通道 1：持久化注入
+        sendCdpCommand(wsUrl, "Page.addScriptToEvaluateOnNewDocument",
+                "{\"source\":\"" + escapeJson(script) + "\"}",
+                "identifier");
+        // 通道 2：立刻在当前页面生效（带重试，因为页面可能还没加载完）
+        evaluateOnPageWithRetry(wsUrl, script);
+        log.info("[INJECT] 指纹脚本已注入, port={}, scriptLen={}", port, script.length());
+    }
+
+    /**
+     * 在 page target 上执行 {@code Runtime.evaluate}，带重试。
+     * <p>页面加载完成前调用会失败，通过重试等待页面就绪。
+     */
+    private void evaluateOnPageWithRetry(String wsUrl, String expression) {
+        for (int attempt = 1; attempt <= INJECT_RETRY_MAX; attempt++) {
+            try {
+                String result = evaluateOnPage(wsUrl, expression);
+                log.debug("[INJECT] Runtime.evaluate 成功, attempt={}, result={}", attempt, result);
+                return;
+            } catch (Exception e) {
+                log.debug("[INJECT] Runtime.evaluate 失败, attempt={}, err={}", attempt, e.getMessage());
+                if (attempt < INJECT_RETRY_MAX) {
+                    try {
+                        Thread.sleep(INJECT_RETRY_INTERVAL_MS);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+            }
+        }
+        log.warn("[INJECT] Runtime.evaluate 重试{}次后仍失败", INJECT_RETRY_MAX);
+    }
+
+    /**
+     * 通过 WebSocket 向 page target 发送 CDP 命令并等待响应。
+     *
+     * @param wsUrl     page target 的 webSocketDebuggerUrl
+     * @param method    CDP 方法名（如 Runtime.evaluate、Page.addScriptToEvaluateOnNewDocument）
+     * @param params    JSON 格式的参数字符串（不含外层 id/response）
+     * @return CDP 响应的 result JSON 字符串
+     */
+    public String sendCdpCommand(String wsUrl, String method, String params) {
+        return sendCdpCommand(wsUrl, method, params, null);
+    }
+
+    public String sendCdpCommand(String wsUrl, String method, String params, String requireField) {
+        if (wsUrl == null || wsUrl.isEmpty()) {
+            throw new IllegalArgumentException("wsUrl 不能为空");
+        }
+        long id = wsRequestId.incrementAndGet();
+        String requestBody = "{\"id\":" + id + ",\"method\":\"" + method + "\""
+                + (params != null && !params.isEmpty() ? ",\"params\":" + params : "")
+                + "}";
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicLong responseId = new AtomicLong(-1);
+        java.util.concurrent.atomic.AtomicReference<String> responseHolder = new java.util.concurrent.atomic.AtomicReference<>();
+
+        Request wsRequest = new Request.Builder().url(wsUrl).build();
+        WebSocket ws = wsClient.newWebSocket(wsRequest, new WebSocketListener() {
+            @Override
+            public void onMessage(WebSocket webSocket, String text) {
+                try {
+                    JsonNode node = JSON.readTree(text);
+                    JsonNode respId = node.path("id");
+                    if (respId.isNumber() && respId.asLong() == id) {
+                        responseId.set(respId.asLong());
+                        responseHolder.set(text);
+                        latch.countDown();
+                    }
+                } catch (Exception ignored) {}
+            }
+            @Override
+            public void onFailure(WebSocket webSocket, Throwable t, Response response) {
+                latch.countDown();
+            }
+        });
+        try {
+            ws.send(requestBody);
+            boolean awaited = latch.await(WS_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!awaited) {
+                throw new TimeoutException("CDP 命令超时: " + method);
+            }
+            String resp = responseHolder.get();
+            if (resp == null) {
+                throw new IOException("CDP 命令无响应: " + method);
+            }
+            // 校验是否成功
+            JsonNode respNode = JSON.readTree(resp);
+            if (respNode.path("error") != null && !respNode.path("error").isMissingNode()) {
+                throw new IOException("CDP 命令失败: " + respNode.path("error"));
+            }
+            return resp;
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("CDP 调用被中断: " + method, ie);
+        } finally {
+            try { ws.close(1000, "done"); } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * 查找指定端口上第一个 page target 的 webSocketDebuggerUrl。
+     *
+     * @return webSocketDebuggerUrl，未找到返回 null
+     */
+    public String findPageTargetWsUrl(int port) {
+        try {
+            JsonNode targets = listTargets(port);
+            if (targets == null || targets.isEmpty()) {
+                return null;
+            }
+            for (JsonNode t : targets) {
+                if ("page".equals(t.path("type").asText())) {
+                    String wsUrl = t.path("webSocketDebuggerUrl").asText();
+                    if (wsUrl != null && !wsUrl.isEmpty()) {
+                        return wsUrl;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            log.debug("[INJECT] 查找 page target 失败, port={}", port);
+        }
+        return null;
+    }
+
+    /**
+     * 在 page target 上执行 {@code Runtime.evaluate}。
+     */
+    private String evaluateOnPage(String wsUrl, String expression) {
+        String params = "{\"expression\":\"" + escapeJson(expression) + "\",\"returnByValue\":true}";
+        return sendCdpCommand(wsUrl, "Runtime.evaluate", params, "result");
+    }
+
+    /**
+     * 简单 JSON 转义（脚本内容含引号/反斜杠）。
+     */
+    private static String escapeJson(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"': sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default: sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     /**

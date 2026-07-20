@@ -7,6 +7,8 @@ import cn.net.rjnetwork.xianyu.proxy.health.DefaultHealthChecker;
 import cn.net.rjnetwork.xianyu.proxy.provider.AbuyunProvider;
 import cn.net.rjnetwork.xianyu.proxy.provider.KuaidailiProvider;
 import cn.net.rjnetwork.xianyu.proxy.provider.SmartproxyProvider;
+import cn.net.rjnetwork.xianyu.proxy.provider.qg.QgShortLivedProvider;
+import cn.net.rjnetwork.xianyu.proxy.provider.qg.QgTunnelProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -152,6 +154,37 @@ public class ProxyAutoConfiguration {
     }
 
     /**
+     * QG 网络 隧道代理供应商 bean（条件注册）。
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "proxy.providers.qg.tunnel", name = "enabled", havingValue = "true")
+    public QgTunnelProvider qgTunnelProvider() {
+        if (properties.getQg().getApiKey() == null || properties.getQg().getApiKey().isBlank()) {
+            throw new IllegalStateException("QG 启用但未配置 proxy.providers.qg.apiKey");
+        }
+        QgTunnelProvider provider = new QgTunnelProvider(properties.getQg());
+        log.info("[PROXY-AUTOCONFIG] 注册 QG 隧道代理供应商, host={}:{}",
+                properties.getQg().getTunnel().getHost(), properties.getQg().getTunnel().getPort());
+        return provider;
+    }
+
+    /**
+     * QG 网络 短效代理供应商 bean（条件注册）。
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "proxy.providers.qg.shortLived", name = "enabled", havingValue = "true")
+    public QgShortLivedProvider qgShortLivedProvider() {
+        if (properties.getQg().getApiKey() == null || properties.getQg().getApiKey().isBlank()) {
+            throw new IllegalStateException("QG 短效代理启用但未配置 proxy.providers.qg.apiKey");
+        }
+        QgShortLivedProvider provider = new QgShortLivedProvider(
+                properties.getQg().getApiKey(), properties.getQg().getShortLived());
+        log.info("[PROXY-AUTOCONFIG] 注册 QG 短效代理供应商, plan={}",
+                properties.getQg().getShortLived().getPlan());
+        return provider;
+    }
+
+    /**
      * Smartproxy 供应商 bean（条件注册）。
      */
     @Bean
@@ -176,6 +209,8 @@ public class ProxyAutoConfiguration {
             @org.springframework.beans.factory.annotation.Autowired(required = false) AbuyunProvider abuyunProvider,
             @org.springframework.beans.factory.annotation.Autowired(required = false) KuaidailiProvider kuaidailiProvider,
             @org.springframework.beans.factory.annotation.Autowired(required = false) SmartproxyProvider smartproxyProvider,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) QgTunnelProvider qgTunnelProvider,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) QgShortLivedProvider qgShortLivedProvider,
             @Qualifier("proxyTaskScheduler") TaskScheduler taskScheduler) {
 
         poolManager.setHealthCheckScheduler(
@@ -193,6 +228,12 @@ public class ProxyAutoConfiguration {
         }
         if (smartproxyProvider != null) {
             poolManager.registerProvider(ProviderType.SMARTPROXY, smartproxyProvider);
+        }
+        if (qgTunnelProvider != null) {
+            poolManager.registerProvider(ProviderType.QG, qgTunnelProvider);
+        }
+        if (qgShortLivedProvider != null) {
+            poolManager.registerProvider(ProviderType.QG, qgShortLivedProvider);
         }
 
         log.info("[PROXY-AUTOCONFIG] 供应商注册完成, providers={}", poolManager.listRegisteredProviders());

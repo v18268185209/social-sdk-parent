@@ -1,6 +1,6 @@
 <template>
-  <div>
-    <el-card>
+  <div class="page-root">
+    <el-card style="margin: 0;">
       <template #header>
         <span>消息通知</span>
       </template>

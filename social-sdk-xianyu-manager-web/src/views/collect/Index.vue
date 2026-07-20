@@ -1,6 +1,6 @@
 <template>
-  <div>
-    <el-card>
+  <div class="page-root">
+    <el-card style="margin: 0;">
       <template #header><span>收藏关注</span></template>
       <el-form inline style="margin-bottom: 16px;">
         <el-form-item label="账号">

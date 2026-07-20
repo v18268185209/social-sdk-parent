@@ -1,6 +1,6 @@
 <template>
-  <div>
-    <el-card>
+  <div class="page-root">
+    <el-card style="margin: 0;">
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span>订单管理</span>

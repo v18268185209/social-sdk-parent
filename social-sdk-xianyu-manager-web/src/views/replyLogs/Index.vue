@@ -1,6 +1,6 @@
 <template>
-  <div>
-    <el-card>
+  <div class="page-root">
+    <el-card style="margin: 0;">
       <template #header>
         <span>自动回复日志</span>
       </template>

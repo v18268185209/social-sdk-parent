@@ -81,6 +81,106 @@ ProxyInfo direct = ProxyInfo.direct();   // host="DIRECT", port=0
 
 ---
 
+## 青果网络 (qg.net) 接入
+
+QG 网络是 国内代理 IP 服务商，官网 https://www.qg.net/product/proxyip.html 。
+social-sdk-proxys 内置两个 Provider：**隧道代理（快速跑通）** + **短效代理（长期稳定）**。
+
+### 1. 开通 QG
+
+1. 注册 QG 账号 https://www.qg.net
+2. 后台获取产品的 `apiKey`（唯一产品标识）
+3. 设置白名单 IP 或配置账密鉴权
+4. 开通套餐（隧道代理 / 短效代理 / 按量提取）
+
+### 2. 二选一或全都要
+
+| 套餐 | 适用场景 | Provider |
+|---|---|---|
+| **隧道代理** | 快速上线，账号-IP 绑定要求不强，云端自动切 IP | `QgTunnelProvider` |
+| **短效代理** | 每个账号固定一个住宅 IP，降低风控 | `QgShortLivedProvider` |
+| **两者配合** | 短效代理优先，隧道代理兜底 | 两者都启用 |
+
+### 3. 配置 application.yml
+
+```yaml
+proxy:
+  providers:
+    # 青果网络 (qg.net) 共用一个 apiKey
+    qg:
+      enabled: true                       # 整体开关（仅作标记，bean 注册看内部子开关）
+      apiKey: xxxxx_product_key_xxxx      # 产品唯一标识，隧道/短效共用
+      authKey: your_user                   # 账密鉴权用户名（白名单模式可不填）
+      authPwd: your_pass                   # 账密鉴权密码
+
+      # 方案 A：隧道代理（固定入口，云端自动切 IP）
+      tunnel:
+        enabled: true                       # 加这个才装配 qgTunnelProvider
+        host: tun-szbhry.qg.net             # 隧道服务器地址
+        port: 25889
+        areaCode: "110100"                  # 可选：指定地区编码（北京）
+        keepAliveSec: 60                    # 保持同一 IP 的秒数（账号密码模式）
+        protocol: http                      # http 或 socks5
+
+      # 方案 B：短效代理（每次调 API 提取，账号固定 IP）
+      shortLived:
+        enabled: false                      # 设为 true 启用短效代理
+        plan: extract_by_count              # 提取模式：extract_by_count / elastic / uniform / channel
+        areaCode: ""                        # 可选：限定 IP 地区编码
+        isp: 0                              # 运营商筛选：0=不筛选 1=电信 2=移动 3=联通
+        distinct: true                      # 去重提取：避免分到其他账号用过的 IP
+        num: 1                              # 单次提取数量（建议 1）
+        keepAliveSec: 60                    # IP 存活秒数
+        maxLatencyMs: 3000                  # 健康检查最大延迟（超过此值自动换 IP）
+```
+
+### 4. 两种方案的请求流
+
+**方案 A：隧道代理**
+
+```
+XianyuMtopApiClient
+    ↓ acquire(ProxyAcquireRequest)
+QgTunnelProvider
+    ↓ 返回固定 host:port（cloud 自动切每个请求的出口 IP）
+DefaultProxyPoolManager
+    ↓ cache binding (accountId → QG-tunnel)
+    ↓ 返回 ProxyLease
+```
+
+* 请求示例：`http://user:pass@tun-szbhry.qg.net:25889`
+* QG 云端自动路由到不同出口 IP，SDK 无感知
+* 支持 `-A-xxx` 参数地区 / `-T-60` 参数保持 IP
+
+**方案 B：短效代理**
+
+```
+XianyuMtopApiClient
+    ↓ acquire(ProxyAcquireRequest)
+QgShortLivedProvider
+    ↓ 调用 share.proxy.qg.net/get → 返回 ip:port
+    ↓ 构造 ProxyInfo（带 deadline）
+DefaultProxyPoolManager
+    ↓ binding (accountId → ip:port)
+    ↓ 健康检查 (httpbin.org/ip)
+    ↓ 返回 ProxyLease
+```
+
+* 请求示例：`http://123.54.55.24:59419`
+* SDK 记录 `deadline`（到期自动失效）
+* 可开启 `distinct=true` 去重，避免分到已用过的 IP
+
+### 5. 推荐优先级
+
+在 `ProxyPoolRegistrar` 中，默认按注册顺序排列：短效代理可设为更高优先级，
+配合 `directModeAutoFallback=true` 实现逐级降级：
+
+```
+短效 QG 代理 → 隧道 QG 代理 → 阿布云 / 快代理 → 直连兜底
+```
+
+---
+
 ## 快速接入
 
 ### 1. 加依赖

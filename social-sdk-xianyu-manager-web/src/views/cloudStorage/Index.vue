@@ -1,7 +1,7 @@
 <template>
-  <div>
+  <div class="page-root">
     <!-- OpenList 状态面板 -->
-    <el-card style="margin-bottom: 20px;">
+    <el-card style="margin: 0;">
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span>📦 OpenList</span>
