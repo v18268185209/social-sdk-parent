@@ -63,6 +63,7 @@ public class DatabaseInitializer {
             ensureOrderColumns();
             ensureMessageColumns();
             ensureOpenAppTable();
+            ensureImColumns();
         } catch (Exception e) {
             logger.warn("Database initialization skipped (may already exist): {}", e.getMessage());
         }
@@ -233,6 +234,17 @@ public class DatabaseInitializer {
         ensureColumn("xianyu_message", "msg_type", "VARCHAR(16)");
         ensureColumn("xianyu_message", "direction", "VARCHAR(8)");
         ensureColumn("xianyu_message", "auto_reply", "BOOLEAN");
+    }
+
+    /**
+     * 兼容旧库：补齐 xianyu_account 表 IM/滑块验证相关列（im_cookie_header 等）。
+     * schema.sql 的 CREATE TABLE IF NOT EXISTS 不会给已存在的表补列，这里手动 ALTER TABLE ADD COLUMN。
+     */
+    private void ensureImColumns() {
+        ensureColumn("xianyu_account", "im_cookie_header", "TEXT");
+        ensureColumn("xianyu_account", "im_device_id", "VARCHAR(128)");
+        ensureColumn("xianyu_account", "im_access_token", "TEXT");
+        ensureColumn("xianyu_account", "im_token_expires_at", "DATETIME");
     }
 
     /**

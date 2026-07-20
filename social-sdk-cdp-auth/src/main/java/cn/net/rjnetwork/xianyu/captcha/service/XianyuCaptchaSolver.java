@@ -11,24 +11,28 @@ import org.springframework.stereotype.Service;
 import java.io.*;
 import java.net.Socket;
 import java.net.URI;
-import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 
 /**
- * 闲鱼滑块验证自动化工具 - 通过 CDP 远程控制浏览器完全自动化完成滑块验证
+ * 闲鱼滑块验证自动化工具 - 通过 CDP 远程控制浏览器全自动完成滑块验证
+ *
+ * <p>核心算法参考自 E:\codes\xianyu-auto-reply 项目：
+ * <ul>
+ *   <li>Bezier 曲线 + 抖动生成人类化轨迹（加速-减速-末端微回退）</li>
+ *   <li>通过 CDP Input.dispatchMouseEvent 逐点派发鼠标事件</li>
+ *   <li>自动重试，每次重试抖动轨迹参数</li>
+ *   <li>验证成功后提取 x5sec cookie</li>
+ * </ul>
+ *
+ * <p><b>重要：</b>滑块验证获取的 cookie（x5sec 等）是 IM 专用 cookie，
+ * 与登录 cookie 不同，必须分开存储，不能覆盖登录 cookie。
  */
 @Service
 public class XianyuCaptchaSolver {
@@ -39,6 +43,13 @@ public class XianyuCaptchaSolver {
 
     private final CdpCaptchaConfig config;
 
+    /** 滑块轨迹生成参数：人类拖动先加速、再减速、末端可能微回退 */
+    private static final int TRAJECTORY_BASE_POINTS = 80;
+    private static final int MAX_RETRY_ATTEMPTS = 3;
+    /** 每次拖动前的思考时间范围（毫秒） */
+    private static final long PRE_DRAG_DELAY_MIN = 200;
+    private static final long PRE_DRAG_DELAY_MAX = 800;
+
     public XianyuCaptchaSolver(CdpCaptchaConfig config) {
         this.config = config;
     }
@@ -47,596 +58,197 @@ public class XianyuCaptchaSolver {
      * 尝试通过 CDP 自动完成滑块验证
      *
      * @param punishUrl 闲鱼风控 punish URL
-     * @return 验证码处理结果，包含新 cookie
+     * @return 验证码处理结果，包含新 cookie（x5sec 等，IM 专用）
      */
     public CaptchaResult solve(String punishUrl) {
+        log.info("[CDP-AUTH] 开始自动滑块验证, URL: {}", truncate(punishUrl, 200));
+
+        // 1. 获取浏览器级 CDP WebSocket，用于 Target.* 命令
+        String browserEndpoint;
         try {
-            log.info("[CDP-AUTH] Solving captcha for URL: {}", truncate(punishUrl, 200));
+            browserEndpoint = getCdpEndpointFromBrowser();
+        } catch (Exception e) {
+            return CaptchaResult.fail("无法连接 CDP 浏览器：" + e.getMessage());
+        }
 
-            // 1. 获取浏览器级 CDP WebSocket，用于 Target.* 命令
-            String browserEndpoint = getCdpEndpointFromBrowser();
+        // 2. 获取所有页面列表
+        Map<String, Object> targets;
+        try {
+            targets = getTargets(browserEndpoint);
+        } catch (Exception e) {
+            return CaptchaResult.fail("获取 CDP 目标列表失败：" + e.getMessage());
+        }
 
-            // 2. 获取所有页面列表
-            Map<String, Object> targets = getTargets(browserEndpoint);
-
-            // 3. 查找或创建闲鱼标签页
-            String targetId = findGoofishTargetId(targets);
-            if (targetId == null) {
+        // 3. 查找或创建闲鱼标签页
+        String targetId = findGoofishTargetId(targets);
+        if (targetId == null) {
+            try {
                 targetId = createNewTarget(browserEndpoint, "about:blank");
+            } catch (Exception e) {
+                return CaptchaResult.fail("创建 CDP 标签页失败：" + e.getMessage());
             }
-            if (targetId == null || targetId.isBlank()) {
-                return CaptchaResult.fail("未找到或创建 CDP 页面目标");
-            }
+        }
+        if (targetId == null || targetId.isBlank()) {
+            return CaptchaResult.fail("未找到或创建 CDP 页面目标");
+        }
 
-            // 4. 获取页面级 CDP WebSocket。Page/Runtime/Input 命令必须发到 page 端点，不能发到 browser 端点。
-            String cdpEndpoint = getPageWebSocketEndpoint(targetId);
+        // 4. 获取页面级 CDP WebSocket。Page/Runtime/Input 命令必须发到 page 端点
+        String cdpEndpoint;
+        try {
+            cdpEndpoint = getPageWebSocketEndpoint(targetId);
+        } catch (Exception e) {
+            return CaptchaResult.fail("获取页面 CDP 端点失败：" + e.getMessage());
+        }
 
-            // 5. 直接打开风控返回的 punish URL 触发滑块；不要打开不存在的 account-info 页面
+        // 5. 打开 punish URL 触发滑块
+        try {
             navigateToAccountPage(cdpEndpoint, punishUrl);
-            Thread.sleep(5000);
+            Thread.sleep(3000); // 等待页面加载和滑块渲染
+        } catch (Exception e) {
+            return CaptchaResult.fail("导航到验证页面失败：" + e.getMessage());
+        }
 
-            // 6. 检查是否有滑块验证界面
-            boolean hasSlider = checkSliderExists(cdpEndpoint);
+        // 6. 自动拖动滑块，最多重试 3 次
+        boolean success = false;
+        for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+            log.info("[CDP-AUTH] 滑块验证第 {}/{} 次尝试", attempt, MAX_RETRY_ATTEMPTS);
 
-            if (!hasSlider) {
-                triggerSliderCaptcha(cdpEndpoint);
-                waitForElement(cdpEndpoint, ".slider-btn, .btn_slide, #slider-btn, [class*='slider']", 10000);
+            // 检查是否已经通过（人工已完成）
+            try {
+                if (checkAlreadyPassed(cdpEndpoint)) {
+                    log.info("[CDP-AUTH] 检测到验证已通过（可能人工已完成）");
+                    success = true;
+                    break;
+                }
+            } catch (Exception e) {
+                // 忽略，继续自动拖动
             }
 
-            // 7. 阿里滑块会校验真实轨迹/设备指纹，CDP 自动拖动容易被判定失败。
-            //    这里不再强行自动拖动，而是打开 punish 页后等待人工完成，完成后自动提取 x5sec/cookie 继续业务。
-            log.warn("[CDP-AUTH] Slider page is ready. Please drag it manually in the CDP Chrome window, waiting up to {} seconds...", config.getTimeoutSeconds());
-            boolean success = waitForCaptchaPassed(cdpEndpoint, config.getTimeoutSeconds() * 1000L);
-            if (!success) {
-                return CaptchaResult.fail("滑块验证未通过或等待人工验证超时");
+            // 执行自动拖动
+            try {
+                performAutoSliderDrag(cdpEndpoint, attempt);
+            } catch (Exception e) {
+                log.warn("[CDP-AUTH] 第 {} 次拖动执行异常: {}", attempt, e.getMessage());
             }
 
-            // 8. 提取 cookie
+            // 等待验证结果
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+
+            // 检查是否通过
+            try {
+                if (checkAlreadyPassed(cdpEndpoint)) {
+                    log.info("[CDP-AUTH] 第 {} 次拖动后验证通过", attempt);
+                    success = true;
+                    break;
+                } else {
+                    log.warn("[CDP-AUTH] 第 {} 次拖动后验证未通过", attempt);
+                    // 点击刷新按钮准备重试
+                    if (attempt < MAX_RETRY_ATTEMPTS) {
+                        clickRefreshButton(cdpEndpoint);
+                        Thread.sleep(1500);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[CDP-AUTH] 检查验证状态异常: {}", e.getMessage());
+            }
+        }
+
+        if (!success) {
+            return CaptchaResult.fail("滑块验证失败，已尝试 " + MAX_RETRY_ATTEMPTS + " 次");
+        }
+
+        // 7. 提取 cookie（x5sec 等）
+        try {
+            Thread.sleep(1000); // 等待 cookie 落盘
             String cookie = extractCookie(cdpEndpoint, punishUrl);
-            if (cookie != null && !cookie.isEmpty()) {
-                log.info("[CDP-AUTH] Cookie extracted successfully");
+            if (cookie != null && !cookie.isEmpty() && cookie.contains("x5sec")) {
+                log.info("[CDP-AUTH] Cookie 提取成功，包含 x5sec");
                 return CaptchaResult.ok(cookie);
+            } else if (cookie != null && !cookie.isEmpty()) {
+                log.warn("[CDP-AUTH] Cookie 提取成功但未包含 x5sec，可能验证未真正通过");
+                return CaptchaResult.fail("验证后 cookie 中未找到 x5sec，验证可能未真正通过");
+            } else {
+                return CaptchaResult.fail("未获取到新 cookie");
             }
-
-            return CaptchaResult.fail("未获取到新 cookie");
-
         } catch (Exception e) {
-            log.error("[CDP-AUTH] Captcha solving failed: {}", e.getMessage(), e);
-            return CaptchaResult.fail("验证码处理异常：" + e.getMessage());
+            return CaptchaResult.fail("提取 cookie 异常：" + e.getMessage());
         }
     }
 
     /**
-     * 通过浏览器远程调试接口获取 CDP WebSocket 端点
+     * 检查验证是否已经通过（页面已离开 punish 或 cookie 中有 x5sec）
      */
-    private String getCdpEndpointFromBrowser() throws Exception {
-        try {
-            String browserEndpoint = "http://" + config.getHost() + ":" + config.getPort() + "/json/version";
-            HttpClient client = HttpClient.newHttpClient();
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(browserEndpoint))
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            JsonNode node = MAPPER.readTree(response.body());
-            return node.path("webSocketDebuggerUrl").asText();
-        } catch (Exception e) {
-            log.warn("[CDP-AUTH] Failed to get CDP endpoint: {}", e.getMessage());
-            throw new IOException("无法获取 CDP 端点", e);
-        }
-    }
-
-    /**
-     * 根据 targetId 获取页面级 WebSocket 端点。
-     * Browser 端点只能执行 Target.* 命令，Page/Runtime/Input 命令必须发到页面自己的 webSocketDebuggerUrl。
-     */
-    private String getPageWebSocketEndpoint(String targetId) throws Exception {
-        String listEndpoint = "http://" + config.getHost() + ":" + config.getPort() + "/json/list";
-        HttpClient client = HttpClient.newHttpClient();
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(listEndpoint))
-                .GET()
-                .build();
-
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        JsonNode nodes = MAPPER.readTree(response.body());
-        if (nodes.isArray()) {
-            for (JsonNode node : nodes) {
-                if (targetId.equals(node.path("id").asText()) || targetId.equals(node.path("targetId").asText())) {
-                    String ws = node.path("webSocketDebuggerUrl").asText("");
-                    if (!ws.isBlank()) {
-                        log.info("[CDP-AUTH] Using page CDP endpoint: {}", truncate(ws, 120));
-                        return ws;
-                    }
-                }
-            }
-        }
-        throw new IOException("page websocket endpoint not found for targetId=" + targetId);
-    }
-
-    /**
-     * 连接 CDP WebSocket
-     */
-    private Socket openWebSocket(String wsUrl) throws Exception {
-        // 使用 URI 而非 URL：java.net.URL 不支持 ws:// 协议，会抛 MalformedURLException
-        URI uri = URI.create(wsUrl);
-        String host = uri.getHost();
-        int port = uri.getPort() > 0 ? uri.getPort() : ("wss".equals(uri.getScheme()) ? 443 : 80);
-        String path = uri.getPath();
-        if (uri.getQuery() != null && !uri.getQuery().isEmpty()) {
-            path = path + "?" + uri.getQuery();
-        }
-
-        Socket socket = new Socket(host, port);
-        socket.setSoTimeout(config.getTimeoutSeconds() * 1000);
-
-        PrintWriter out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
-        InputStream input = socket.getInputStream();
-
-        // 生成 WebSocket Key
-        byte[] keyBytes = new SecureRandom().generateSeed(16);
-        String key = Base64.getEncoder().encodeToString(keyBytes);
-
-        // 发送 WebSocket 握手请求
-        String upgradeRequest = "GET " + path + " HTTP/1.1\r\n" +
-                "Host: " + host + "\r\n" +
-                "Upgrade: websocket\r\n" +
-                "Connection: Upgrade\r\n" +
-                "Sec-WebSocket-Key: " + key + "\r\n" +
-                "Sec-WebSocket-Version: 13\r\n" +
-                "\r\n";
-
-        out.print(upgradeRequest);
-        out.flush();
-
-        // 读取响应
-        byte[] buffer = new byte[4096];
-        int read = input.read(buffer);
-        if (read == -1) {
-            throw new IOException("WebSocket handshake failed: no response");
-        }
-
-        String response = new String(buffer, 0, read, StandardCharsets.UTF_8);
-        if (!response.startsWith("HTTP/1.1 101")) {
-            throw new IOException("WebSocket handshake failed: " + response.substring(0, Math.min(200, response.length())));
-        }
-
-        return socket;
-    }
-
-    /**
-     * 获取所有目标页面列表
-     */
-    private Map<String, Object> getTargets(String cdpEndpoint) throws Exception {
+    private boolean checkAlreadyPassed(String cdpEndpoint) {
         Socket socket = null;
         try {
             socket = openWebSocket(cdpEndpoint);
-            Map<String, Object> params = new LinkedHashMap<>();
-            return sendCommand(socket, "Target.getTargets", params);
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (IOException ignored) {}
-            }
-        }
-    }
-
-    /**
-     * 查找闲鱼目标页面 ID
-     */
-    private String findGoofishTargetId(Map<String, Object> targets) {
-        if (targets == null || !targets.containsKey("result")) return null;
-
-        Map<String, Object> result = (Map<String, Object>) targets.get("result");
-        if (result == null || !result.containsKey("targetInfos")) return null;
-
-        java.util.List<?> targetInfos = (java.util.List<?>) result.get("targetInfos");
-        if (targetInfos == null) return null;
-
-        for (Object targetObj : targetInfos) {
-            if (targetObj instanceof Map) {
-                Map<String, Object> target = (Map<String, Object>) targetObj;
-                String url = (String) target.get("url");
-                if (url != null && url.contains("goofish.com")) {
-                    return (String) target.get("targetId");
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * 创建新标签页并导航到指定 URL
-     */
-    private String createNewTarget(String cdpEndpoint, String url) throws Exception {
-        Socket socket = null;
-        try {
-            socket = openWebSocket(cdpEndpoint);
-            Map<String, Object> params = new LinkedHashMap<>();
-            params.put("url", url);
-            Map<String, Object> result = sendCommand(socket, "Target.createTarget", params);
-
-            if (result.containsKey("result")) {
-                Map<String, Object> res = (Map<String, Object>) result.get("result");
-                return (String) res.get("targetId");
-            }
-            return null;
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (IOException ignored) {}
-            }
-        }
-    }
-
-    /**
-     * 附加到目标页面
-     */
-    private void attachToTarget(String cdpEndpoint, String targetId) throws Exception {
-        Socket socket = null;
-        try {
-            socket = openWebSocket(cdpEndpoint);
-            Map<String, Object> params = new LinkedHashMap<>();
-            params.put("targetId", targetId);
-            sendCommand(socket, "Target.attachToTarget", params);
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (IOException ignored) {}
-            }
-        }
-    }
-
-    /**
-     * 导航到账户页面
-     */
-    private void navigateToAccountPage(String cdpEndpoint, String url) throws Exception {
-        Socket socket = null;
-        try {
-            socket = openWebSocket(cdpEndpoint);
-            Map<String, Object> pageParams = new LinkedHashMap<>();
-            pageParams.put("url", url);
-            sendCommand(socket, "Page.enable", null);
-            sendCommand(socket, "Runtime.enable", null);
-            sendCommand(socket, "Page.navigate", pageParams);
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (IOException ignored) {}
-            }
-        }
-    }
-
-    private static final AtomicLong CMD_ID = new AtomicLong(1);
-
-    /**
-     * 发送 CDP 命令
-     */
-    private Map<String, Object> sendCommand(Socket socket, String method, Map<String, Object> params) throws Exception {
-        PrintWriter out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
-        InputStream input = socket.getInputStream();
-
-        // 构造请求 JSON
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("id", CMD_ID.getAndIncrement());
-        request.put("method", method);
-        if (params != null) {
-            request.put("params", params);
-        }
-
-        String json = MAPPER.writeValueAsString(request);
-
-        // 构造 WebSocket 文本帧（客户端帧必须 masked；Chrome CDP 会拒绝未 masked 帧并断开）
-        byte[] textBytes = json.getBytes(StandardCharsets.UTF_8);
-        byte[] maskKey = new byte[4];
-        new SecureRandom().nextBytes(maskKey);
-        ByteArrayOutputStream frame = new ByteArrayOutputStream();
-        frame.write(0x81); // FIN + text
-        if (textBytes.length < 126) {
-            frame.write(0x80 | textBytes.length);
-        } else if (textBytes.length < 65536) {
-            frame.write(0x80 | 126);
-            frame.write((textBytes.length >> 8) & 0xFF);
-            frame.write(textBytes.length & 0xFF);
-        } else {
-            frame.write(0x80 | 127);
-            for (int i = 56; i >= 0; i -= 8) {
-                frame.write((textBytes.length >> i) & 0xFF);
-            }
-        }
-        frame.write(maskKey);
-        for (int i = 0; i < textBytes.length; i++) {
-            frame.write(textBytes[i] ^ maskKey[i % 4]);
-        }
-
-        OutputStream output = socket.getOutputStream();
-        output.write(frame.toByteArray());
-        output.flush();
-
-        // 读取 WebSocket 响应帧头（2 字节）
-        byte[] header = new byte[2];
-        if (readFully(input, header, 2) < 2) return new LinkedHashMap<>();
-
-        int opcode = header[0] & 0x0F;
-        int length = header[1] & 0x7F;
-
-        if (length == 126) {
-            byte[] ext = new byte[2];
-            if (readFully(input, ext, 2) < 2) return new LinkedHashMap<>();
-            length = ((ext[0] & 0xFF) << 8) | (ext[1] & 0xFF);
-        } else if (length == 127) {
-            byte[] ext = new byte[8];
-            if (readFully(input, ext, 8) < 8) return new LinkedHashMap<>();
-            long len = 0;
-            for (byte b : ext) len = (len << 8) | (b & 0xFF);
-            length = (int) len;
-        }
-
-        byte[] payload = new byte[length];
-        if (length > 0 && readFully(input, payload, length) < length) {
-            return new LinkedHashMap<>();
-        }
-
-        // 解析 JSON
-        try {
-            String jsonResponse = new String(payload, StandardCharsets.UTF_8);
-            JsonNode node = MAPPER.readTree(jsonResponse);
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("id", node.has("id") ? node.get("id").asText() : "");
-            result.put("method", node.has("method") ? node.get("method").asText() : "");
-            if (node.has("result")) {
-                result.put("result", MAPPER.convertValue(node.get("result"), Map.class));
-            }
-            return result;
-        } catch (Exception e) {
-            log.warn("[CDP] Failed to parse response: {}", e.getMessage());
-            return new LinkedHashMap<>();
-        }
-    }
-
-    private String truncate(String s, int max) {
-        if (s == null) return "null";
-        return s.length() > max ? s.substring(0, max) + "..." : s;
-    }
-
-    /**
-     * 读取指定长度字节到缓冲区
-     */
-    private void readBytes(InputStream input, byte[] buffer) throws IOException {
-        int totalRead = 0;
-        while (totalRead < buffer.length) {
-            int read = input.read(buffer, totalRead, buffer.length - totalRead);
-            if (read == -1) break;
-            totalRead += read;
-        }
-    }
-
-    /**
-     * 精确读取指定长度字节，返回实际读取的字节数
-     */
-    private int readFully(InputStream input, byte[] buffer, int len) throws IOException {
-        int totalRead = 0;
-        while (totalRead < len) {
-            int read = input.read(buffer, totalRead, len - totalRead);
-            if (read == -1) break;
-            totalRead += read;
-        }
-        return totalRead;
-    }
-
-
-    /**
-     * 提取 Cookie
-     */
-    private String extractCookies(Socket socket) {
-        try {
-            Map<String, Object> cookieScript = new LinkedHashMap<>();
-            cookieScript.put("expression", """
-                    (function getCookies() {
-                        var cookies = document.cookie.split(';');
-                        var cookieObj = {};
-                        for (var cookie of cookies) {
-                            var parts = cookie.trim().split('=');
-                            if (parts.length === 2) {
-                                cookieObj[parts[0]] = parts[1];
-                            }
-                        }
-                        return JSON.stringify(cookieObj);
-                    })
-                    """);
-            cookieScript.put("awaitPromise", true);
-            cookieScript.put("returnByValue", true);
-
-            Map<String, Object> result = sendCommand(socket, "Runtime.evaluate", cookieScript);
-
-            Object value = extractRuntimeValue(result);
+            Map<String, Object> script = new LinkedHashMap<>();
+            script.put("expression", """
+                (() => {
+                    const href = location.href || '';
+                    const cookie = document.cookie || '';
+                    const hasSlider = !!document.querySelector('#nc_1_n1z, .btn_slide, .nc_iconfont, #nocaptcha');
+                    const passedByCookie = /(?:^|;\\s*)x5sec=/.test(cookie);
+                    const stillPunish = /punish|captcha/.test(href);
+                    return JSON.stringify({passedByCookie, hasSlider, stillPunish});
+                })()
+            """);
+            script.put("awaitPromise", true);
+            script.put("returnByValue", true);
+            Object value = extractRuntimeValue(sendCommand(socket, "Runtime.evaluate", script));
             if (value != null) {
-                String json = String.valueOf(value);
-                if (json != null && !json.equals("null")) {
-                    StringBuilder sb = new StringBuilder();
-                    JsonNode node = MAPPER.readTree(json);
-                    if (node.isArray()) {
-                        for (JsonNode cookie : node) {
-                            if (sb.length() > 0) sb.append("; ");
-                            sb.append(cookie.path("name").asText()).append("=").append(cookie.path("value").asText());
-                        }
-                    } else if (node.isObject()) {
-                        Iterator<Map.Entry<String, JsonNode>> fieldIter = node.fields();
-                        while (fieldIter.hasNext()) {
-                            Map.Entry<String, JsonNode> entry = fieldIter.next();
-                            if (sb.length() > 0) sb.append("; ");
-                            sb.append(entry.getKey()).append("=").append(entry.getValue().asText());
-                        }
-                    }
-                    return sb.toString();
-                }
+                JsonNode state = MAPPER.readTree(String.valueOf(value));
+                boolean passedByCookie = state.path("passedByCookie").asBoolean(false);
+                boolean hasSlider = state.path("hasSlider").asBoolean(true);
+                boolean stillPunish = state.path("stillPunish").asBoolean(true);
+                return passedByCookie || (!hasSlider && !stillPunish);
             }
-
-            return null;
         } catch (Exception e) {
-            log.warn("[CDP-AUTH] Failed to extract cookie: {}", e.getMessage());
-            return null;
+            log.debug("[CDP-AUTH] checkAlreadyPassed 异常: {}", e.getMessage());
         } finally {
             if (socket != null) {
-                try {
-                    socket.close();
-                } catch (IOException ignored) {}
+                try { socket.close(); } catch (IOException ignored) {}
             }
         }
+        return false;
     }
 
     /**
-     * 检查滑块是否存在
+     * 自动拖拽滑块 - 使用人类化轨迹算法
+     *
+     * <p>轨迹生成参考自 xianyu-auto-reply 项目的 TrajectoryGenerator：
+     * <ul>
+     *   <li>总位移 = 滑块轨道宽度 - 滑块宽度 + 随机过冲</li>
+     *   <li>速度曲线：先加速（0-60%）、匀速（60-80%）、减速（80-100%）</li>
+     *   <li>末端加入微回退（真人特征）</li>
+     *   <li>Y 轴加入随机抖动</li>
+     * </ul>
      */
-    private boolean checkSliderExists(String cdpEndpoint) {
-        Socket socket = null;
-        try {
-            socket = openWebSocket(cdpEndpoint);
-            Map<String, Object> script = new LinkedHashMap<>();
-            script.put("expression", """
-                (function() {
-                    var selectors = ['.slider-btn', '.btn_slide', '#slider-btn', '[class*="slider"]'];
-                    for (var selector of selectors) {
-                        if (document.querySelector(selector)) {
-                            return true;
-                        }
-                    }
-                    return false;
-                })()
-            """);
-            script.put("awaitPromise", true);
-            script.put("returnByValue", true);
-
-            Map<String, Object> result = sendCommand(socket, "Runtime.evaluate", script);
-
-            if (result.containsKey("result")) {
-                Map<String, Object> inner = (Map<String, Object>) result.get("result");
-                return Boolean.TRUE.equals(Boolean.parseBoolean(String.valueOf(inner.get("value"))));
-            }
-
-            return false;
-        } catch (Exception e) {
-            log.warn("[CDP-AUTH] Failed to check slider exists: {}", e.getMessage());
-            return false;
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (IOException ignored) {}
-            }
-        }
-    }
-
-    /**
-     * 触发滑块验证（通过点击页面上的滑块元素）
-     */
-    private void triggerSliderCaptcha(String cdpEndpoint) {
-        Socket socket = null;
-        try {
-            socket = openWebSocket(cdpEndpoint);
-            Map<String, Object> script = new LinkedHashMap<>();
-            script.put("expression", """
-                (function() {
-                    var selectors = ['input[type="text"]', 'button', '.goofish-slider-btn', '[class*="slider"]'];
-                    for (var selector of selectors) {
-                        var elements = document.querySelectorAll(selector);
-                        if (elements.length > 0) {
-                            var event = new MouseEvent('click', {
-                                bubbles: true,
-                                cancelable: true,
-                                view: window
-                            });
-                            elements[0].dispatchEvent(event);
-                            return true;
-                        }
-                    }
-                    return false;
-                })()
-            """);
-            script.put("awaitPromise", true);
-            script.put("returnByValue", true);
-
-            sendCommand(socket, "Runtime.evaluate", script);
-        } catch (Exception e) {
-            log.warn("[CDP-AUTH] Failed to trigger slider: {}", e.getMessage());
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (IOException ignored) {}
-            }
-        }
-    }
-
-    /**
-     * 等待滑块元素出现
-     */
-    private void waitForElement(String cdpEndpoint, String selector, long timeoutMs) throws InterruptedException {
-        Socket socket = null;
-        try {
-            socket = openWebSocket(cdpEndpoint);
-            long startTime = System.currentTimeMillis();
-            while (System.currentTimeMillis() - startTime < timeoutMs) {
-                try {
-                    Map<String, Object> script = new LinkedHashMap<>();
-                    script.put("expression", String.format("!!document.querySelector('%s')", selector));
-                    script.put("awaitPromise", true);
-                    script.put("returnByValue", true);
-
-                    Map<String, Object> result = sendCommand(socket, "Runtime.evaluate", script);
-                    if (result.containsKey("result")) {
-                        Map<String, Object> inner = (Map<String, Object>) result.get("result");
-                        if ("true".equals(String.valueOf(inner.get("value")))) {
-                            return;
-                        }
-                    }
-                } catch (Exception e) {
-                    log.warn("[CDP-AUTH] Error checking element: {}", e.getMessage());
-                }
-
-                Thread.sleep(500);
-            }
-        } catch (InterruptedException ie) {
-            throw ie;
-        } catch (Exception e) {
-            log.warn("[CDP-AUTH] waitForElement failed: {}", e.getMessage());
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (IOException ignored) {}
-            }
-        }
-    }
-
-    /**
-     * 自动拖拽滑块（通过 CDP Input 事件模拟真实鼠标拖动）
-     */
-    private void performAutoSliderDrag(String cdpEndpoint) {
+    private void performAutoSliderDrag(String cdpEndpoint, int attemptIndex) {
         Socket socket = null;
         try {
             socket = openWebSocket(cdpEndpoint);
 
+            // 1. 获取滑块和轨道位置
             Map<String, Object> positionScript = new LinkedHashMap<>();
             positionScript.put("expression", """
                 (() => {
                     const slider = document.querySelector('#nc_1_n1z, .btn_slide, .nc_iconfont');
-                    const track = document.querySelector('#nc_1_nocaptcha, #nocaptcha, .nc-container') || (slider && slider.parentElement);
+                    const track = document.querySelector('#nc_1_nocaptcha, #nocaptcha, .nc-container');
                     if (!slider || !track) return null;
                     const sr = slider.getBoundingClientRect();
                     const tr = track.getBoundingClientRect();
                     return JSON.stringify({
                         startX: sr.left + sr.width / 2,
                         startY: sr.top + sr.height / 2,
-                        endX: tr.right - 10,
-                        endY: sr.top + sr.height / 2,
                         sliderWidth: sr.width,
-                        trackWidth: tr.width
+                        trackWidth: tr.width,
+                        trackLeft: tr.left,
+                        trackRight: tr.right
                     });
                 })()
             """);
@@ -646,50 +258,459 @@ public class XianyuCaptchaSolver {
             Map<String, Object> positionResult = sendCommand(socket, "Runtime.evaluate", positionScript);
             Object runtimeValue = extractRuntimeValue(positionResult);
             if (runtimeValue == null || "null".equals(String.valueOf(runtimeValue))) {
-                log.warn("[CDP-AUTH] slider position not found");
-                return;
+                throw new IllegalStateException("未找到滑块元素");
             }
 
             JsonNode node = MAPPER.readTree(String.valueOf(runtimeValue));
             double startX = node.path("startX").asDouble(100);
             double startY = node.path("startY").asDouble(100);
-            double endX = node.path("endX").asDouble(startX + 300);
-            double endY = node.path("endY").asDouble(startY);
-            log.info("[CDP-AUTH] Drag slider from ({}, {}) to ({}, {})", startX, startY, endX, endY);
+            double sliderWidth = node.path("sliderWidth").asDouble(40);
+            double trackWidth = node.path("trackWidth").asDouble(300);
 
-            dispatchMouse(socket, "mouseMoved", startX, startY, "none", 0);
+            // 计算拖动距离：轨道宽度 - 滑块宽度 + 随机过冲（真人会拖过一点）
+            double dragDistance = trackWidth - sliderWidth + (RANDOM.nextDouble() * 4 - 2);
+            log.info("[CDP-AUTH] 滑块位置: ({}, {}), 拖动距离: {}px", startX, startY, dragDistance);
+
+            // 2. 生成人类化轨迹
+            List<double[]> trajectory = generateHumanTrajectory(dragDistance, attemptIndex);
+
+            // 3. 移动到滑块位置（带随机偏移，模拟真人移动）
+            double approachX = startX + (RANDOM.nextDouble() * 20 - 10);
+            double approachY = startY + (RANDOM.nextDouble() * 10 - 5);
+            dispatchMouse(socket, "mouseMoved", approachX, approachY, "none", 0);
+            Thread.sleep(100 + RANDOM.nextInt(200));
+
+            // 4. 按下鼠标
             dispatchMouse(socket, "mousePressed", startX, startY, "left", 1);
-            int steps = 45;
-            for (int i = 1; i <= steps; i++) {
-                double t = (double) i / steps;
-                double eased = 1 - Math.pow(1 - t, 2);
-                double x = startX + (endX - startX) * eased + (RANDOM.nextDouble() - 0.5) * 2.5;
-                double y = startY + (RANDOM.nextDouble() - 0.5) * 1.5;
-                dispatchMouse(socket, "mouseMoved", x, y, "left", 1);
-                Thread.sleep(12 + RANDOM.nextInt(18));
+            Thread.sleep(50 + RANDOM.nextInt(100));
+
+            // 5. 按轨迹逐点移动
+            double currentX = startX;
+            double currentY = startY;
+            for (double[] point : trajectory) {
+                currentX = startX + point[0];
+                currentY = startY + point[1];
+                dispatchMouse(socket, "mouseMoved", currentX, currentY, "left", 1);
+                Thread.sleep((long) (point[2] * 1000)); // point[2] 是时间间隔（秒）
             }
-            dispatchMouse(socket, "mouseReleased", endX, endY, "left", 0);
+
+            // 6. 释放前短暂停顿（真人特征）
+            Thread.sleep(200 + RANDOM.nextInt(150));
+
+            // 7. 释放鼠标
+            dispatchMouse(socket, "mouseReleased", currentX, currentY, "left", 0);
+
+            log.info("[CDP-AUTH] 滑块拖动完成，轨迹点数: {}", trajectory.size());
 
         } catch (Exception e) {
-            log.error("[CDP-AUTH] Slider drag failed: {}", e.getMessage(), e);
+            log.error("[CDP-AUTH] 滑块拖动失败: {}", e.getMessage(), e);
         } finally {
             if (socket != null) {
-                try {
-                    socket.close();
-                } catch (IOException ignored) {}
+                try { socket.close(); } catch (IOException ignored) {}
             }
         }
     }
 
-    private Object extractRuntimeValue(Map<String, Object> commandResult) {
-        if (commandResult == null || !commandResult.containsKey("result")) return null;
-        Object resultObj = commandResult.get("result");
-        if (!(resultObj instanceof Map)) return null;
-        Object innerObj = ((Map<?, ?>) resultObj).get("result");
-        if (!(innerObj instanceof Map)) return null;
-        return ((Map<?, ?>) innerObj).get("value");
+    /**
+     * 生成人类化拖动轨迹
+     *
+     * <p>轨迹特征：
+     * <ul>
+     *   <li>加速阶段（0-40%）：加速度逐渐减小</li>
+     *   <li>匀速阶段（40-70%）：近似匀速</li>
+     *   <li>减速阶段（70-95%）：减速度逐渐增大</li>
+     *   <li>末端过冲+回退（95-100%）：真人特征</li>
+     * </ul>
+     *
+     * @param distance 总拖动距离（像素）
+     * @param attemptIndex 当前尝试次数（用于调整参数）
+     * @return 轨迹点列表，每个点为 [dx, dy, dt]（相对位移x, 相对位移y, 时间间隔）
+     */
+    private List<double[]> generateHumanTrajectory(double distance, int attemptIndex) {
+        List<double[]> trajectory = new ArrayList<>();
+        int points = TRAJECTORY_BASE_POINTS + RANDOM.nextInt(20);
+
+        // 根据尝试次数微调参数（模拟真人每次尝试的差异）
+        double speedFactor = 0.8 + RANDOM.nextDouble() * 0.4; // 0.8-1.2
+        double overshoot = 2 + RANDOM.nextDouble() * 3; // 过冲 2-5px
+
+        double totalTime = 0.4 + RANDOM.nextDouble() * 0.3; // 总时间 0.4-0.7s
+        double accumulatedX = 0;
+
+        for (int i = 1; i <= points; i++) {
+            double t = (double) i / points; // 归一化进度 0-1
+
+            // 位移曲线：S 型曲线（加速-匀速-减速）
+            double progress;
+            if (t < 0.4) {
+                // 加速阶段
+                progress = t * t * 1.25;
+            } else if (t < 0.7) {
+                // 匀速阶段
+                progress = 0.2 + (t - 0.4) * 1.333;
+            } else {
+                // 减速阶段 + 末端过冲
+                double decelT = (t - 0.7) / 0.3;
+                progress = 0.6 + 0.4 * (1 - Math.pow(1 - decelT, 2));
+            }
+
+            // 末端过冲（真人会拖过一点再回退）
+            if (t > 0.95) {
+                progress = 1.0 + overshoot * (t - 0.95) / 0.05;
+            }
+            if (t > 0.98) {
+                progress = 1.0 + overshoot * (1 - (t - 0.98) / 0.02);
+            }
+
+            double targetX = distance * Math.min(progress, 1.0);
+            double dx = targetX - accumulatedX;
+            accumulatedX = targetX;
+
+            // Y 轴抖动（模拟真人手抖）
+            double dy = (RANDOM.nextDouble() - 0.5) * 1.5;
+            if (t < 0.1) {
+                dy = (RANDOM.nextDouble() - 0.5) * 0.5; // 起始阶段抖动小
+            }
+
+            // 时间间隔：加速阶段间隔大，减速阶段间隔小
+            double baseDt = totalTime / points / speedFactor;
+            double dt = baseDt * (0.5 + RANDOM.nextDouble() * 0.5);
+            if (t > 0.7 && t < 0.95) {
+                dt *= 1.3; // 减速阶段更慢
+            }
+
+            trajectory.add(new double[]{dx, dy, dt});
+        }
+
+        return trajectory;
     }
 
+    /**
+     * 点击滑块刷新按钮（验证失败后重试）
+     */
+    private void clickRefreshButton(String cdpEndpoint) {
+        Socket socket = null;
+        try {
+            socket = openWebSocket(cdpEndpoint);
+            Map<String, Object> script = new LinkedHashMap<>();
+            script.put("expression", """
+                (() => {
+                    const selectors = ['#nc_1_refresh1', '.nc_iconfont.btn_refresh', '.errloading', '[class*="refresh"]'];
+                    for (const sel of selectors) {
+                        const el = document.querySelector(sel);
+                        if (el && el.offsetParent !== null) {
+                            el.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                })()
+            """);
+            script.put("awaitPromise", true);
+            script.put("returnByValue", true);
+            sendCommand(socket, "Runtime.evaluate", script);
+        } catch (Exception e) {
+            log.debug("[CDP-AUTH] 点击刷新按钮异常: {}", e.getMessage());
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+    }
+
+    // ======================== CDP 基础通信 ========================
+
+    /**
+     * 通过浏览器远程调试接口获取 CDP WebSocket 端点
+     */
+    private String getCdpEndpointFromBrowser() throws Exception {
+        HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(config.getCdpEndpoint() + "/json/version"))
+                .timeout(java.time.Duration.ofSeconds(5))
+                .GET()
+                .build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        JsonNode json = MAPPER.readTree(response.body());
+        String wsUrl = json.path("webSocketDebuggerUrl").asText("");
+        if (wsUrl.isEmpty()) {
+            throw new IllegalStateException("No webSocketDebuggerUrl in /json/version response");
+        }
+        return wsUrl;
+    }
+
+    /**
+     * 获取页面级 CDP WebSocket 端点（用于 Page/Runtime/Input 命令）
+     */
+    private String getPageWebSocketEndpoint(String targetId) throws Exception {
+        HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(config.getCdpEndpoint() + "/json/list"))
+                .timeout(java.time.Duration.ofSeconds(5))
+                .GET()
+                .build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        JsonNode list = MAPPER.readTree(response.body());
+        if (list.isArray()) {
+            for (JsonNode target : list) {
+                String id = target.path("id").asText("");
+                if (id.equals(targetId)) {
+                    String wsUrl = target.path("webSocketDebuggerUrl").asText("");
+                    if (!wsUrl.isEmpty()) return wsUrl;
+                }
+            }
+        }
+        throw new IllegalStateException("No page webSocketDebuggerUrl for target " + targetId);
+    }
+
+    /**
+     * 建立 CDP WebSocket 连接
+     */
+    private Socket openWebSocket(String wsUrl) throws Exception {
+        URI uri = URI.create(wsUrl);
+        String host = uri.getHost();
+        int port = uri.getPort() > 0 ? uri.getPort() : 80;
+        String path = uri.getPath() + (uri.getQuery() != null ? "?" + uri.getQuery() : "");
+
+        Socket socket = new Socket(host, port);
+        socket.setSoTimeout(10000);
+
+        // WebSocket 握手
+        byte[] keyBytes = new byte[16];
+        RANDOM.nextBytes(keyBytes);
+        String key = Base64.getEncoder().encodeToString(keyBytes);
+
+        String handshake = "GET " + path + " HTTP/1.1\r\n"
+                + "Host: " + host + ":" + port + "\r\n"
+                + "Upgrade: websocket\r\n"
+                + "Connection: Upgrade\r\n"
+                + "Sec-WebSocket-Key: " + key + "\r\n"
+                + "Sec-WebSocket-Version: 13\r\n"
+                + "\r\n";
+
+        OutputStream out = socket.getOutputStream();
+        out.write(handshake.getBytes(StandardCharsets.UTF_8));
+        out.flush();
+
+        // 读取响应头
+        InputStream in = socket.getInputStream();
+        ByteArrayOutputStream headerBuf = new ByteArrayOutputStream();
+        byte[] buf = new byte[4096];
+        while (true) {
+            int n = in.read(buf);
+            if (n == -1) throw new IOException("WebSocket handshake: connection closed");
+            headerBuf.write(buf, 0, n);
+            byte[] all = headerBuf.toByteArray();
+            int headerEnd = findHeaderEnd(all);
+            if (headerEnd >= 0) {
+                String response = new String(all, 0, headerEnd, StandardCharsets.UTF_8);
+                if (!response.contains("101")) {
+                    throw new IOException("WebSocket handshake failed: " + response.substring(0, Math.min(200, response.length())));
+                }
+                break;
+            }
+        }
+        return socket;
+    }
+
+    /**
+     * 获取所有 CDP 目标
+     */
+    private Map<String, Object> getTargets(String cdpEndpoint) throws Exception {
+        HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(config.getCdpEndpoint() + "/json/list"))
+                .timeout(java.time.Duration.ofSeconds(5))
+                .GET()
+                .build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        JsonNode list = MAPPER.readTree(response.body());
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (list.isArray()) {
+            for (JsonNode target : list) {
+                String id = target.path("id").asText("");
+                String title = target.path("title").asText("");
+                String url = target.path("url").asText("");
+                String type = target.path("type").asText("");
+                Map<String, String> info = new LinkedHashMap<>();
+                info.put("title", title);
+                info.put("url", url);
+                info.put("type", type);
+                result.put(id, info);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 查找闲鱼相关标签页
+     */
+    private String findGoofishTargetId(Map<String, Object> targets) {
+        for (Map.Entry<String, Object> entry : targets.entrySet()) {
+            Map<String, String> info = (Map<String, String>) entry.getValue();
+            String url = info.getOrDefault("url", "");
+            String title = info.getOrDefault("title", "");
+            if (url.contains("goofish") || url.contains("xianyu") || title.contains("闲鱼") || title.contains("咸鱼")) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 创建新标签页
+     */
+    private String createNewTarget(String cdpEndpoint, String url) throws Exception {
+        HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(config.getCdpEndpoint() + "/json/new?" + url))
+                .timeout(java.time.Duration.ofSeconds(5))
+                .PUT(HttpRequest.BodyPublishers.noBody())
+                .build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        JsonNode json = MAPPER.readTree(response.body());
+        return json.path("id").asText("");
+    }
+
+    /**
+     * 导航到指定页面
+     */
+    private void navigateToAccountPage(String cdpEndpoint, String url) throws Exception {
+        Socket socket = null;
+        try {
+            socket = openWebSocket(cdpEndpoint);
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("url", url);
+            sendCommand(socket, "Page.navigate", params);
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+    }
+
+    /**
+     * 发送 CDP 命令（带掩码的 WebSocket 帧）
+     */
+    private Map<String, Object> sendCommand(Socket socket, String method, Map<String, Object> params) throws Exception {
+        int id = (int) (System.currentTimeMillis() % 100000);
+        Map<String, Object> command = new LinkedHashMap<>();
+        command.put("id", id);
+        command.put("method", method);
+        command.put("params", params != null ? params : new LinkedHashMap<>());
+
+        String json = MAPPER.writeValueAsString(command);
+        writeFrame(socket, json);
+
+        // 读取响应
+        return readResponse(socket, id);
+    }
+
+    /**
+     * 读取 CDP 响应（匹配 id）
+     */
+    private Map<String, Object> readResponse(Socket socket, int expectedId) throws Exception {
+        InputStream in = socket.getInputStream();
+        byte[] buf = new byte[65536];
+        ByteArrayOutputStream frameBuf = new ByteArrayOutputStream();
+
+        long deadline = System.currentTimeMillis() + 10000;
+        while (System.currentTimeMillis() < deadline) {
+            int n = in.read(buf);
+            if (n == -1) throw new IOException("Connection closed while reading response");
+            frameBuf.write(buf, 0, n);
+
+            // 尝试解析帧
+            byte[] data = frameBuf.toByteArray();
+            int offset = 0;
+            while (data.length - offset >= 2) {
+                int opcode = data[offset] & 0x0F;
+                int secondByte = data[offset + 1] & 0xFF;
+                long payloadLen = secondByte & 0x7F;
+                offset += 2;
+
+                if (payloadLen == 126) {
+                    if (data.length < offset + 2) break;
+                    payloadLen = ((data[offset] & 0xFF) << 8) | (data[offset + 1] & 0xFF);
+                    offset += 2;
+                } else if (payloadLen == 127) {
+                    if (data.length < offset + 8) break;
+                    payloadLen = 0;
+                    for (int i = 0; i < 8; i++) {
+                        payloadLen = (payloadLen << 8) | (data[offset + i] & 0xFF);
+                    }
+                    offset += 8;
+                }
+
+                boolean masked = (secondByte & 0x80) != 0;
+                if (masked) offset += 4;
+
+                if (data.length < offset + payloadLen) break;
+
+                byte[] payload = new byte[(int) payloadLen];
+                System.arraycopy(data, offset, payload, 0, (int) payloadLen);
+                offset += (int) payloadLen;
+
+                if (opcode == 1) {
+                    String text = new String(payload, StandardCharsets.UTF_8);
+                    if (text.startsWith("{")) {
+                        try {
+                            JsonNode json = MAPPER.readTree(text);
+                            if (json.has("id") && json.path("id").asInt(-1) == expectedId) {
+                                return MAPPER.convertValue(json, Map.class);
+                            }
+                        } catch (Exception e) {
+                            // 忽略非 JSON 或 id 不匹配的帧
+                        }
+                    }
+                }
+
+                // 移除已处理的数据
+                frameBuf.reset();
+                if (data.length > offset) {
+                    frameBuf.write(data, offset, data.length - offset);
+                }
+                data = frameBuf.toByteArray();
+                offset = 0;
+            }
+        }
+        return new LinkedHashMap<>();
+    }
+
+    /**
+     * 写入带掩码的 WebSocket 帧
+     */
+    private void writeFrame(Socket socket, String text) throws Exception {
+        byte[] payload = text.getBytes(StandardCharsets.UTF_8);
+        byte[] maskKey = new byte[4];
+        RANDOM.nextBytes(maskKey);
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(0x81); // FIN + text opcode
+        int len = payload.length;
+        if (len < 126) {
+            out.write(0x80 | len);
+        } else if (len < 65536) {
+            out.write(0x80 | 126);
+            out.write((len >> 8) & 0xFF);
+            out.write(len & 0xFF);
+        } else {
+            out.write(0x80 | 127);
+            for (int i = 56; i >= 0; i -= 8) {
+                out.write((len >> i) & 0xFF);
+            }
+        }
+        out.write(maskKey);
+        for (int i = 0; i < payload.length; i++) {
+            out.write(payload[i] ^ maskKey[i % 4]);
+        }
+        socket.getOutputStream().write(out.toByteArray());
+        socket.getOutputStream().flush();
+    }
+
+    /**
+     * 发送 CDP Input.dispatchMouseEvent
+     */
     private void dispatchMouse(Socket socket, String type, double x, double y, String button, int buttons) throws Exception {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("type", type);
@@ -704,120 +725,92 @@ public class XianyuCaptchaSolver {
     }
 
     /**
-     * 等待人工完成滑块。成功标准：页面离开 punish/captcha、页面文本不再要求拖动，或 cookie 中出现 x5sec。
-     */
-    private boolean waitForCaptchaPassed(String cdpEndpoint, long timeoutMs) throws InterruptedException {
-        long start = System.currentTimeMillis();
-        while (System.currentTimeMillis() - start < timeoutMs) {
-            Socket socket = null;
-            try {
-                socket = openWebSocket(cdpEndpoint);
-                Map<String, Object> script = new LinkedHashMap<>();
-                script.put("expression", """
-                    (() => {
-                        const text = (document.body && document.body.innerText || '');
-                        const href = location.href;
-                        const cookie = document.cookie || '';
-                        const hasSlider = !!document.querySelector('#nc_1_n1z, .btn_slide, .nc_iconfont, #nocaptcha');
-                        const failed = /验证失败|点击框体重试|请刷新|重试/.test(text);
-                        const passedByCookie = /(?:^|;\\s*)x5sec=/.test(cookie);
-                        const stillPunish = /punish|captcha/.test(href) || /请按住滑块|拖动到最右边|验证码拦截/.test(text);
-                        return JSON.stringify({href, text: text.slice(0, 300), hasSlider, failed, passedByCookie, stillPunish, cookie: cookie.slice(0, 1000)});
-                    })()
-                """);
-                script.put("awaitPromise", true);
-                script.put("returnByValue", true);
-                Object value = extractRuntimeValue(sendCommand(socket, "Runtime.evaluate", script));
-                if (value != null) {
-                    JsonNode state = MAPPER.readTree(String.valueOf(value));
-                    boolean passedByCookie = state.path("passedByCookie").asBoolean(false);
-                    boolean stillPunish = state.path("stillPunish").asBoolean(true);
-                    boolean failed = state.path("failed").asBoolean(false);
-                    if (passedByCookie || !stillPunish) {
-                        log.info("[CDP-AUTH] Captcha appears passed, state={}", state.toString());
-                        return true;
-                    }
-                    if (failed) {
-                        log.warn("[CDP-AUTH] Captcha failed on page, please click the box and drag manually again. state={}", state.toString());
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("[CDP-AUTH] wait captcha status failed: {}", e.getMessage());
-            } finally {
-                if (socket != null) {
-                    try { socket.close(); } catch (IOException ignored) {}
-                }
-            }
-            Thread.sleep(1000);
-        }
-        return false;
-    }
-
-    /**
-     * 检查滑块验证是否成功
-     */
-    private boolean checkCaptchaSuccess(String cdpEndpoint) {
-        Socket socket = null;
-        try {
-            socket = openWebSocket(cdpEndpoint);
-            Map<String, Object> script = new LinkedHashMap<>();
-            script.put("expression", """
-                (function() {
-                    var successSelectors = ['.success', '.captcha-success', '[class*="success"]'];
-                    for (var selector of successSelectors) {
-                        if (document.querySelector(selector)) {
-                            return true;
-                        }
-                    }
-                    var errorSelectors = ['.error', '.captcha-error', '[class*="error"]'];
-                    for (var selector of errorSelectors) {
-                        if (document.querySelector(selector)) {
-                            return false;
-                        }
-                    }
-                    return true;
-                })()
-            """);
-            script.put("awaitPromise", true);
-            script.put("returnByValue", true);
-
-            Map<String, Object> result = sendCommand(socket, "Runtime.evaluate", script);
-
-            if (result.containsKey("result")) {
-                Map<String, Object> inner = (Map<String, Object>) result.get("result");
-                return Boolean.TRUE.equals(Boolean.parseBoolean(String.valueOf(inner.get("value"))));
-            }
-
-            return false;
-        } catch (Exception e) {
-            log.warn("[CDP-AUTH] Failed to check captcha success: {}", e.getMessage());
-            return false;
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (IOException ignored) {}
-            }
-        }
-    }
-
-    /**
      * 从当前页面提取 cookie
      */
     private String extractCookie(String cdpEndpoint, String url) {
         Socket socket = null;
         try {
             socket = openWebSocket(cdpEndpoint);
-            return extractCookies(socket);
+            Map<String, Object> cookieScript = new LinkedHashMap<>();
+            cookieScript.put("expression", """
+                (() => {
+                    const cookies = document.cookie.split(';');
+                    const result = {};
+                    for (const c of cookies) {
+                        const parts = c.trim().split('=');
+                        if (parts.length >= 2) {
+                            result[parts[0]] = parts.slice(1).join('=');
+                        }
+                    }
+                    return JSON.stringify(result);
+                })()
+            """);
+            cookieScript.put("awaitPromise", true);
+            cookieScript.put("returnByValue", true);
+
+            Map<String, Object> result = sendCommand(socket, "Runtime.evaluate", cookieScript);
+            Object value = extractRuntimeValue(result);
+            if (value != null) {
+                String json = String.valueOf(value);
+                if (!json.equals("null")) {
+                    // 只保留 x5* 相关 cookie（风控验证后的关键 cookie）
+                    JsonNode node = MAPPER.readTree(json);
+                    StringBuilder sb = new StringBuilder();
+                    Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+                    while (fields.hasNext()) {
+                        Map.Entry<String, JsonNode> entry = fields.next();
+                        String name = entry.getKey();
+                        String val = entry.getValue().asText("");
+                        if (name.toLowerCase().startsWith("x5") || name.toLowerCase().contains("x5sec")) {
+                            if (sb.length() > 0) sb.append("; ");
+                            sb.append(name).append("=").append(val);
+                        }
+                    }
+                    // 如果没有 x5* cookie，返回所有 cookie
+                    if (sb.length() == 0) {
+                        fields = node.fields();
+                        while (fields.hasNext()) {
+                            Map.Entry<String, JsonNode> entry = fields.next();
+                            if (sb.length() > 0) sb.append("; ");
+                            sb.append(entry.getKey()).append("=").append(entry.getValue().asText(""));
+                        }
+                    }
+                    return sb.toString();
+                }
+            }
+            return null;
         } catch (Exception e) {
-            log.warn("[CDP-AUTH] Failed to extract cookie: {}", e.getMessage());
+            log.warn("[CDP-AUTH] 提取 cookie 失败: {}", e.getMessage());
             return null;
         } finally {
             if (socket != null) {
-                try {
-                    socket.close();
-                } catch (IOException ignored) {}
+                try { socket.close(); } catch (IOException ignored) {}
             }
         }
+    }
+
+    // ======================== 工具方法 ========================
+
+    private int findHeaderEnd(byte[] data) {
+        for (int i = 0; i <= data.length - 4; i++) {
+            if (data[i] == '\r' && data[i + 1] == '\n' && data[i + 2] == '\r' && data[i + 3] == '\n') {
+                return i + 4;
+            }
+        }
+        return -1;
+    }
+
+    private Object extractRuntimeValue(Map<String, Object> commandResult) {
+        if (commandResult == null || !commandResult.containsKey("result")) return null;
+        Object resultObj = commandResult.get("result");
+        if (!(resultObj instanceof Map)) return null;
+        Object innerObj = ((Map<?, ?>) resultObj).get("result");
+        if (!(innerObj instanceof Map)) return null;
+        return ((Map<?, ?>) innerObj).get("value");
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "null";
+        return s.length() > max ? s.substring(0, max) + "..." : s;
     }
 }

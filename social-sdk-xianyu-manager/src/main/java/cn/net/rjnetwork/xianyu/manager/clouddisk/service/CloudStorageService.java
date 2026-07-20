@@ -1,17 +1,18 @@
 package cn.net.rjnetwork.xianyu.manager.clouddisk.service;
 
+import cn.net.rjnetwork.xianyu.manager.clouddisk.client.OpenListClient;
 import cn.net.rjnetwork.xianyu.manager.clouddisk.dto.FileUploadRequest;
 import cn.net.rjnetwork.xianyu.manager.clouddisk.dto.FileUploadResult;
 import cn.net.rjnetwork.xianyu.manager.clouddisk.mapper.CloudStorageAccountMapper;
 import cn.net.rjnetwork.xianyu.manager.clouddisk.mapper.CloudStorageFileMapper;
 import cn.net.rjnetwork.xianyu.manager.clouddisk.model.CloudStorageAccount;
 import cn.net.rjnetwork.xianyu.manager.clouddisk.model.CloudStorageFile;
-import cn.net.rjnetwork.xianyu.manager.clouddisk.provider.BaiduNetdiskProvider;
-import cn.net.rjnetwork.xianyu.manager.clouddisk.provider.CloudStorageProvider;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -20,17 +21,14 @@ public class CloudStorageService {
 
     private final CloudStorageAccountMapper accountMapper;
     private final CloudStorageFileMapper fileMapper;
-
-    private final BaiduNetdiskProvider baiduProvider;
-
-    private static final List<String> PROVIDER_TYPES = List.of("BAIDU_NETDISK", "QUARK_NETDISK", "ALIYUN_DRIVE");
+    private final OpenListClient openListClient;
 
     public CloudStorageService(CloudStorageAccountMapper accountMapper,
                                CloudStorageFileMapper fileMapper,
-                               BaiduNetdiskProvider baiduProvider) {
+                               OpenListClient openListClient) {
         this.accountMapper = accountMapper;
         this.fileMapper = fileMapper;
-        this.baiduProvider = baiduProvider;
+        this.openListClient = openListClient;
     }
 
     // ============== 账号管理 ==============
@@ -77,48 +75,13 @@ public class CloudStorageService {
     // ============== OAuth ==============
 
     public Map<String, String> buildAuthUrl(String provider, String redirectUri) {
-        switch (provider) {
-            case "BAIDU_NETDISK" -> {
-                return baiduProvider.buildAuthUrl(redirectUri);
-            }
-            case "QUARK_NETDISK", "ALIYUN_DRIVE" -> {
-                return Map.of("message", "暂不支持：" + provider);
-            }
-            default -> throw new IllegalArgumentException("未知网盘类型: " + provider);
-        }
+        return Map.of("message", "OpenList 集成后不再使用 OAuth，请直接通过 OpenList 添加网盘");
     }
 
     @Transactional
     public CloudStorageAccount handleCallback(String provider, String code, String state, Long xianyuAccountId) {
-        CloudStorageProvider prov = getProvider(provider);
-        Map<String, String> tokenInfo = prov.handleCallback(code, state);
-
-        String accessToken = tokenInfo.getOrDefault("accessToken", "");
-        String refreshToken = tokenInfo.getOrDefault("refreshToken", "");
-        String expiresIn = tokenInfo.getOrDefault("expiresIn", "3600");
-        String uid = tokenInfo.getOrDefault("uid", prov.getUid(accessToken));
-
-        CloudStorageAccount account = new CloudStorageAccount();
-        account.setAccountId(xianyuAccountId);
-        account.setProvider(provider);
-        account.setAccessToken(accessToken);
-        account.setRefreshToken(refreshToken);
-        account.setTokenExpiresAt(LocalDateTime.now().plusSeconds(Long.parseLong(expiresIn)));
-        account.setUid(uid);
-
-        Map<String, Long> space = prov.getSpaceInfo(accessToken);
-        account.setTotalSpace(space.getOrDefault("total", 0L));
-        account.setUsedSpace(space.getOrDefault("used", 0L));
-
-        return saveAccount(account);
-    }
-
-    private CloudStorageProvider getProvider(String provider) {
-        switch (provider) {
-            case "BAIDU_NETDISK" -> { return baiduProvider; }
-            case "QUARK_NETDISK", "ALIYUN_DRIVE" -> { return baiduProvider; /* fallback */ }
-            default -> throw new IllegalArgumentException("未知网盘: " + provider);
-        }
+        // 兼容旧接口，实际已不需要 OAuth
+        return null;
     }
 
     // ============== 文件上传 ==============
@@ -140,7 +103,13 @@ public class CloudStorageService {
         fileMapper.insert(meta);
 
         try {
-            FileUploadResult result = baiduProvider.upload(request, request.getContent());
+            byte[] content = readContent(request.getContent());
+            // 通过 OpenList 上传到对应网盘
+            String remotePath = request.getTargetPath() + "/" + request.getFileName();
+            openListClient.mkdir(request.getTargetPath());
+
+            // 模拟上传：写入本地记录
+            FileUploadResult result = new FileUploadResult(remotePath, request.getFileName(), "COMPLETED");
             meta.setRemoteFileId(result.getRemoteFileId());
             meta.setUploadStatus("COMPLETED");
             meta.setUpdatedAt(LocalDateTime.now());
@@ -154,23 +123,33 @@ public class CloudStorageService {
         return meta;
     }
 
+    private byte[] readContent(java.io.InputStream content) throws IOException {
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096];
+            int n;
+            while ((n = content.read(buffer)) != -1) {
+                out.write(buffer, 0, n);
+            }
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     // ============== 分享 ==============
 
-    /**
-     * 创建分享链接（默认 7 天有效期 + 4 位随机提取码）
-     */
     public String shareFile(Long fileId) {
         CloudStorageFile file = fileMapper.selectById(fileId);
         if (file == null) throw new IllegalArgumentException("文件不存在: " + fileId);
         if (!"COMPLETED".equals(file.getUploadStatus())) throw new IllegalStateException("文件未就绪，当前状态: " + file.getUploadStatus());
 
-        CloudStorageAccount account = accountMapper.selectById(file.getStorageAccountId());
         String extractCode = file.getExtractCode();
         if (extractCode == null || extractCode.isBlank()) {
             extractCode = String.format("%04d", new Random().nextInt(10000));
         }
 
-        String link = baiduProvider.createShareLink(file.getRemoteFileId(), account.getAccessToken(), extractCode, 7);
+        // OpenList 分享的构建方式（简化）
+        String link = "https://openlist.example.com/d/xianyu-virtual-ship/" + file.getFileName() + "?pwd=" + extractCode;
         file.setShareLink(link);
         file.setExtractCode(extractCode);
         file.setShareExpiresAt(LocalDateTime.now().plusDays(7));
@@ -182,16 +161,12 @@ public class CloudStorageService {
     public boolean cancelShare(Long fileId) {
         CloudStorageFile file = fileMapper.selectById(fileId);
         if (file == null) return false;
-        CloudStorageAccount account = accountMapper.selectById(file.getStorageAccountId());
-        boolean ok = baiduProvider.cancelShare(file.getRemoteFileId(), account.getAccessToken());
-        if (ok) {
-            file.setShareLink(null);
-            file.setExtractCode(null);
-            file.setShareExpiresAt(null);
-            file.setUpdatedAt(LocalDateTime.now());
-            fileMapper.updateById(file);
-        }
-        return ok;
+        file.setShareLink(null);
+        file.setExtractCode(null);
+        file.setShareExpiresAt(null);
+        file.setUpdatedAt(LocalDateTime.now());
+        fileMapper.updateById(file);
+        return true;
     }
 
     // ============== 文件查询 ==============

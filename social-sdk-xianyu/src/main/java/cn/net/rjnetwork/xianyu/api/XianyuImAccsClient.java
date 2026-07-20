@@ -137,7 +137,7 @@ public class XianyuImAccsClient {
                 "Sec-WebSocket-Version: 13\r\n" +
                 "Origin: https://www.goofish.com\r\n" +
                 "User-Agent: " + UA + "\r\n" +
-                "Cookie: " + apiClient.getCookie() + "\r\n" +
+                "Cookie: " + apiClient.getMergedCookie() + "\r\n" +
                 "\r\n";
 
         OutputStream out = socket.getOutputStream();

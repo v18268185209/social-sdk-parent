@@ -35,6 +35,20 @@ public class XianyuAccount extends BaseEntity {
 
     private LocalDateTime cookieExpiresAt;
 
+    // ===== IM / 滑块验证 cookie（与登录 cookie 分开存储） =====
+
+    /** IM 滑块验证后获取的 cookie（x5sec 等），不覆盖登录 cookie */
+    private String imCookieHeader;
+
+    /** IM 设备 ID */
+    private String imDeviceId;
+
+    /** IM accessToken（缓存） */
+    private String imAccessToken;
+
+    /** IM token 过期时间 */
+    private LocalDateTime imTokenExpiresAt;
+
     // ===== 个人信息（从闲鱼 API 获取） =====
 
     /** 头像 URL */

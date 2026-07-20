@@ -196,6 +196,10 @@ public class MessageService {
      */
     public void pullMessages(XianyuAccount acc) throws Exception {
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(acc.getCookieHeader());
+        // 传递 IM/滑块验证 cookie（x5sec 等），与登录 cookie 合并用于 IM 连接
+        if (acc.getImCookieHeader() != null && !acc.getImCookieHeader().isBlank()) {
+            mtopClient.setImCookieHeader(acc.getImCookieHeader());
+        }
         XianyuMessageApiService msgApi = new XianyuMessageApiService(mtopClient);
 
         // 1. 先拿 IM accessToken / 建立长连接，才能拉真实历史
@@ -212,6 +216,9 @@ public class MessageService {
     /** 通过 IM 长连接拉取指定会话或全量历史 */
     private void pullHistoryInternal(XianyuAccount acc, String targetCid, int limit) throws Exception {
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(acc.getCookieHeader());
+        if (acc.getImCookieHeader() != null && !acc.getImCookieHeader().isBlank()) {
+            mtopClient.setImCookieHeader(acc.getImCookieHeader());
+        }
         XianyuMessageApiService msgApi = new XianyuMessageApiService(mtopClient);
 
         try {
@@ -293,9 +300,12 @@ public class MessageService {
             if (result.isSuccess()) {
                 log.info("[MESSAGE] Slider captcha solved successfully!");
 
-                // 更新账号 cookie
-                acc.setCookieHeader(result.getNewCookie());
+                // 重要：滑块验证获取的 cookie（x5sec 等）是 IM 专用，不能覆盖登录 cookie！
+                // 必须存到 imCookieHeader 字段，与登录 cookie 分开管理
+                acc.setImCookieHeader(result.getNewCookie());
                 accountMapper.updateById(acc);
+                log.info("[MESSAGE] Saved IM cookie (x5sec etc.) to imCookieHeader, login cookie preserved. imCookie={}",
+                        truncate(result.getNewCookie(), 200));
 
                 // 重新同步消息
                 log.info("[MESSAGE] Retrying message sync with new cookie...");

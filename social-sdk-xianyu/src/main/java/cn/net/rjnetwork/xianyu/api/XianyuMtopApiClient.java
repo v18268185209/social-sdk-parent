@@ -27,6 +27,9 @@ import java.util.Map;
  */
 public class XianyuMtopApiClient {
 
+    /** IM/滑块验证获取的 cookie（x5sec 等），与登录 cookie 合并使用 */
+    private String imCookieHeader;
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String APP_KEY = "34839810";
     private static final String REFERER = "https://www.goofish.com/";
@@ -333,5 +336,42 @@ public class XianyuMtopApiClient {
     public void updateCookie(String newCookie) {
         this.cookie = newCookie != null ? newCookie : "";
         this.tokenPrimed = false;
+    }
+
+    public String getImCookieHeader() {
+        return imCookieHeader;
+    }
+
+    public void setImCookieHeader(String imCookieHeader) {
+        this.imCookieHeader = imCookieHeader;
+    }
+
+    /**
+     * 获取合并后的 cookie：登录 cookie + IM/滑块验证 cookie（x5sec 等）。
+     * 用于 WebSocket Upgrade 请求的 Cookie 头，确保风控 cookie 一并发送。
+     */
+    public String getMergedCookie() {
+        if (imCookieHeader == null || imCookieHeader.isBlank()) {
+            return cookie;
+        }
+        if (cookie == null || cookie.isBlank()) {
+            return imCookieHeader;
+        }
+        // 合并：imCookieHeader 中的字段覆盖同名字段
+        Map<String, String> merged = new HashMap<>();
+        for (String pair : cookie.split(";")) {
+            int eq = pair.indexOf('=');
+            if (eq > 0) merged.put(pair.substring(0, eq).trim(), pair.substring(eq + 1).trim());
+        }
+        for (String pair : imCookieHeader.split(";")) {
+            int eq = pair.indexOf('=');
+            if (eq > 0) merged.put(pair.substring(0, eq).trim(), pair.substring(eq + 1).trim());
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> e : merged.entrySet()) {
+            if (sb.length() > 0) sb.append("; ");
+            sb.append(e.getKey()).append("=").append(e.getValue());
+        }
+        return sb.toString();
     }
 }

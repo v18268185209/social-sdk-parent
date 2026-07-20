@@ -137,6 +137,15 @@ xianyu:
     bankcard-api: mtop.idle.web.wallet.bankcard.list
     withdraw-api: mtop.idle.web.wallet.withdraw
 
+# OpenList 配置
+openlist:
+  url: http://127.0.0.1:5244
+  username: openlist
+  password: openlist
+  data-dir: ./data/openlist
+  executable-name: openlist.exe
+  port: 5244
+
 logging:
   level:
     cn.net.rjnetwork.xianyu.manager: DEBUG
