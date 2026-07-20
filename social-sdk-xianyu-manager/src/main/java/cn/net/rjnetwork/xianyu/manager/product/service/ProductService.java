@@ -99,19 +99,35 @@ public class ProductService {
      * <p><b>发布闭环</b>（参考 XianYuApis 真抓）：本地落 DRAFT → 调闲鱼发布链 → 拿闲鱼返回 →
      * 回写本地 status=ON_SALE + itemId → 调 syncFromXianyu 同步完整信息（浏览量/分类/图片等）。</p>
      *
-     * <p><b>图片限制</b>：闲鱼图片需先上传到闲鱼 CDN（stream-upload.goofish.com multipart），
-     * 当前 SDK 未集成 multipart 上传。若调用方传的图片是本地 URL（/uploads/xxx.jpg），
-     * 走无图发布模式（publishItem imageInfoList 传空），闲鱼允许无图发布（会提示但能成功）。
-     * 若调用方已通过其他方式拿到闲鱼 CDN 图片 URL，传进来即可正常带图发布。</p>
+     * <p><b>图片限制</b>：闲鱼平台硬性要求商品必须有图片，无图发布会被拒
+     * （FAIL_BIZ_ITEM_NO_PICS）。本地 URL（/uploads/xxx.jpg）会先上传到闲鱼 CDN
+     * （stream-upload.goofish.com）拿到 alicdn URL 再传给 publishItem；
+     * 若调用方已通过其他方式拿到闲鱼 CDN 图片 URL，直接传进来即可。
+     * 若最终 imageInfoList 为空（未传图或全部上传失败），create 提前抛
+     * IllegalArgumentException 友好提示，不会调 publishItem。</p>
      *
      * <p><b>发布 ≠ 上架已下架商品</b>：发布会生成新 itemId，原商品的浏览量/收藏/历史成交清零。
      * 这是闲鱼平台设计，不是 SDK 限制。</p>
      */
     @Transactional
     public XianyuProduct create(ProductCreateRequest request) {
-        // 1. 本地先落 DRAFT 记录（保留请求痕迹，万一发布失败也有本地草稿可查）
+        // 1. 先校验账号（accountId 非空 + 存在 + cookie 有效），再落库，
+        //    避免 null accountId 触发 NOT NULL 约束异常冒泡成 500。
+        Long accountId = request.getAccountId();
+        if (accountId == null) {
+            throw new IllegalArgumentException("请选择闲鱼账号");
+        }
+        XianyuAccount account = accountService.getById(accountId);
+        if (account == null) {
+            throw new IllegalArgumentException("账号不存在: " + accountId);
+        }
+        if (account.getCookieHeader() == null || account.getCookieHeader().isBlank()) {
+            throw new IllegalStateException("账号未登录或 Cookie 已过期，请重新扫码登录: " + accountId);
+        }
+
+        // 2. 本地先落 DRAFT 记录（保留请求痕迹，万一发布失败也有本地草稿可查）
         XianyuProduct product = new XianyuProduct();
-        product.setAccountId(request.getAccountId());
+        product.setAccountId(accountId);
         product.setTitle(request.getTitle());
         product.setPrice(request.getPrice());
         product.setOriginalPrice(request.getOriginalPrice());
@@ -126,19 +142,6 @@ public class ProductService {
         product.setCreatedAt(LocalDateTime.now());
         product.setUpdatedAt(LocalDateTime.now());
         productMapper.insert(product);
-
-        // 2. 校验账号 cookie
-        Long accountId = request.getAccountId();
-        if (accountId == null) {
-            throw new IllegalArgumentException("accountId is required");
-        }
-        XianyuAccount account = accountService.getById(accountId);
-        if (account == null) {
-            throw new IllegalArgumentException("Account not found: " + accountId);
-        }
-        if (account.getCookieHeader() == null || account.getCookieHeader().isBlank()) {
-            throw new IllegalStateException("Account has no cookie, please re-login: " + accountId);
-        }
 
         // 3. 构造 SDK：MtopApiClient + PublishApiService
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(account.getCookieHeader());
@@ -205,13 +208,20 @@ public class ProductService {
                         img.put("width", ur.width);
                         img.put("height", ur.height);
                     } catch (Exception uploadErr) {
-                        // 单张图上传失败不阻塞整个发布（无图也能发），记录后跳过这张
-                        // 让 publishItem 走无图模式，闲鱼会提示但能成功
+                        // 单张图上传失败不阻塞其余图片，跳过这张继续；
+                        // 若全部失败导致 imageInfoList 为空，下方校验会抛友好错误
                         continue;
                     }
                 }
                 imageInfoList.add(img);
             }
+        }
+
+        // 闲鱼平台硬性要求商品必须有图片（无图会返回 FAIL_BIZ_ITEM_NO_PICS）。
+        // 若调用方未传图片、或所传图片全部上传闲鱼 CDN 失败，提前给出友好业务错误，
+        // 不再往下走视频上传 / publishItem（否则闲鱼抛 NO_PICS 堆栈到前端，体验差）。
+        if (imageInfoList.isEmpty()) {
+            throw new IllegalArgumentException("闲鱼发布必须有图片，请至少上传一张图片");
         }
 
         // 视频同理：本地 URL → 调 uploadVideo 真上传闲鱼 CDN → 拿 url

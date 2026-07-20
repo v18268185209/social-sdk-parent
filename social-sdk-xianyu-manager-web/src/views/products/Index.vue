@@ -428,6 +428,9 @@ async function handleCreate() {
       imageFileList.value = []
       videoFileList.value = []
       await loadProducts()
+    } else {
+      // 后端业务校验/发布失败（如缺图片、cookie 过期、闲鱼拒绝）→ 展示具体原因
+      ElMessage.error(res.message || '创建失败')
     }
   } catch (e) { /* ignore */ }
   finally { submitting.value = false }

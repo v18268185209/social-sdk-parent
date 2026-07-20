@@ -84,11 +84,10 @@ public class XianyuMessageApiService {
      */
     public JsonNode getConversationList(int limit) throws Exception {
         ensureAccs();
-        Object[] body = new Object[]{
-                9007199254740991L,  // Number.MAX_SAFE_INTEGER
-                Math.max(1, Math.min(limit, 100))
-        };
-        JsonNode resp = accsClient.sendFrame("/r/Conversation/listNewestPagination", body);
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("startTimeStamp", 9007199254740991L); // Number.MAX_SAFE_INTEGER
+        params.put("limitNum", Math.max(1, Math.min(limit, 100)));
+        JsonNode resp = accsClient.sendFrame("/r/Conversation/listNewestPagination", new Object[]{params});
         log.info("[MESSAGE] conversation list response: {}", resp != null ? resp.toString() : "null");
         return resp;
     }

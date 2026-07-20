@@ -52,23 +52,26 @@ public class XianyuCaptchaSolver {
         try {
             log.info("[CDP-AUTH] Solving captcha for URL: {}", truncate(punishUrl, 200));
 
-            // 1. 连接 CDP WebSocket
-            String cdpEndpoint = getCdpEndpointFromBrowser();
+            // 1. 获取浏览器级 CDP WebSocket，用于 Target.* 命令
+            String browserEndpoint = getCdpEndpointFromBrowser();
 
             // 2. 获取所有页面列表
-            Map<String, Object> targets = getTargets(cdpEndpoint);
+            Map<String, Object> targets = getTargets(browserEndpoint);
 
             // 3. 查找或创建闲鱼标签页
             String targetId = findGoofishTargetId(targets);
             if (targetId == null) {
-                targetId = createNewTarget(cdpEndpoint, "https://www.goofish.com/user/account-info");
+                targetId = createNewTarget(browserEndpoint, "about:blank");
+            }
+            if (targetId == null || targetId.isBlank()) {
+                return CaptchaResult.fail("未找到或创建 CDP 页面目标");
             }
 
-            // 4. 附加到目标页面
-            attachToTarget(cdpEndpoint, targetId);
+            // 4. 获取页面级 CDP WebSocket。Page/Runtime/Input 命令必须发到 page 端点，不能发到 browser 端点。
+            String cdpEndpoint = getPageWebSocketEndpoint(targetId);
 
-            // 5. 导航到闲鱼账户页面触发滑块
-            navigateToAccountPage(cdpEndpoint, "https://www.goofish.com/user/account-info");
+            // 5. 直接打开风控返回的 punish URL 触发滑块；不要打开不存在的 account-info 页面
+            navigateToAccountPage(cdpEndpoint, punishUrl);
             Thread.sleep(5000);
 
             // 6. 检查是否有滑块验证界面
@@ -125,6 +128,34 @@ public class XianyuCaptchaSolver {
             log.warn("[CDP-AUTH] Failed to get CDP endpoint: {}", e.getMessage());
             throw new IOException("无法获取 CDP 端点", e);
         }
+    }
+
+    /**
+     * 根据 targetId 获取页面级 WebSocket 端点。
+     * Browser 端点只能执行 Target.* 命令，Page/Runtime/Input 命令必须发到页面自己的 webSocketDebuggerUrl。
+     */
+    private String getPageWebSocketEndpoint(String targetId) throws Exception {
+        String listEndpoint = "http://" + config.getHost() + ":" + config.getPort() + "/json/list";
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(listEndpoint))
+                .GET()
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        JsonNode nodes = MAPPER.readTree(response.body());
+        if (nodes.isArray()) {
+            for (JsonNode node : nodes) {
+                if (targetId.equals(node.path("id").asText()) || targetId.equals(node.path("targetId").asText())) {
+                    String ws = node.path("webSocketDebuggerUrl").asText("");
+                    if (!ws.isBlank()) {
+                        log.info("[CDP-AUTH] Using page CDP endpoint: {}", truncate(ws, 120));
+                        return ws;
+                    }
+                }
+            }
+        }
+        throw new IOException("page websocket endpoint not found for targetId=" + targetId);
     }
 
     /**
@@ -303,33 +334,31 @@ public class XianyuCaptchaSolver {
 
         String json = MAPPER.writeValueAsString(request);
 
-        // 构造 WebSocket 文本帧（支持长 payload）
+        // 构造 WebSocket 文本帧（客户端帧必须 masked；Chrome CDP 会拒绝未 masked 帧并断开）
         byte[] textBytes = json.getBytes(StandardCharsets.UTF_8);
-        byte[] frame;
+        byte[] maskKey = new byte[4];
+        new SecureRandom().nextBytes(maskKey);
+        ByteArrayOutputStream frame = new ByteArrayOutputStream();
+        frame.write(0x81); // FIN + text
         if (textBytes.length < 126) {
-            frame = new byte[2 + textBytes.length];
-            frame[0] = (byte) 0x81; // 文本帧
-            frame[1] = (byte) (textBytes.length & 0xFF);
-            System.arraycopy(textBytes, 0, frame, 2, textBytes.length);
+            frame.write(0x80 | textBytes.length);
         } else if (textBytes.length < 65536) {
-            frame = new byte[4 + textBytes.length];
-            frame[0] = (byte) 0x81;
-            frame[1] = (byte) 126;
-            frame[2] = (byte) ((textBytes.length >> 8) & 0xFF);
-            frame[3] = (byte) (textBytes.length & 0xFF);
-            System.arraycopy(textBytes, 0, frame, 4, textBytes.length);
+            frame.write(0x80 | 126);
+            frame.write((textBytes.length >> 8) & 0xFF);
+            frame.write(textBytes.length & 0xFF);
         } else {
-            frame = new byte[10 + textBytes.length];
-            frame[0] = (byte) 0x81;
-            frame[1] = (byte) 127;
-            for (int i = 0; i < 8; i++) {
-                frame[2 + i] = (byte) ((textBytes.length >> (56 - 8 * i)) & 0xFF);
+            frame.write(0x80 | 127);
+            for (int i = 56; i >= 0; i -= 8) {
+                frame.write((textBytes.length >> i) & 0xFF);
             }
-            System.arraycopy(textBytes, 0, frame, 10, textBytes.length);
+        }
+        frame.write(maskKey);
+        for (int i = 0; i < textBytes.length; i++) {
+            frame.write(textBytes[i] ^ maskKey[i % 4]);
         }
 
         OutputStream output = socket.getOutputStream();
-        output.write(frame);
+        output.write(frame.toByteArray());
         output.flush();
 
         // 读取 WebSocket 响应帧头（2 字节）

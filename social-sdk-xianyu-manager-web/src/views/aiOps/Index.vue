@@ -155,14 +155,18 @@ const taskAlertType = s => ({ COMPLETED: 'success', RUNNING: 'warning', FAILED: 
 const loadAccounts = async () => {
   try {
     const res = await api.get('/accounts')
-    accounts.value = res.data?.records?.filter(a => a.status === 'ACTIVE') || []
+    // /accounts 返回 ApiResponse<List>（裸数组），不是分页对象；兼容两种结构
+    const list = Array.isArray(res.data) ? res.data : (res.data?.records || [])
+    accounts.value = list.filter(a => a.status === 'ACTIVE')
   } catch {}
 }
 
 const loadAiModels = async () => {
   try {
     const res = await api.get('/ai/models', { params: { size: 100 } })
-    aiModels.value = (res.data?.records || []).filter(m => m.enabled !== false)
+    // /ai/models 返回分页 Page（含 records）；兼容裸数组
+    const list = Array.isArray(res.data) ? res.data : (res.data?.records || [])
+    aiModels.value = list.filter(m => m.enabled !== false)
   } catch {}
 }
 
@@ -171,7 +175,9 @@ const loadSourceProducts = async () => {
   if (!syncForm.value.sourceAccountId) { sourceProducts.value = []; return }
   try {
     const res = await api.get('/products', { params: { accountId: syncForm.value.sourceAccountId, status: 'ON_SALE', size: 100 } })
-    sourceProducts.value = res.data?.records || res.data || []
+    // /products 可能返回分页 Page 或裸数组，兼容两种
+    const list = Array.isArray(res.data) ? res.data : (res.data?.records || [])
+    sourceProducts.value = list
   } catch {}
 }
 

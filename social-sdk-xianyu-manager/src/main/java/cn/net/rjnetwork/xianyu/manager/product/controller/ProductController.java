@@ -57,7 +57,15 @@ public class ProductController {
 
     @PostMapping
     public ApiResponse<XianyuProduct> create(@RequestBody ProductCreateRequest request) {
-        return ApiResponse.ok(productService.create(request));
+        try {
+            return ApiResponse.ok(productService.create(request));
+        } catch (IllegalArgumentException e) {
+            // 业务校验失败（缺图片 / 缺账号等）→ 友好提示，带上具体原因
+            return ApiResponse.fail("BAD_REQUEST", e.getMessage());
+        } catch (IllegalStateException e) {
+            // 闲鱼接口失败（cookie 过期 / 发布被拒 等）→ 带上闲鱼返回的 msg
+            return ApiResponse.fail("PUBLISH_FAILED", e.getMessage());
+        }
     }
 
     @PutMapping("/{id}")

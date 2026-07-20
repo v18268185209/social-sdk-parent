@@ -274,16 +274,42 @@ public class DatabaseInitializer {
     }
 
     private void ensureColumn(String table, String column, String ddl) {
-        // 不用 PRAGMA table_info（Druid WallFilter 对 SQLite 不认 PRAGMA，会报
-        // "syntax error: not supported ... token IDENTIFIER PRAGMA" 直接拦掉）。
-        // 改为直接 ADD COLUMN：列已存在时 SQLite 抛 "duplicate column name"，
-        // 当作已存在跳过即可；表不存在时抛 "no such table" 同样跳过。
-        try (java.sql.Connection conn = dataSource.getConnection();
-             java.sql.Statement st = conn.createStatement()) {
-            st.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + ddl);
-            logger.info("Added column {} to {}", column, table);
+        // 不用 PRAGMA table_info（Druid WallFilter 对 SQLite 不认 PRAGMA 会拦掉）。
+        // 改为：先用 WallFilter 允许的 SELECT * FROM <表> LIMIT 0 + ResultSetMetaData 查列是否存在，
+        // 存在则直接跳过（不再触发 ALTER → duplicate column 异常 → Druid 记 ERROR 日志）；
+        // 不存在才执行 ALTER TABLE ADD COLUMN。
+        try (java.sql.Connection conn = dataSource.getConnection()) {
+            if (columnExists(conn, table, column)) {
+                return;  // 列已存在，无需补
+            }
+            try (java.sql.Statement st = conn.createStatement()) {
+                st.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + ddl);
+                logger.info("Added column {} to {}", column, table);
+            }
         } catch (Exception e) {
             logger.debug("ensureColumn {} on {}: {}", column, table, e.getMessage());
         }
+    }
+
+    /**
+     * 通过查 sqlite_master 拿到表的 CREATE 语句，按词边界匹配列名是否存在。
+     * WallFilter 允许对 sqlite_master 的 SELECT（ensureOpenAppTable 同样用法，已验证），
+     * 且不触发 ALTER → duplicate column 异常 → Druid 记 ERROR 日志。
+     * 表不存在或查询失败时返回 false（让调用方后续 ALTER 自行处理）。
+     */
+    private boolean columnExists(java.sql.Connection conn, String table, String column) {
+        try (java.sql.Statement st = conn.createStatement();
+             java.sql.ResultSet rs = st.executeQuery(
+                     "SELECT sql FROM sqlite_master WHERE type='table' AND name='" + table + "'")) {
+            if (rs.next()) {
+                String createSql = rs.getString(1);
+                if (createSql == null) return false;
+                // 词边界匹配，避免 goods_type 误匹配 type 这种子串情况
+                return createSql.matches("(?i).*\\b" + java.util.regex.Pattern.quote(column) + "\\b.*");
+            }
+        } catch (Exception ignored) {
+            // 表不存在或查询失败 → 当作列不存在
+        }
+        return false;
     }
 }
