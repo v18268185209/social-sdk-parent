@@ -184,4 +184,3 @@ public final class SliderAntiDetect {
         "--disable-popup-blocking",
     };
 }
-</invoke>

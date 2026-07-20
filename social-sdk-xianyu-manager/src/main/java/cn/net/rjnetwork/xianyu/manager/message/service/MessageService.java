@@ -408,6 +408,7 @@ public class MessageService {
             }
 
             log.info("[CDP-AUTH] Punish URL: {}", truncate(url, 250));
+            publishCaptchaRequired(acc, url, rawError);
             cn.net.rjnetwork.xianyu.captcha.model.CaptchaResult result = captchaSolver.solve(url);
 
             if (result.isSuccess()) {
@@ -431,6 +432,20 @@ public class MessageService {
         } catch (Exception e) {
             log.error("[MESSAGE] Failed to solve captcha and retry: {}", e.getMessage(), e);
             return false;
+        }
+    }
+
+    private void publishCaptchaRequired(XianyuAccount acc, String captchaUrl, String rawError) {
+        try {
+            String accountName = accountName(acc.getId());
+            eventPublisher.publishEvent(new NotifyEvent("CAPTCHA_REQUIRED", acc.getId(), accountName,
+                    Map.of("accountName", accountName,
+                            "captchaUrl", captchaUrl != null ? captchaUrl : "",
+                            "imPageUrl", captchaSolver.getManualVerificationPageUrl(),
+                            "cdpEndpoint", captchaSolver.getCdpHttpEndpoint(),
+                            "errorSummary", truncate(rawError, 500))));
+        } catch (Exception e) {
+            log.debug("[MESSAGE] publish CAPTCHA_REQUIRED failed: {}", e.getMessage());
         }
     }
 

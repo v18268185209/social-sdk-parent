@@ -55,6 +55,90 @@ public class XianyuCaptchaSolver {
         this.config = config;
     }
 
+    public String getCdpHttpEndpoint() {
+        return config.getCdpEndpoint();
+    }
+
+    public String getManualVerificationPageUrl() {
+        return IM_PAGE_URL;
+    }
+
+    public Map<String, Object> getControlSnapshot() throws Exception {
+        String pageEndpoint = ensureGoofishImPageEndpoint();
+        try (Socket socket = openWebSocket(pageEndpoint)) {
+            sendCommand(socket, "Page.enable", new LinkedHashMap<>());
+            sendCommand(socket, "Runtime.enable", new LinkedHashMap<>());
+            sendCommand(socket, "Network.enable", new LinkedHashMap<>());
+            installAntiDetect(socket);
+
+            Map<String, Object> eval = new LinkedHashMap<>();
+            eval.put("expression", "JSON.stringify({url: location.href, title: document.title, width: innerWidth, height: innerHeight, dpr: devicePixelRatio})");
+            eval.put("returnByValue", true);
+            Object stateVal = extractRuntimeValue(sendCommand(socket, "Runtime.evaluate", eval));
+            JsonNode state = stateVal != null ? MAPPER.readTree(String.valueOf(stateVal)) : MAPPER.createObjectNode();
+
+            Map<String, Object> shotParams = new LinkedHashMap<>();
+            shotParams.put("format", "jpeg");
+            shotParams.put("quality", 82);
+            shotParams.put("fromSurface", true);
+            Map<String, Object> shot = sendCommand(socket, "Page.captureScreenshot", shotParams);
+            String data = MAPPER.valueToTree(shot.get("result")).path("data").asText("");
+
+            String cookie = extractCookie(pageEndpoint, IM_PAGE_URL);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("url", state.path("url").asText(""));
+            result.put("title", state.path("title").asText(""));
+            result.put("width", state.path("width").asInt(0));
+            result.put("height", state.path("height").asInt(0));
+            result.put("devicePixelRatio", state.path("dpr").asDouble(1));
+            result.put("image", data);
+            result.put("imageType", "image/jpeg");
+            result.put("cdpEndpoint", getCdpHttpEndpoint());
+            result.put("imPageUrl", IM_PAGE_URL);
+            result.put("cookieUsable", isUsableImCookie(cookie));
+            return result;
+        }
+    }
+
+    public void dispatchControlMouse(String eventType, double x, double y) throws Exception {
+        String pageEndpoint = ensureGoofishImPageEndpoint();
+        try (Socket socket = openWebSocket(pageEndpoint)) {
+            String type = switch (String.valueOf(eventType)) {
+                case "down", "mousePressed" -> "mousePressed";
+                case "up", "mouseReleased" -> "mouseReleased";
+                default -> "mouseMoved";
+            };
+            String button = "mouseMoved".equals(type) ? "none" : "left";
+            int buttons = "mouseReleased".equals(type) ? 0 : ("mouseMoved".equals(type) ? 0 : 1);
+            dispatchMouse(socket, type, x, y, button, buttons);
+        }
+    }
+
+    public String extractCurrentImCookie() throws Exception {
+        return extractCookie(ensureGoofishImPageEndpoint(), IM_PAGE_URL);
+    }
+
+    private String ensureGoofishImPageEndpoint() throws Exception {
+        String browserEndpoint = getCdpEndpointFromBrowser();
+        Map<String, Object> targets = getTargets(browserEndpoint);
+        String targetId = findGoofishTargetId(targets);
+        if (targetId == null || targetId.isBlank()) {
+            targetId = createNewTarget(browserEndpoint, "about:blank");
+        }
+        String pageEndpoint = getPageWebSocketEndpoint(targetId);
+        boolean shouldNavigate = true;
+        Object infoObj = targets.get(targetId);
+        if (infoObj instanceof Map<?, ?> info) {
+            String url = String.valueOf(info.getOrDefault("url", ""));
+            shouldNavigate = !url.contains("goofish.com/im");
+        }
+        if (shouldNavigate) {
+            navigateToAccountPage(pageEndpoint, IM_PAGE_URL);
+            Thread.sleep(2500);
+        }
+        return pageEndpoint;
+    }
+
     /**
      * 尝试通过 CDP 自动完成滑块验证
      *
