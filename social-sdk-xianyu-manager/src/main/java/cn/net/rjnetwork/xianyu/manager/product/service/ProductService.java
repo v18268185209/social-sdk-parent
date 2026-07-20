@@ -14,6 +14,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -27,6 +29,8 @@ import java.util.UUID;
 
 @Service
 public class ProductService {
+
+    private static final Logger logger = LoggerFactory.getLogger(ProductService.class);
 
     private final ProductMapper productMapper;
     private final AccountService accountService;
@@ -400,6 +404,30 @@ public class ProductService {
 
     @Transactional
     public void delete(Long id) {
+        XianyuProduct product = productMapper.selectById(id);
+        if (product == null) return;
+        // 先调闲鱼商品删除接口，闲鱼侧真正下架并标记为"已删除"；成功后再删本地记录
+        try {
+            XianyuAccount account = accountService.getById(product.getAccountId());
+            if (account != null && account.getCookieHeader() != null && !account.getCookieHeader().isBlank()) {
+                String itemId = product.getItemId();
+                if (itemId != null && !itemId.isBlank()) {
+                    XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(account.getCookieHeader());
+                    XianyuProductEditApiService editApi = new XianyuProductEditApiService(mtopClient);
+                    JsonNode resp = editApi.deleteProduct(itemId);
+                    // 闲鱼删除失败不阻塞本地删除（只 warn），否则用户无法清理本地脏数据
+                    if (!isMtopSuccess(resp)) {
+                        logger.warn("Xianyu item delete failed, locally deleted anyway: {} — {}", product.getId(), safeMtopMsg(resp));
+                    }
+                } else {
+                    logger.warn("No itemId for local product {}, skip xianyu delete", product.getId());
+                }
+            } else {
+                logger.warn("No cookie for account {}, skip xianyu delete", product.getAccountId());
+            }
+        } catch (Exception delErr) {
+            logger.warn("Xianyu item delete threw, locally deleted anyway: {}", delErr.getMessage());
+        }
         productMapper.deleteById(id);
     }
 

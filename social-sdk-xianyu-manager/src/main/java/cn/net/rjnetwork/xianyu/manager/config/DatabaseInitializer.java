@@ -304,8 +304,11 @@ public class DatabaseInitializer {
             if (rs.next()) {
                 String createSql = rs.getString(1);
                 if (createSql == null) return false;
-                // 词边界匹配，避免 goods_type 误匹配 type 这种子串情况
-                return createSql.matches("(?i).*\\b" + java.util.regex.Pattern.quote(column) + "\\b.*");
+                // 用 Matcher.find() 跨行搜索（CREATE SQL 多行，String.matches 的 .* 不匹配 \n）
+                // 词边界 \\b 避免 goods_type 误匹配 type 这种子串
+                return java.util.regex.Pattern.compile(
+                        "\\b" + java.util.regex.Pattern.quote(column) + "\\b",
+                        java.util.regex.Pattern.CASE_INSENSITIVE).matcher(createSql).find();
             }
         } catch (Exception ignored) {
             // 表不存在或查询失败 → 当作列不存在

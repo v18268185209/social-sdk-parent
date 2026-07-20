@@ -63,7 +63,7 @@
             <el-button size="small" @click="editPrice(row)">改价</el-button>
             <el-button size="small" @click="editStock(row)">改库存</el-button>
             <el-button v-if="row.status === 'ON_SALE'" size="small" type="warning" @click="shelfOff(row)">下架</el-button>
-            <el-button size="small" type="danger" @click="deleteProduct(row.id)">删除</el-button>
+            <el-button size="small" type="danger" @click="deleteProduct(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -488,15 +488,23 @@ function editStock(row) {
   }).catch(() => {})
 }
 
-async function deleteProduct(id) {
-  await ElMessageBox.confirm('确认删除该商品？', '提示', { type: 'warning' })
+async function deleteProduct(row) {
+  await ElMessageBox.confirm(
+    '确认删除该商品？将同时在闲鱼中执行删除。',
+    '提示',
+    { type: 'warning' }
+  )
   try {
-    const res = await api.delete(`/products/${id}`)
+    const res = await api.delete(`/products/${row.id}`)
     if (res.success) {
       ElMessage.success('已删除')
       await loadProducts()
+    } else {
+      ElMessage.error(res.message || '删除失败')
     }
-  } catch (e) {}
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error('删除失败：' + (e?.message || '请重试'))
+  }
 }
 
 const parseKeywords = () =>
@@ -614,11 +622,13 @@ async function customUpload(options, field) {
     if (res.success) {
       const url = res.data.url
       if (field === 'images') {
-        const target = imageFileList.value.find(f => f.uid === file.uid)
-        if (target) { target.url = url; target.status = 'success' }
+        imageFileList.value = imageFileList.value.map(f =>
+          f.uid === file.uid ? { ...f, url, status: 'success' } : f
+        )
       } else {
-        const target = videoFileList.value.find(f => f.uid === file.uid)
-        if (target) { target.url = url; target.status = 'success' }
+        videoFileList.value = videoFileList.value.map(f =>
+          f.uid === file.uid ? { ...f, url, status: 'success' } : f
+        )
       }
       options.onSuccess(url)
     } else {

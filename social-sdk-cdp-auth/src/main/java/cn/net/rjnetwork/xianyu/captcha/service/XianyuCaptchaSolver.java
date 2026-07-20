@@ -35,6 +35,7 @@ public class XianyuCaptchaSolver {
 
     private static final Logger log = LoggerFactory.getLogger(XianyuCaptchaSolver.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final CdpCaptchaConfig config;
 
@@ -82,20 +83,16 @@ public class XianyuCaptchaSolver {
                 waitForElement(cdpEndpoint, ".slider-btn, .btn_slide, #slider-btn, [class*='slider']", 10000);
             }
 
-            // 7. 自动拖拽滑块
-            performAutoSliderDrag(cdpEndpoint);
-
-            // 8. 等待验证完成
-            Thread.sleep(3000);
-
-            // 9. 检查是否成功
-            boolean success = checkCaptchaSuccess(cdpEndpoint);
+            // 7. 阿里滑块会校验真实轨迹/设备指纹，CDP 自动拖动容易被判定失败。
+            //    这里不再强行自动拖动，而是打开 punish 页后等待人工完成，完成后自动提取 x5sec/cookie 继续业务。
+            log.warn("[CDP-AUTH] Slider page is ready. Please drag it manually in the CDP Chrome window, waiting up to {} seconds...", config.getTimeoutSeconds());
+            boolean success = waitForCaptchaPassed(cdpEndpoint, config.getTimeoutSeconds() * 1000L);
             if (!success) {
-                return CaptchaResult.fail("滑块验证未通过");
+                return CaptchaResult.fail("滑块验证未通过或等待人工验证超时");
             }
 
-            // 10. 提取 cookie
-            String cookie = extractCookie(cdpEndpoint, "https://www.goofish.com/user/account-info");
+            // 8. 提取 cookie
+            String cookie = extractCookie(cdpEndpoint, punishUrl);
             if (cookie != null && !cookie.isEmpty()) {
                 log.info("[CDP-AUTH] Cookie extracted successfully");
                 return CaptchaResult.ok(cookie);
@@ -457,9 +454,9 @@ public class XianyuCaptchaSolver {
 
             Map<String, Object> result = sendCommand(socket, "Runtime.evaluate", cookieScript);
 
-            if (result.containsKey("result")) {
-                Map<String, Object> inner = (Map<String, Object>) result.get("result");
-                String json = String.valueOf(inner.get("value"));
+            Object value = extractRuntimeValue(result);
+            if (value != null) {
+                String json = String.valueOf(value);
                 if (json != null && !json.equals("null")) {
                     StringBuilder sb = new StringBuilder();
                     JsonNode node = MAPPER.readTree(json);
@@ -618,7 +615,7 @@ public class XianyuCaptchaSolver {
     }
 
     /**
-     * 自动拖拽滑块（模拟鼠标拖动）
+     * 自动拖拽滑块（通过 CDP Input 事件模拟真实鼠标拖动）
      */
     private void performAutoSliderDrag(String cdpEndpoint) {
         Socket socket = null;
@@ -627,81 +624,51 @@ public class XianyuCaptchaSolver {
 
             Map<String, Object> positionScript = new LinkedHashMap<>();
             positionScript.put("expression", """
-                (function() {
-                    var selectors = ['input[type="range"]', '.goofish-slider-track', '[class*="slider"]'];
-                    for (var selector of selectors) {
-                        var el = document.querySelector(selector);
-                        if (el) {
-                            var rect = el.getBoundingClientRect();
-                            return JSON.stringify({
-                                x: rect.left + rect.width / 2,
-                                y: rect.top + rect.height / 2,
-                                width: rect.width,
-                                height: rect.height
-                            });
-                        }
-                    }
-                    return null;
+                (() => {
+                    const slider = document.querySelector('#nc_1_n1z, .btn_slide, .nc_iconfont');
+                    const track = document.querySelector('#nc_1_nocaptcha, #nocaptcha, .nc-container') || (slider && slider.parentElement);
+                    if (!slider || !track) return null;
+                    const sr = slider.getBoundingClientRect();
+                    const tr = track.getBoundingClientRect();
+                    return JSON.stringify({
+                        startX: sr.left + sr.width / 2,
+                        startY: sr.top + sr.height / 2,
+                        endX: tr.right - 10,
+                        endY: sr.top + sr.height / 2,
+                        sliderWidth: sr.width,
+                        trackWidth: tr.width
+                    });
                 })()
             """);
             positionScript.put("awaitPromise", true);
             positionScript.put("returnByValue", true);
 
             Map<String, Object> positionResult = sendCommand(socket, "Runtime.evaluate", positionScript);
-
-            double startX = 100, startY = 100;
-            double endX = 300, endY = 100;
-
-            try {
-                if (positionResult.containsKey("result")) {
-                    Map<String, Object> inner = (Map<String, Object>) positionResult.get("result");
-                    String posStr = String.valueOf(inner.get("value"));
-                    if (posStr != null && !posStr.equals("null")) {
-                        JsonNode node = MAPPER.readTree(posStr);
-                        startX = node.path("x").asDouble(startX);
-                        startY = node.path("y").asDouble(startY);
-                        endX = startX + node.path("width").asDouble(200);
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("[CDP-AUTH] Failed to parse position: {}", e.getMessage());
+            Object runtimeValue = extractRuntimeValue(positionResult);
+            if (runtimeValue == null || "null".equals(String.valueOf(runtimeValue))) {
+                log.warn("[CDP-AUTH] slider position not found");
+                return;
             }
 
-            Map<String, Object> dragScript = new LinkedHashMap<>();
-            dragScript.put("expression", String.format("""
-                (function() {
-                    var startX = %f, startY = %f;
-                    var endX = %f, endY = %f;
+            JsonNode node = MAPPER.readTree(String.valueOf(runtimeValue));
+            double startX = node.path("startX").asDouble(100);
+            double startY = node.path("startY").asDouble(100);
+            double endX = node.path("endX").asDouble(startX + 300);
+            double endY = node.path("endY").asDouble(startY);
+            log.info("[CDP-AUTH] Drag slider from ({}, {}) to ({}, {})", startX, startY, endX, endY);
 
-                    var downEvent = new MouseEvent('mousedown', {
-                        bubbles: true, cancelable: true, clientX: startX, clientY: startY
-                    });
-                    document.dispatchEvent(downEvent);
-
-                    var moveCount = 20;
-                    for (var i = 0; i <= moveCount; i++) {
-                        var t = i / moveCount;
-                        var x = startX + (endX - startX) * t + (Math.random() - 0.5) * 3;
-                        var y = startY + (Math.random() - 0.5) * 2;
-
-                        var moveEvent = new MouseEvent('mousemove', {
-                            bubbles: true, cancelable: true, clientX: x, clientY: y
-                        });
-                        document.dispatchEvent(moveEvent);
-                    }
-
-                    var upEvent = new MouseEvent('mouseup', {
-                        bubbles: true, cancelable: true, clientX: endX, clientY: endY
-                    });
-                    document.dispatchEvent(upEvent);
-
-                    return true;
-                })()
-            """, startX, startY, endX, endY));
-            dragScript.put("awaitPromise", true);
-            dragScript.put("returnByValue", true);
-
-            sendCommand(socket, "Runtime.evaluate", dragScript);
+            dispatchMouse(socket, "mouseMoved", startX, startY, "none", 0);
+            dispatchMouse(socket, "mousePressed", startX, startY, "left", 1);
+            int steps = 45;
+            for (int i = 1; i <= steps; i++) {
+                double t = (double) i / steps;
+                double eased = 1 - Math.pow(1 - t, 2);
+                double x = startX + (endX - startX) * eased + (RANDOM.nextDouble() - 0.5) * 2.5;
+                double y = startY + (RANDOM.nextDouble() - 0.5) * 1.5;
+                dispatchMouse(socket, "mouseMoved", x, y, "left", 1);
+                Thread.sleep(12 + RANDOM.nextInt(18));
+            }
+            dispatchMouse(socket, "mouseReleased", endX, endY, "left", 0);
 
         } catch (Exception e) {
             log.error("[CDP-AUTH] Slider drag failed: {}", e.getMessage(), e);
@@ -712,6 +679,78 @@ public class XianyuCaptchaSolver {
                 } catch (IOException ignored) {}
             }
         }
+    }
+
+    private Object extractRuntimeValue(Map<String, Object> commandResult) {
+        if (commandResult == null || !commandResult.containsKey("result")) return null;
+        Object resultObj = commandResult.get("result");
+        if (!(resultObj instanceof Map)) return null;
+        Object innerObj = ((Map<?, ?>) resultObj).get("result");
+        if (!(innerObj instanceof Map)) return null;
+        return ((Map<?, ?>) innerObj).get("value");
+    }
+
+    private void dispatchMouse(Socket socket, String type, double x, double y, String button, int buttons) throws Exception {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("type", type);
+        params.put("x", x);
+        params.put("y", y);
+        params.put("button", button);
+        params.put("buttons", buttons);
+        if ("mousePressed".equals(type) || "mouseReleased".equals(type)) {
+            params.put("clickCount", 1);
+        }
+        sendCommand(socket, "Input.dispatchMouseEvent", params);
+    }
+
+    /**
+     * 等待人工完成滑块。成功标准：页面离开 punish/captcha、页面文本不再要求拖动，或 cookie 中出现 x5sec。
+     */
+    private boolean waitForCaptchaPassed(String cdpEndpoint, long timeoutMs) throws InterruptedException {
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            Socket socket = null;
+            try {
+                socket = openWebSocket(cdpEndpoint);
+                Map<String, Object> script = new LinkedHashMap<>();
+                script.put("expression", """
+                    (() => {
+                        const text = (document.body && document.body.innerText || '');
+                        const href = location.href;
+                        const cookie = document.cookie || '';
+                        const hasSlider = !!document.querySelector('#nc_1_n1z, .btn_slide, .nc_iconfont, #nocaptcha');
+                        const failed = /验证失败|点击框体重试|请刷新|重试/.test(text);
+                        const passedByCookie = /(?:^|;\\s*)x5sec=/.test(cookie);
+                        const stillPunish = /punish|captcha/.test(href) || /请按住滑块|拖动到最右边|验证码拦截/.test(text);
+                        return JSON.stringify({href, text: text.slice(0, 300), hasSlider, failed, passedByCookie, stillPunish, cookie: cookie.slice(0, 1000)});
+                    })()
+                """);
+                script.put("awaitPromise", true);
+                script.put("returnByValue", true);
+                Object value = extractRuntimeValue(sendCommand(socket, "Runtime.evaluate", script));
+                if (value != null) {
+                    JsonNode state = MAPPER.readTree(String.valueOf(value));
+                    boolean passedByCookie = state.path("passedByCookie").asBoolean(false);
+                    boolean stillPunish = state.path("stillPunish").asBoolean(true);
+                    boolean failed = state.path("failed").asBoolean(false);
+                    if (passedByCookie || !stillPunish) {
+                        log.info("[CDP-AUTH] Captcha appears passed, state={}", state.toString());
+                        return true;
+                    }
+                    if (failed) {
+                        log.warn("[CDP-AUTH] Captcha failed on page, please click the box and drag manually again. state={}", state.toString());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[CDP-AUTH] wait captcha status failed: {}", e.getMessage());
+            } finally {
+                if (socket != null) {
+                    try { socket.close(); } catch (IOException ignored) {}
+                }
+            }
+            Thread.sleep(1000);
+        }
+        return false;
     }
 
     /**
