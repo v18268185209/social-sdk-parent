@@ -71,6 +71,11 @@
             <el-icon><Download /></el-icon> 批量导入
           </el-button>
         </el-form-item>
+        <el-form-item v-if="activeTab === 'local'">
+          <el-button type="info" @click="handleDownloadTemplate">
+            <el-icon><DocumentCopy /></el-icon> 下载 CSV 模板
+          </el-button>
+        </el-form-item>
       </el-form>
 
       <el-table :data="activeTab === 'xianyu' ? products : localProducts" stripe v-loading="loading" @selection-change="onLocalSelectionChange">
@@ -503,7 +508,14 @@
 
       <!-- 本地商品：发布失败原因 -->
       <el-alert v-if="detail._source === 'local' && detail.publishError" type="error" :closable="false"
-        :title="`发布失败：${detail.publishError}`" style="margin-top: 16px;" show-icon />
+        :title="`发布失败：${detail.publishError}`" style="margin-top: 16px;" show-icon>
+        <template #default>
+          <el-button size="small" type="primary" :loading="detail._retrying" @click="handleRetryPublish(detail)"
+            style="margin-top: 8px;">
+            <el-icon><Refresh /></el-icon> 重试发布
+          </el-button>
+        </template>
+      </el-alert>
 
       <!-- 描述 -->
       <el-card style="margin-top: 16px;" v-if="detail.description">
@@ -545,7 +557,7 @@
 <script setup>
 import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, MagicStick, VideoPlay, Link, Plus, UploadFilled, Download } from '@element-plus/icons-vue'
+import { Refresh, MagicStick, VideoPlay, Link, Plus, UploadFilled, Download, DocumentCopy } from '@element-plus/icons-vue'
 import api from '@/api/request'
 import { optimizeTitle as optimizeTitleApi, optimizeDescription as optimizeDescriptionApi, extractKeywords as extractKeywordsApi } from '@/api/ai'
 
@@ -674,6 +686,21 @@ function resetImportDialog() {
   importFile.value = null
 }
 
+function handleDownloadTemplate() {
+  const header = 'account_name,title,price,stock,images,goods_type,deliver_type,deliver_content_template\n'
+  const example1 = '示例账号,iPhone 15 Pro 256G 原色钛金属,6999.00,3,https://cdn.com/1.jpg,PHYSICAL,,\n'
+  const example2 = '示例账号,Steam 充值卡 100元,100.00,50,,VIRTUAL,CARD,卡密AAA-111|||卡密BBB-222|||卡密CCC-333\n'
+  const example3 = '示例账号,考研资料完整版,9.90,999,,VIRTUAL,FILE,链接: https://pan.baidu.com/xxx 提取码: abcd\n'
+  const csv = '﻿' + header + example1 + example2 + example3
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'local_product_import_template.csv'
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 // ===== 状态 =====
 import * as localProductApi from '@/api/localProducts'
 
@@ -779,6 +806,30 @@ async function publishLocalProduct(row) {
     }
   } catch (e) { ElMessage.error('发布失败：' + (e?.message || '')) }
   finally { row._publishing = false }
+}
+
+async function handleRetryPublish(row) {
+  if (!row.accountId) return ElMessage.warning('请先编辑并指定发布账号')
+  row._retrying = true
+  try {
+    const res = await localProductApi.publishLocalProduct(row.id)
+    if (res.success) {
+      ElMessage.success('重试发布成功，本地记录已清理')
+      detail.value = null
+      showDetailDrawer.value = false
+      await loadLocalProducts()
+    } else {
+      // 失败：更新抽屉里的错误信息，不关闭抽屉
+      detail.value = { ...detail.value, publishError: res.message || '发布失败' }
+      row.publishError = res.message || '发布失败'
+      ElMessage.error('重试失败：' + (res.message || '未知错误'))
+    }
+  } catch (e) {
+    const errMsg = e?.message || '未知错误'
+    detail.value = { ...detail.value, publishError: errMsg }
+    row.publishError = errMsg
+    ElMessage.error('重试失败：' + errMsg)
+  } finally { row._retrying = false }
 }
 
 async function deleteLocalProduct(row) {

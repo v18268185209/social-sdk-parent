@@ -19,113 +19,113 @@
         </el-menu-item>
 
         <el-menu-item-group title="店铺管理">
-          <el-menu-item index="/products">
+          <el-menu-item index="/app/products">
             <span class="menu-icon-box"><el-icon><Goods /></el-icon></span>
             <span>商品管理</span>
           </el-menu-item>
-          <el-menu-item index="/orders">
+          <el-menu-item index="/app/orders">
             <span class="menu-icon-box"><el-icon><List /></el-icon></span>
             <span>订单管理</span>
           </el-menu-item>
-          <el-menu-item index="/messages">
+          <el-menu-item index="/app/messages">
             <span class="menu-icon-box"><el-icon><ChatDotRound /></el-icon></span>
             <span>消息管理</span>
           </el-menu-item>
-          <el-menu-item index="/collect">
+          <el-menu-item index="/app/collect">
             <span class="menu-icon-box"><el-icon><Star /></el-icon></span>
             <span>收藏关注</span>
           </el-menu-item>
-          <el-menu-item index="/reviews">
+          <el-menu-item index="/app/reviews">
             <span class="menu-icon-box"><el-icon><Medal /></el-icon></span>
             <span>评价与信用</span>
           </el-menu-item>
         </el-menu-item-group>
 
         <el-menu-item-group title="AI 智能">
-          <el-menu-item index="/ai-ops">
+          <el-menu-item index="/app/ai-ops">
             <span class="menu-icon-box"><el-icon><Promotion /></el-icon></span>
             <span>AI 运营</span>
           </el-menu-item>
-          <el-menu-item index="/ai">
+          <el-menu-item index="/app/ai">
             <span class="menu-icon-box"><el-icon><Connection /></el-icon></span>
             <span>AI 厂商</span>
           </el-menu-item>
-          <el-menu-item index="/ai-cs">
+          <el-menu-item index="/app/ai-cs">
             <span class="menu-icon-box"><el-icon><Service /></el-icon></span>
             <span>AI 客服</span>
           </el-menu-item>
-          <el-menu-item index="/polish">
+          <el-menu-item index="/app/polish">
             <span class="menu-icon-box"><el-icon><Sunrise /></el-icon></span>
             <span>商品擦亮</span>
           </el-menu-item>
         </el-menu-item-group>
 
         <el-menu-item-group title="发货仓储">
-          <el-menu-item index="/virtual-ship">
+          <el-menu-item index="/app/virtual-ship">
             <span class="menu-icon-box"><el-icon><Switch /></el-icon></span>
             <span>虚拟发货</span>
           </el-menu-item>
-          <el-menu-item index="/cloud-storage">
+          <el-menu-item index="/app/cloud-storage">
             <span class="menu-icon-box"><el-icon><UploadFilled /></el-icon></span>
             <span>网盘存储</span>
           </el-menu-item>
-          <el-menu-item index="/tasks">
+          <el-menu-item index="/app/tasks">
             <span class="menu-icon-box"><el-icon><Timer /></el-icon></span>
             <span>监控任务</span>
           </el-menu-item>
         </el-menu-item-group>
 
         <el-menu-item-group title="规则合规">
-          <el-menu-item index="/rules">
+          <el-menu-item index="/app/rules">
             <span class="menu-icon-box"><el-icon><Setting /></el-icon></span>
             <span>规则管理</span>
           </el-menu-item>
-          <el-menu-item index="/notify">
+          <el-menu-item index="/app/notify">
             <span class="menu-icon-box"><el-icon><Bell /></el-icon></span>
             <span>消息通知</span>
           </el-menu-item>
-          <el-menu-item index="/audit">
+          <el-menu-item index="/app/audit">
             <span class="menu-icon-box"><el-icon><Document /></el-icon></span>
             <span>审计日志</span>
           </el-menu-item>
-          <el-menu-item index="/reply-logs">
+          <el-menu-item index="/app/reply-logs">
             <span class="menu-icon-box"><el-icon><ChatLineSquare /></el-icon></span>
             <span>自动回复日志</span>
           </el-menu-item>
         </el-menu-item-group>
 
         <el-menu-item-group title="数据资产">
-          <el-menu-item index="/wallet">
+          <el-menu-item index="/app/wallet">
             <span class="menu-icon-box"><el-icon><Money /></el-icon></span>
             <span>钱包资产</span>
           </el-menu-item>
-          <el-menu-item index="/monitor">
+          <el-menu-item index="/app/monitor">
             <span class="menu-icon-box"><el-icon><Monitor /></el-icon></span>
             <span>监控面板</span>
           </el-menu-item>
-          <el-menu-item index="/market">
+          <el-menu-item index="/app/market">
             <span class="menu-icon-box"><el-icon><Compass /></el-icon></span>
             <span>市场情报</span>
           </el-menu-item>
-          <el-menu-item index="/buyer">
+          <el-menu-item index="/app/buyer">
             <span class="menu-icon-box"><el-icon><User /></el-icon></span>
             <span>买家画像</span>
           </el-menu-item>
         </el-menu-item-group>
 
-        <el-menu-item index="/accounts">
+        <el-menu-item index="/app/accounts">
           <span class="menu-icon-box"><el-icon><UserFilled /></el-icon></span>
           <span>账号管理</span>
         </el-menu-item>
-        <el-menu-item index="/chrome">
+        <el-menu-item index="/app/chrome">
           <span class="menu-icon-box"><el-icon><Setting /></el-icon></span>
           <span>谷歌浏览器配置</span>
         </el-menu-item>
-        <el-menu-item index="/proxy">
+        <el-menu-item index="/app/proxy">
           <span class="menu-icon-box"><el-icon><Connection /></el-icon></span>
           <span>代理管理</span>
         </el-menu-item>
-        <el-menu-item index="/circuit-breaker">
+        <el-menu-item index="/app/circuit-breaker">
           <span class="menu-icon-box"><el-icon><Warning /></el-icon></span>
           <span>熔断器管理</span>
         </el-menu-item>
@@ -437,27 +437,27 @@ const authStore = useAuthStore()
 // 面包屑映射
 const breadcrumbMap = {
   '/app/dashboard': ['仪表盘'],
-  '/products': ['店铺管理', '商品管理'],
-  '/orders': ['店铺管理', '订单管理'],
-  '/messages': ['店铺管理', '消息管理'],
-  '/collect': ['店铺管理', '收藏关注'],
-  '/reviews': ['店铺管理', '评价与信用'],
-  '/ai-ops': ['AI 智能', 'AI 运营'],
-  '/ai': ['AI 智能', 'AI 厂商'],
-  '/ai-cs': ['AI 智能', 'AI 客服'],
-  '/polish': ['AI 智能', '商品擦亮'],
-  '/virtual-ship': ['发货仓储', '虚拟发货'],
-  '/cloud-storage': ['发货仓储', '网盘存储'],
-  '/tasks': ['发货仓储', '监控任务'],
-  '/rules': ['规则合规', '规则管理'],
-  '/notify': ['规则合规', '消息通知'],
-  '/audit': ['规则合规', '审计日志'],
-  '/wallet': ['数据资产', '钱包资产'],
-  '/monitor': ['数据资产', '监控面板'],
-  '/market': ['数据资产', '市场情报'],
-  '/buyer': ['数据资产', '买家画像'],
-  '/accounts': ['账号管理'],
-  '/circuit-breaker': ['数据资产', '熔断器管理']
+  '/app/products': ['店铺管理', '商品管理'],
+  '/app/orders': ['店铺管理', '订单管理'],
+  '/app/messages': ['店铺管理', '消息管理'],
+  '/app/collect': ['店铺管理', '收藏关注'],
+  '/app/reviews': ['店铺管理', '评价与信用'],
+  '/app/ai-ops': ['AI 智能', 'AI 运营'],
+  '/app/ai': ['AI 智能', 'AI 厂商'],
+  '/app/ai-cs': ['AI 智能', 'AI 客服'],
+  '/app/polish': ['AI 智能', '商品擦亮'],
+  '/app/virtual-ship': ['发货仓储', '虚拟发货'],
+  '/app/cloud-storage': ['发货仓储', '网盘存储'],
+  '/app/tasks': ['发货仓储', '监控任务'],
+  '/app/rules': ['规则合规', '规则管理'],
+  '/app/notify': ['规则合规', '消息通知'],
+  '/app/audit': ['规则合规', '审计日志'],
+  '/app/wallet': ['数据资产', '钱包资产'],
+  '/app/monitor': ['数据资产', '监控面板'],
+  '/app/market': ['数据资产', '市场情报'],
+  '/app/buyer': ['数据资产', '买家画像'],
+  '/app/accounts': ['账号管理'],
+  '/app/circuit-breaker': ['数据资产', '熔断器管理']
 }
 
 const currentBreadcrumb = computed(() => breadcrumbMap[route.path] || ['管理后台'])
@@ -465,53 +465,53 @@ const currentBreadcrumb = computed(() => breadcrumbMap[route.path] || ['管理�
 // 页面图标映射
 const pageIconMap = {
   '/app/dashboard': '📊',
-  '/products': '📦',
-  '/orders': '📋',
-  '/messages': '💬',
-  '/collect': '⭐',
-  '/reviews': '🏅',
-  '/ai-ops': '🚀',
-  '/ai': '🔗',
-  '/ai-cs': '🎧',
-  '/polish': '✨',
-  '/virtual-ship': '🔄',
-  '/cloud-storage': '☁️',
-  '/tasks': '⏱️',
-  '/rules': '⚙️',
-  '/notify': '🔔',
-  '/audit': '📄',
-  '/wallet': '💰',
-  '/monitor': '🖥️',
-  '/market': '🧭',
-  '/buyer': '👤',
-  '/circuit-breaker': '⚠️',
-  '/accounts': '👤'
+  '/app/products': '📦',
+  '/app/orders': '📋',
+  '/app/messages': '💬',
+  '/app/collect': '⭐',
+  '/app/reviews': '🏅',
+  '/app/ai-ops': '🚀',
+  '/app/ai': '🔗',
+  '/app/ai-cs': '🎧',
+  '/app/polish': '✨',
+  '/app/virtual-ship': '🔄',
+  '/app/cloud-storage': '☁️',
+  '/app/tasks': '⏱️',
+  '/app/rules': '⚙️',
+  '/app/notify': '🔔',
+  '/app/audit': '📄',
+  '/app/wallet': '💰',
+  '/app/monitor': '🖥️',
+  '/app/market': '🧭',
+  '/app/buyer': '👤',
+  '/app/circuit-breaker': '⚠️',
+  '/app/accounts': '👤'
 }
 
 const currentIcon = computed(() => pageIconMap[route.path] || '📄')
 
 const titleMap = {
   '/app/dashboard': '仪表盘',
-  '/accounts': '账号管理',
-  '/products': '商品管理',
-  '/messages': '消息管理',
-  '/orders': '订单管理',
-  '/rules': '规则管理',
-  '/wallet': '钱包资产',
-  '/collect': '收藏关注',
-  '/ai': 'AI 厂商',
-  '/ai-ops': 'AI 运营',
-  '/virtual-ship': '虚拟发货',
-  '/cloud-storage': '网盘存储',
-  '/monitor': '监控面板',
-  '/audit': '审计日志',
-  '/notify': '消息通知',
-  '/market': '市场情报',
-  '/buyer': '买家画像',
-  '/ai-cs': 'AI 客服',
-  '/tasks': '监控任务',
-  '/reviews': '评价与信用',
-  '/polish': '商品擦亮'
+  '/app/accounts': '账号管理',
+  '/app/products': '商品管理',
+  '/app/messages': '消息管理',
+  '/app/orders': '订单管理',
+  '/app/rules': '规则管理',
+  '/app/wallet': '钱包资产',
+  '/app/collect': '收藏关注',
+  '/app/ai': 'AI 厂商',
+  '/app/ai-ops': 'AI 运营',
+  '/app/virtual-ship': '虚拟发货',
+  '/app/cloud-storage': '网盘存储',
+  '/app/monitor': '监控面板',
+  '/app/audit': '审计日志',
+  '/app/notify': '消息通知',
+  '/app/market': '市场情报',
+  '/app/buyer': '买家画像',
+  '/app/ai-cs': 'AI 客服',
+  '/app/tasks': '监控任务',
+  '/app/reviews': '评价与信用',
+  '/app/polish': '商品擦亮'
 }
 
 const currentTitle = computed(() => titleMap[route.path] || '管理后台')

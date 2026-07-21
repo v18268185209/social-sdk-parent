@@ -923,3 +923,76 @@ CREATE TABLE IF NOT EXISTS circuit_breaker_event (
 CREATE INDEX idx_circuit_event_breaker ON circuit_breaker_event(breaker_id);
 CREATE INDEX idx_circuit_event_time ON circuit_breaker_event(created_at);
 
+
+-- ===== local_product：本地商品草稿（与 SQLite 对齐） =====
+CREATE TABLE IF NOT EXISTS local_product (
+    id          INTEGER PRIMARY KEY AUTO_INCREMENT,
+    account_id  INTEGER,
+    title       VARCHAR(255),
+    price       DECIMAL(12,2),
+    original_price DECIMAL(12,2),
+    stock       INTEGER DEFAULT 1,
+    category_id VARCHAR(64),
+    description TEXT,
+    images      TEXT,
+    videos      TEXT,
+    image_url   VARCHAR(512),
+    goods_type  VARCHAR(16) DEFAULT 'PHYSICAL',
+    deliver_type VARCHAR(16),
+    deliver_content_template TEXT,
+    status      VARCHAR(16) NOT NULL DEFAULT 'DRAFT',
+    publish_error TEXT,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted     INTEGER DEFAULT 0,
+    INDEX idx_local_product_account (account_id),
+    INDEX idx_local_product_status (status)
+);
+
+-- ===== proxy 模块表（与 SQLite proxy-bindings.sql 对齐） =====
+CREATE TABLE IF NOT EXISTS proxy_account_binding (
+    id              INTEGER PRIMARY KEY AUTO_INCREMENT,
+    account_id      INTEGER NOT NULL UNIQUE,
+    provider_type   VARCHAR(32) NOT NULL,
+    host            VARCHAR(256) NOT NULL,
+    port            INTEGER NOT NULL,
+    username        VARCHAR(256),
+    password        VARCHAR(512),
+    exit_ip         VARCHAR(64),
+    city            VARCHAR(64),
+    bound_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_used_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    use_count       INTEGER DEFAULT 0,
+    captcha_passed  TINYINT(1) DEFAULT 0,
+    deleted         INTEGER DEFAULT 0,
+    INDEX idx_proxy_binding_account (account_id),
+    INDEX idx_proxy_binding_exit_ip (exit_ip),
+    INDEX idx_proxy_binding_deleted (deleted)
+);
+
+CREATE TABLE IF NOT EXISTS proxy_cool_down (
+    id                  INTEGER PRIMARY KEY AUTO_INCREMENT,
+    ip                  VARCHAR(64) NOT NULL,
+    provider_type       VARCHAR(32) NOT NULL,
+    consecutive_fail   INTEGER NOT NULL DEFAULT 0,
+    reason              VARCHAR(512),
+    cooled_down_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    recover_at          DATETIME,
+    deleted             INTEGER DEFAULT 0,
+    INDEX idx_proxy_cooldown_ip (ip, deleted),
+    INDEX idx_proxy_cooldown_recover (recover_at, deleted)
+);
+
+CREATE TABLE IF NOT EXISTS proxy_audit_log (
+    id              INTEGER PRIMARY KEY AUTO_INCREMENT,
+    account_id      INTEGER,
+    action          VARCHAR(32) NOT NULL,
+    provider_type   VARCHAR(32),
+    host            VARCHAR(256),
+    port            INTEGER,
+    exit_ip         VARCHAR(64),
+    detail          VARCHAR(1024),
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_proxy_audit_account (account_id, created_at),
+    INDEX idx_proxy_audit_action (action, created_at)
+);

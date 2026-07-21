@@ -79,6 +79,37 @@ social-sdk-parent/                          # 父 POM
 │   └── src/main/resources/db/              # 4 套 Schema（SQLite/MySQL/PostgreSQL/Proxy）
 ├── social-sdk-xianyu-manager-web/          # Vue3 + Vite + Element Plus 前端
 │   ├── src/views/                          # 31 个页面（独立 Node.js 项目，不通过 Maven 构建）
+│   │   ├── dashboard/                      # 首页仪表盘
+│   │   ├── data-board/                     # 实时数据大屏
+│   │   ├── landing/                        # 欢迎引导页
+│   │   ├── accounts/                       # 账号管理
+│   │   ├── products/                       # 商品列表
+│   │   ├── product/                        # 单个商品
+│   │   ├── messages/                       # 消息管理
+│   │   ├── orders/                         # 订单管理
+│   │   ├── rules/                          # 规则引擎
+│   │   ├── wallet/                         # 钱包
+│   │   ├── collect/                        # 收藏
+│   │   ├── ai/                             # AI 聊天
+│   │   ├── aiCs/                           # AI 客服
+│   │   ├── aiOps/                          # AI 运营
+│   │   ├── buyer/                          # 买家画像
+│   │   ├── market/                         # 市场情报
+│   │   ├── monitor/                        # 监控面板
+│   │   ├── notify/                         # 通知管理
+│   │   ├── virtualShip/                    # 虚拟发货
+│   │   ├── cloudStorage/                   # 网盘存储
+│   │   ├── chrome/                         # Chrome 容器
+│   │   ├── proxy/                          # 代理池
+│   │   ├── circuitBreaker/                 # 熔断器
+│   │   ├── replyLogs/                      # 回复日志
+│   │   ├── reviews/                        # 评价管理
+│   │   ├── tasks/                          # 定时任务
+│   │   ├── audit/                          # 审计日志
+│   │   ├── polish/                         # 文案润色
+│   │   ├── agreement/                      # 服务协议
+│   │   ├── privacy/                        # 隐私政策
+│   │   └── login/                          # 登录
 │   ├── src/api/                            # 22 个 API 模块
 │   └── src/layouts/                        # 主布局 + 路由 + 状态管理
 └── scripts/                                # 全平台打包 + Docker
@@ -100,7 +131,7 @@ social-sdk-parent/                          # 父 POM
 | 多库支持 | **SQLite / MySQL 8 / PostgreSQL** | 三选一 profile 切换 |
 | 连接池 | **Druid 1.2.23** | SQLite 单连接最优（maxActive=1 + busy_timeout=30s）+ WAL 模式 |
 | 缓存 | **Caffeine** | 本地高性能内存缓存 |
-| 长连接 | **Netty 4.1.108** | IM 客户端，NIO + IdleStateHandler 心跳 + 自动重连 |
+| 长连接 | **Netty 4.1.108.Final** | IM 客户端，NIO + IdleStateHandler 心跳 + 自动重连 |
 | 浏览器自动化 | **Chrome CDP** | 滑块验证码破解 + 每账号独立 Chrome 容器 + 指纹注入 |
 | 代理池 | **多提供商** | SmartProxy / 快骑 / 阿布云 / 奇迹（短效+隧道） |
 | 前端 | **Vue 3 + Vite + Element Plus** | 现代 SPA 管理后台 |
@@ -125,7 +156,9 @@ social-sdk-parent/                          # 父 POM
 
 ### 1. 🖥️ 仪表盘 / 监控面板
 - 首页运营概览
+- 实时数据大屏（`data-board`）：多账号实时数据轮询展示
 - 系统资源与连接状态实时可观测
+- 欢迎页（`landing`）：产品介绍 + 功能引导
 
 ### 2. 👤 多账号管理
 - Cookie / 扫码登录
@@ -141,6 +174,7 @@ social-sdk-parent/                          # 父 POM
 - 虚拟商品发货模板配置（卡密 / 账号 / 链接 / 文件）
 - 图片 / 视频 媒体上传
 - 本地商品库（`local_product`）与闲鱼线上商品分离管理
+- 本地商品批量导入
 
 ### 4. 💬 消息管理
 - 会话列表 + 消息历史
@@ -242,6 +276,7 @@ social-sdk-parent/                          # 父 POM
 - 浏览器指纹注入（Canvas/WebGL/字体/插件等）
 - 代理IP绑定 + 健康检查 + 自动回收
 - CDP 滑块验证码自动破解（轨迹模拟 + 反检测）
+- CDP 代理连接器（`CdpProxyController`）
 
 ### 20. 🌐 账号代理池
 - 多提供商支持（SmartProxy / 快骑 / 阿布云 / 奇迹）
@@ -258,6 +293,7 @@ social-sdk-parent/                          # 父 POM
 - 独立 AI 对话页面
 - 多模型切换
 - 流式输出
+- AI 能力演示（`/api/ai/demo`）：商品描述优化、关键词提取、标题生成
 
 ### 23. ✨ AI 文案润色
 - 商品标题 / 描述一键润色
@@ -273,6 +309,15 @@ social-sdk-parent/                          # 父 POM
 - 审计日志清理（月度）
 - 数据聚合（每日 00:00）
 - 市场情报抓取调度
+
+### 26. 🔌 账号熔断器
+- 账号异常自动断开（`circuit_breaker`）
+- 熔断事件记录（`circuit_breaker_event`）
+- 熔断恢复检测
+
+### 27. 📜 法律文档
+- 服务协议（`agreement`）
+- 隐私政策（`privacy`）
 
 > 📖 **完整接口文档**：[docs/openapi.md](./docs/openapi.md)  
 > 🔗 **Swagger UI**：`http://localhost:8080/openapi/v1/docs`  
@@ -397,12 +442,14 @@ scripts/electron/dist_electron/
 | 账号 | `PUT /api/accounts/{id}/cookies` | 更新 Cookie |
 | 账号 | `GET /api/accounts/{id}/profile` | 同步个人资料 |
 | 账号 | `PUT /api/accounts/{id}/status` | 更新状态 |
-| 商品 | `GET /api/products` | 商品列表（分页） |
-| 商品 | `POST /api/products` | 创建商品 |
+| 验证码 | `POST /api/captcha/control` | 验证码求解控制 |
+| 验证码 | `GET /api/captcha/proxy` | CDP 代理连接状态 |
+| 商品 | `GET /api/local-products` | 本地商品列表 |
+| 商品 | `POST /api/local-products/import` | 本地商品批量导入 |
+| 商品 | `GET/POST /api/products` | 商品列表 / 创建 |
 | 商品 | `PUT /api/products/{id}` | 编辑商品 |
 | 商品 | `POST /api/products/{id}/shelf-on` | 上架 |
 | 商品 | `POST /api/products/{id}/shelf-off` | 下架 |
-| 本地商品 | `GET /api/local-products` | 本地商品列表 |
 | 消息 | `GET /api/messages/sessions` | 会话列表 |
 | 消息 | `GET /api/messages/history` | 消息历史 |
 | 消息 | `POST /api/messages/send` | 发送消息 |
@@ -487,7 +534,7 @@ java -jar app.jar --spring.profiles.active=mysql
 docker run -e SPRING_PROFILES_ACTIVE=mysql ...
 ```
 
-### 核心数据表（45+ 张）
+### 核心数据表（48 张）
 
 | 类别 | 表名 | 用途 |
 |------|------|------|
@@ -511,11 +558,12 @@ docker run -e SPRING_PROFILES_ACTIVE=mysql ...
 | **虚拟** | `virtual_card_pool` / `virtual_ship_task` / `virtual_ship_config` | 虚拟卡密 / 发货任务 / 配置 |
 | **网盘** | `cloud_storage_account` / `cloud_storage_file` | 网盘存储 |
 | **AI** | 聊天会话 / 消息 | AI 独立聊天 |
-| **市场** | `market_*` | 市场情报 |
+| **市场** | `market_snapshot` / `price_history` / `market_daily_stat` | 市场情报 + 价格历史和每日统计 |
 | **监控** | `monitor_task` / `monitor_result` / `seller_profile` | 监控爬虫 + 卖家画像 |
 | **买家** | `buyer_profile` | 买家画像 |
 | **熔断** | `circuit_breaker` / `circuit_breaker_event` | 账号熔断状态 |
-| **审计** | `audit_log` | 审计日志 |
+| **审计** | `audit_log` / `proxy_audit_log` | 操作审计日志 / 代理审计日志 |
+| **代理** | `proxy_account_binding` / `proxy_cool_down` | 账号-代理绑定 / 代理冷却 |
 | **定时** | 任务调度数据 | 定时任务（Spring Schedule 内存 + DB） |
 
 ---

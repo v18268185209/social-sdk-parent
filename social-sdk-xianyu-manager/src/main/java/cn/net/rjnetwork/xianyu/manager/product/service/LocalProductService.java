@@ -10,6 +10,8 @@ import cn.net.rjnetwork.xianyu.manager.product.dto.LocalProductImportResult;
 import cn.net.rjnetwork.xianyu.manager.product.dto.LocalProductRequest;
 import cn.net.rjnetwork.xianyu.manager.product.mapper.LocalProductMapper;
 import cn.net.rjnetwork.xianyu.manager.product.model.LocalProduct;
+import cn.net.rjnetwork.xianyu.manager.product.model.XianyuProduct;
+import cn.net.rjnetwork.xianyu.manager.virtual.service.VirtualShipService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -44,13 +46,16 @@ public class LocalProductService {
     private final LocalProductMapper localProductMapper;
     private final ProductService productService;
     private final AccountService accountService;
+    private final VirtualShipService virtualShipService;
 
     public LocalProductService(LocalProductMapper localProductMapper,
                                ProductService productService,
-                               AccountService accountService) {
+                               AccountService accountService,
+                               VirtualShipService virtualShipService) {
         this.localProductMapper = localProductMapper;
         this.productService = productService;
         this.accountService = accountService;
+        this.virtualShipService = virtualShipService;
     }
 
     /**
@@ -231,6 +236,7 @@ public class LocalProductService {
 
     /**
      * 真正发布：走 ProductService.create 的发布链路，成功后删除本地记录。
+     * 虚拟商品发布成功后自动建卡密池/账号池（库存联动）。
      */
     private synchronized LocalProduct doPublish(LocalProduct item) {
         if (item.getAccountId() == null) {
@@ -239,6 +245,16 @@ public class LocalProductService {
         XianyuAccount account = accountService.getById(item.getAccountId());
         if (account == null || account.getCookieHeader() == null || account.getCookieHeader().isBlank()) {
             throw new IllegalStateException("账号未登录或 Cookie 已过期");
+        }
+
+        // 虚拟商品：发货前校验库存充足（CARD / ACCOUNT 统一校验）
+        if ("VIRTUAL".equals(item.getGoodsType())
+                && ("CARD".equals(item.getDeliverType()) || "ACCOUNT".equals(item.getDeliverType()))) {
+            List<String> items = parseJsonArray(item.getDeliverContentTemplate());
+            if (items.size() < item.getStock()) {
+                throw new IllegalStateException(
+                    String.format("发货内容数量不足：库存 %d，实际 %d", item.getStock(), items.size()));
+            }
         }
 
         // 用 ProductService 的发布能力
@@ -253,7 +269,20 @@ public class LocalProductService {
         createReq.setDescription(item.getDescription());
         createReq.setImages(parseJsonArray(item.getImages()));
         createReq.setVideos(parseJsonArray(item.getVideos()));
-        productService.create(createReq);
+        XianyuProduct published = productService.create(createReq);
+
+        // 虚拟商品：发布成功后自动建卡密池/账号池（库存联动）
+        if ("VIRTUAL".equals(item.getGoodsType())
+                && ("CARD".equals(item.getDeliverType()) || "ACCOUNT".equals(item.getDeliverType()))) {
+            try {
+                List<String> rawItems = parseJsonArray(item.getDeliverContentTemplate());
+                int imported = virtualShipService.importCards(published.getId(), rawItems);
+                log.info("[LOCAL-PUBLISH] 虚拟商品建池: productId={}, type={}, count={}",
+                        published.getId(), item.getDeliverType(), imported);
+            } catch (Exception e) {
+                log.warn("[LOCAL-PUBLISH] 建池失败（商品已发布）: {}", e.getMessage());
+            }
+        }
 
         // 发布成功 → 物理删除本地记录
         localProductMapper.deleteById(item.getId());

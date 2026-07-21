@@ -926,7 +926,7 @@ CREATE INDEX idx_circuit_event_time ON circuit_breaker_event(created_at);
 -- 本地商品表（待上架闲鱼）
 -- 发布成功后物理删除，不长期滞留
 CREATE TABLE IF NOT EXISTS local_product (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     account_id INTEGER REFERENCES xianyu_account(id),
     title VARCHAR(255),
     price DECIMAL(12,2),

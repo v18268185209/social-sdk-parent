@@ -3,7 +3,7 @@
 -- 为什么不存单条 JSON？ 因为 UI 要逐供应商编辑、启停、查余额，行级存储更直观
 
 CREATE TABLE IF NOT EXISTS proxy_config (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     provider_type VARCHAR(32) NOT NULL,              -- 'global' / 'abuyun' / 'qg_tunnel' / 'qg_short_lived' / 'kuaidaili_tunnel' / 'kuaidaili_private' / 'smartproxy'
     config_json TEXT NOT NULL,                       -- JSON 序列化的该供应商配置
     enabled INTEGER DEFAULT 1,                       -- 0=禁用 1=启用

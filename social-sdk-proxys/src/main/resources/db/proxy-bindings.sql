@@ -3,7 +3,7 @@
 
 -- 闲鱼账号 ↔ 代理 IP 绑定表（业务主键：account_id）
 CREATE TABLE IF NOT EXISTS proxy_account_binding (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    id              INTEGER PRIMARY KEY,
     account_id      INTEGER NOT NULL UNIQUE,
     provider_type   VARCHAR(32)     NOT NULL,
     host            VARCHAR(256)    NOT NULL,
@@ -24,7 +24,7 @@ CREATE INDEX IF NOT EXISTS idx_proxy_binding_deleted ON proxy_account_binding(de
 
 -- 代理 IP 冷名单表（IP 段 / IP 维度，供跨进程共享冷名单用）
 CREATE TABLE IF NOT EXISTS proxy_cool_down (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    id                  INTEGER PRIMARY KEY,
     ip                  VARCHAR(64)     NOT NULL,
     provider_type       VARCHAR(32)     NOT NULL,
     consecutive_fail INTEGER         NOT NULL DEFAULT 0,
@@ -38,7 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_proxy_cooldown_recover ON proxy_cool_down(recover
 
 -- 代理操作审计日志（可选，用于排查 / 计费对账）
 CREATE TABLE IF NOT EXISTS proxy_audit_log (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    id              INTEGER PRIMARY KEY,
     account_id      INTEGER,
     action          VARCHAR(32)     NOT NULL,   -- BIND / UNBIND / ACQUIRE / RELEASE / MARK_FAILURE / HEALTH_CHECK
     provider_type   VARCHAR(32),
