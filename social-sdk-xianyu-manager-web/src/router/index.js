@@ -26,9 +26,17 @@ const routes = [
     meta: { title: '实时大屏', fullscreen: true }
   },
   {
+    // 默认主页 = 企业介绍页（公开），右上角「登录」按钮跳 /login
     path: '/',
+    name: 'Landing',
+    component: () => import('@/views/landing/Index.vue'),
+    meta: { public: true, title: '闲鱼管家' }
+  },
+  {
+    // 管理后台路由树挪到 /app，避免和介绍页根路径冲突
+    path: '/app',
     component: () => import('@/layouts/MainLayout.vue'),
-    redirect: '/dashboard',
+    redirect: '/app/dashboard',
     meta: { requiresAuth: true },
     children: [
       {

@@ -78,7 +78,7 @@ social-sdk-parent/                          # 父 POM
 │   │                                       # Rule/Chrome/Proxy/OpenApi/Audit/Config/Task...
 │   └── src/main/resources/db/              # 4 套 Schema（SQLite/MySQL/PostgreSQL/Proxy）
 ├── social-sdk-xianyu-manager-web/          # Vue3 + Vite + Element Plus 前端
-│   ├── src/views/                          # 29 个页面
+│   ├── src/views/                          # 31 个页面（独立 Node.js 项目，不通过 Maven 构建）
 │   ├── src/api/                            # 22 个 API 模块
 │   └── src/layouts/                        # 主布局 + 路由 + 状态管理
 └── scripts/                                # 全平台打包 + Docker
@@ -487,7 +487,7 @@ java -jar app.jar --spring.profiles.active=mysql
 docker run -e SPRING_PROFILES_ACTIVE=mysql ...
 ```
 
-### 核心数据表（47+ 张）
+### 核心数据表（45+ 张）
 
 | 类别 | 表名 | 用途 |
 |------|------|------|

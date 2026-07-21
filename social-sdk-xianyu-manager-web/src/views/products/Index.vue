@@ -10,124 +10,8 @@
           <el-button v-else type="primary" @click="showLocalCreateDialog = true">
             <el-icon><Plus /></el-icon> 新建本地商品
           </el-button>
-        <!-- 本地商品 批量导入对话框 -->
-        <el-dialog v-model="showImportDialog" title="批量导入本地商品" width="780px" :close-on-click-modal="false" @close="resetImportDialog">
-          <el-steps :active="importStep" finish-status="success" style="margin-bottom: 20px;">
-            <el-step title="上传 CSV" />
-            <el-step title="预览校验" />
-            <el-step title="确认导入" />
-          </el-steps>
-
-          <!-- Step 1: 上传 -->
-          <div v-if="importStep === 0">
-            <el-upload
-              drag
-              :auto-upload="false"
-              :on-change="handleImportFileChange"
-              :show-file-list="false"
-              accept=".csv"
-            >
-              <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-              <div class="el-upload__text">拖拽 CSV 文件到此处，或 <em>点击上传</em></div>
-              <template #tip>
-                <div style="font-size: 12px; color: #909399; margin-top: 8px;">
-                  支持格式：account_name, title, price, stock, images, goods_type, deliver_type, deliver_content_template
-                </div>
-              </template>
-            </el-upload>
-            <div v-if="importFile" style="margin-top: 12px;">
-              <el-tag type="success">已选择：{{ importFile.name }}</el-tag>
-            </div>
-
-            <el-divider>导入选项</el-divider>
-            <el-form :model="importForm" label-width="140px">
-              <el-form-item label="默认商品类型">
-                <el-radio-group v-model="importForm.defaultGoodsType">
-                  <el-radio value="PHYSICAL">实物</el-radio>
-                  <el-radio value="VIRTUAL">虚拟</el-radio>
-                </el-radio-group>
-              </el-form-item>
-              <el-form-item label="发货内容分隔符">
-                <el-input v-model="importForm.deliverContentSeparator" style="width: 200px;" />
-                <span style="font-size: 12px; color: #909399; margin-left: 8px;">虚拟商品卡密分隔符（默认 |||）</span>
-              </el-form-item>
-              <el-form-item label="去重">
-                <el-switch v-model="importForm.deduplicate" />
-                <span style="font-size: 12px; color: #909399; margin-left: 8px;">按标题去重</span>
-              </el-form-item>
-              <el-form-item label="重复时覆盖" v-if="importForm.deduplicate">
-                <el-switch v-model="importForm.overwriteDuplicate" />
-              </el-form-item>
-            </el-form>
-          </div>
-
-          <!-- Step 2: 预览 -->
-          <div v-if="importStep === 1">
-            <el-alert v-if="importPreview" type="info" :closable="false" style="margin-bottom: 16px;">
-              <template #title>
-                共 {{ importPreview.totalRows }} 行，有效 {{ importPreview.validRows }} 行，
-                错误 {{ (importPreview.errors || []).length }} 条，重复 {{ importPreview.duplicateCount }} 条
-              </template>
-            </el-alert>
-
-            <el-table v-if="importPreview && importPreview.items && importPreview.items.length" :data="importPreview.items" stripe max-height="300">
-              <el-table-column prop="rowNum" label="行号" width="60" />
-              <el-table-column prop="title" label="标题" min-width="160" show-overflow-tooltip />
-              <el-table-column label="价格" width="80">
-                <template #default="{ row }">¥{{ row.price }}</template>
-              </el-table-column>
-              <el-table-column prop="stock" label="库存" width="60" />
-              <el-table-column label="类型" width="70">
-                <template #default="{ row }">
-                  <el-tag size="small">{{ row.goodsType === 'VIRTUAL' ? '虚拟' : '实物' }}</el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="图片" width="60">
-                <template #default="{ row }">
-                  <el-tag v-if="row.images && row.images.length" size="small" type="success">{{ row.images.length }} 张</el-tag>
-                  <span v-else style="color: #909399;">-</span>
-                </template>
-              </el-table-column>
-            </el-table>
-
-            <el-alert v-if="importPreview && importPreview.errors && importPreview.errors.length" type="error" style="margin-top: 16px;">
-              <template #title>错误详情</template>
-              <div style="max-height: 120px; overflow-y: auto;">
-                <div v-for="(e, idx) in importPreview.errors" :key="idx" style="font-size: 12px; line-height: 1.8;">
-                  第 {{ e.row }} 行 / {{ e.field }}：{{ e.message }}
-                </div>
-              </div>
-            </el-alert>
-          </div>
-
-          <!-- Step 3: 结果 -->
-          <div v-if="importStep === 2 && importResult">
-            <el-result icon="success" title="导入完成">
-              <template #sub-title>
-                成功 {{ importResult.imported }} 条，跳过 {{ importResult.skipped }} 条，失败 {{ importResult.failed }} 条
-              </template>
-            </el-result>
-            <el-alert v-if="importResult.errors && importResult.errors.length" type="warning" style="margin-top: 16px;">
-              <template #title>失败详情</template>
-              <div style="max-height: 120px; overflow-y: auto;">
-                <div v-for="(e, idx) in importResult.errors" :key="idx" style="font-size: 12px; line-height: 1.8;">{{ e }}</div>
-              </div>
-            </el-alert>
-          </div>
-
-          <template #footer>
-            <el-button @click="importStep > 0 ? importStep-- : showImportDialog = false">上一步</el-button>
-            <el-button v-if="importStep === 0" type="primary" :loading="importUploading" :disabled="!importFile" @click="handleImportPreview">
-              预览校验
-            </el-button>
-            <el-button v-if="importStep === 1" type="success" :loading="importUploading" @click="handleImportConfirm">
-              确认导入
-            </el-button>
-            <el-button v-if="importStep === 2" @click="showImportDialog = false">完成</el-button>
-          </template>
-        </el-dialog>
-      </div>
-    </template>
+        </div>
+      </template>
 
       <el-tabs v-model="activeTab" style="margin-bottom: 16px;">
         <el-tab-pane label="闲鱼商品" name="xianyu">
@@ -253,6 +137,103 @@
         @current-change="activeTab === 'xianyu' ? loadProducts() : loadLocalProducts()"
       />
     </el-card>
+
+    <!-- 本地商品 批量导入对话框 -->
+    <el-dialog v-model="showImportDialog" title="批量导入本地商品" width="780px" :close-on-click-modal="false" @close="resetImportDialog">
+      <el-steps :active="importStep" finish-status="success" style="margin-bottom: 20px;">
+        <el-step title="上传 CSV" />
+        <el-step title="预览校验" />
+        <el-step title="确认导入" />
+      </el-steps>
+
+      <!-- Step 1: 上传 -->
+      <div v-if="importStep === 0">
+        <el-upload drag :auto-upload="false" :on-change="handleImportFileChange" :show-file-list="false" accept=".csv">
+          <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+          <div class="el-upload__text">拖拽 CSV 文件到此处，或 <em>点击上传</em></div>
+          <template #tip>
+            <div style="font-size: 12px; color: #909399; margin-top: 8px;">
+              列：account_name, title, price, stock, images, goods_type, deliver_type, deliver_content_template
+            </div>
+          </template>
+        </el-upload>
+        <div v-if="importFile" style="margin-top: 12px;">
+          <el-tag type="success">已选择：{{ importFile.name }}</el-tag>
+        </div>
+        <el-divider>导入选项</el-divider>
+        <el-form :model="importForm" label-width="140px">
+          <el-form-item label="默认商品类型">
+            <el-radio-group v-model="importForm.defaultGoodsType">
+              <el-radio value="PHYSICAL">实物</el-radio>
+              <el-radio value="VIRTUAL">虚拟</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="发货内容分隔符">
+            <el-input v-model="importForm.deliverContentSeparator" style="width: 200px;" />
+            <span style="font-size: 12px; color: #909399; margin-left: 8px;">虚拟商品卡密分隔符（默认 |||）</span>
+          </el-form-item>
+          <el-form-item label="去重"><el-switch v-model="importForm.deduplicate" /></el-form-item>
+          <el-form-item label="重复时覆盖" v-if="importForm.deduplicate">
+            <el-switch v-model="importForm.overwriteDuplicate" />
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- Step 2: 预览 -->
+      <div v-if="importStep === 1">
+        <el-alert v-if="importPreview" type="info" :closable="false" style="margin-bottom: 16px;">
+          <template #title>
+            共 {{ importPreview.totalRows }} 行，有效 {{ importPreview.validRows }} 行，
+            错误 {{ (importPreview.errors || []).length }} 条，重复 {{ importPreview.duplicateCount }} 条
+          </template>
+        </el-alert>
+        <el-table v-if="importPreview && importPreview.items && importPreview.items.length" :data="importPreview.items" stripe max-height="300">
+          <el-table-column prop="rowNum" label="行号" width="60" />
+          <el-table-column prop="title" label="标题" min-width="160" show-overflow-tooltip />
+          <el-table-column label="价格" width="80">
+            <template #default="{ row }">¥{{ row.price }}</template>
+          </el-table-column>
+          <el-table-column prop="stock" label="库存" width="60" />
+          <el-table-column label="类型" width="70">
+            <template #default="{ row }"><el-tag size="small">{{ row.goodsType === 'VIRTUAL' ? '虚拟' : '实物' }}</el-tag></template>
+          </el-table-column>
+          <el-table-column label="图片" width="60">
+            <template #default="{ row }">
+              <el-tag v-if="row.images && row.images.length" size="small" type="success">{{ row.images.length }} 张</el-tag>
+              <span v-else style="color: #909399;">-</span>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-alert v-if="importPreview && importPreview.errors && importPreview.errors.length" type="error" style="margin-top: 16px;">
+          <template #title>错误详情</template>
+          <div style="max-height: 120px; overflow-y: auto;">
+            <div v-for="(e, idx) in importPreview.errors" :key="idx" style="font-size: 12px; line-height: 1.8;">
+              第 {{ e.row }} 行 / {{ e.field }}：{{ e.message }}
+            </div>
+          </div>
+        </el-alert>
+      </div>
+
+      <!-- Step 3: 结果 -->
+      <div v-if="importStep === 2 && importResult">
+        <el-result icon="success" title="导入完成">
+          <template #sub-title>成功 {{ importResult.imported }} 条，跳过 {{ importResult.skipped }} 条，失败 {{ importResult.failed }} 条</template>
+        </el-result>
+        <el-alert v-if="importResult.errors && importResult.errors.length" type="warning" style="margin-top: 16px;">
+          <template #title>失败详情</template>
+          <div style="max-height: 120px; overflow-y: auto;">
+            <div v-for="(e, idx) in importResult.errors" :key="idx" style="font-size: 12px; line-height: 1.8;">{{ e }}</div>
+          </div>
+        </el-alert>
+      </div>
+
+      <template #footer>
+        <el-button @click="importStep > 0 ? importStep-- : showImportDialog = false">{{ importStep > 0 ? '上一步' : '取消' }}</el-button>
+        <el-button v-if="importStep === 0" type="primary" :loading="importUploading" :disabled="!importFile" @click="handleImportPreview">预览校验</el-button>
+        <el-button v-if="importStep === 1" type="success" :loading="importUploading" @click="handleImportConfirm">确认导入</el-button>
+        <el-button v-if="importStep === 2" @click="showImportDialog = false">完成</el-button>
+      </template>
+    </el-dialog>
 
     <!-- AI 优化文案对话框 -->
     <el-dialog v-model="showAiOptimizeDialog" title="AI 商品文案优化" width="600px">
