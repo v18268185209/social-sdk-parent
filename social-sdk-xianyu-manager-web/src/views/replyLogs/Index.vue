@@ -77,6 +77,8 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import api from '@/api/request'
+import { listAccounts } from '@/api/account'
+import { listReplyLogs } from '@/api/replyLogs'
 
 const logs = ref([])
 const accounts = ref([])

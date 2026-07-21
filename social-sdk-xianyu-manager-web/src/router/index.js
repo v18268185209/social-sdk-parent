@@ -152,6 +152,12 @@ const routes = [
         meta: { title: '评价与信用' }
       },
       {
+        path: 'reply-logs',
+        name: 'ReplyLogs',
+        component: () => import('@/views/replyLogs/Index.vue'),
+        meta: { title: '自动回复日志' }
+      },
+      {
         path: 'polish',
         name: 'Polish',
         component: () => import('@/views/polish/Index.vue'),

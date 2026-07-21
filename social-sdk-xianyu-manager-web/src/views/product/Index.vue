@@ -57,7 +57,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import api from '@/api/request'
 
@@ -115,8 +115,16 @@ async function syncProducts() {
 
 function editProduct(row) { ElMessage.info('编辑功能待 UI 完善') }
 async function offShelf(row) {
-  await ElMessage.confirm('确认下架？')
-  // TODO: 调用下架 API
+  await ElMessageBox.confirm('确认下架？', '提示', { type: 'warning' })
+  try {
+    const res = await api.post(`/products/${row.id}/shelf-off`)
+    if (res.success) {
+      ElMessage.success('已下架')
+      loadProducts()
+    } else {
+      ElMessage.error(res.message || '下架失败')
+    }
+  } catch (e) {}
 }
 
 onMounted(async () => { await loadAccounts(); await loadProducts() })

@@ -2,6 +2,7 @@ package cn.net.rjnetwork.xianyu.proxy.core;
 
 import cn.net.rjnetwork.xianyu.proxy.config.ProxyInfo;
 import cn.net.rjnetwork.xianyu.proxy.config.ProviderType;
+import cn.net.rjnetwork.xianyu.proxy.config.ProxyProperties;
 
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,7 @@ import java.util.concurrent.ScheduledExecutorService;
  *   <li>管理账号-IP 绑定关系（同一账号优先复用同一 IP）</li>
  *   <li>自动归还过期租约</li>
  *   <li>触发健康检查，冷名单管理</li>
+ *   <li>运行时热重载配置（DB 驱动）</li>
  * </ul>
  *
  * <p>推荐用法：</p>
@@ -28,6 +30,20 @@ import java.util.concurrent.ScheduledExecutorService;
  * }</pre>
  */
 public interface ProxyPoolManager {
+
+    /**
+     * 运行时热重载代理池配置（DB 驱动）。
+     *
+     * <p>外部装配器（如 ProxySpringConfigurator）负责：从 DB 读取 JSON 配置 → 构造
+     * {@link ProxyProperties} 和所有启用的供应商实例 → 调用本方法一次性替换。</p>
+     *
+     * <p>强约束：此方法<b>不会</b>中断已 active 的租约，旧 lease 继续工作到正常 release；
+     * 此后发起的 acquire 全部走新 provider 路由；重复 reload 幂等。</p>
+     *
+     * @param properties  新的全局配置（策略、直连、健康检查阈值）
+     * @param newProviders 新构造的供应商列表（已按 sortOrder 排序）
+     */
+    void reload(ProxyProperties properties, List<Map.Entry<ProviderType, ProxyProvider>> newProviders);
 
     /**
      * 获取一条代理。优先使用账号已绑定的 IP，无绑定则按策略选供应商。

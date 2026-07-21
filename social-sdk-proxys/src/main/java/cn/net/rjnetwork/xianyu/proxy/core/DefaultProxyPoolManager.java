@@ -11,6 +11,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -321,6 +322,47 @@ public class DefaultProxyPoolManager implements ProxyPoolManager {
             }
         } catch (Exception e) {
             log.warn("[POOL] release 异常, leaseId={}", leaseId, e);
+        }
+    }
+
+    // ==================== 运行时热重载 ====================
+
+    /** 可重入锁，保证 reload 串行执行。 */
+    private final ReentrantLock reloadLock = new ReentrantLock();
+
+    @Override
+    public void reload(ProxyProperties properties, List<Map.Entry<ProviderType, ProxyProvider>> newProviders) {
+        reloadLock.lock();
+        try {
+            // 1. 原子替换供应商列表（CopyOnWriteArrayList 内部已保证读安全，此处写原子替换），
+            //    未完成的 acquire 在旧 providers 上继续；下一次 acquire 读新列表
+            this.providers.clear();
+            if (newProviders != null) {
+                this.providers.addAll(newProviders);
+            }
+
+            // 2. 更新策略配置
+            this.reuseBoundIp = properties.isReuseBoundIp();
+            this.maxBindingUseCount = Math.max(1, properties.getMaxBindingUseCount());
+            this.coolDownRecoveryMinutes = Math.max(1, properties.getCoolDownRecoveryMinutes());
+            this.leaseLeakThresholdMinutes = Math.max(1, properties.getLeaseLeakThresholdMinutes());
+            this.directModeAutoFallback = properties.isDirectModeAutoFallback();
+
+            // 3. 重建健康检查器（使用新的延迟阈值）
+            DefaultHealthChecker newChecker = new DefaultHealthChecker(
+                    properties.getHealthCheck().getMaxLatencyMs(),
+                    properties.getHealthCheck().isGeoCheck());
+            setHealthChecker(newChecker);
+
+            // 4. 已 active 的 lease / binding 完全不动 — 让旧 lease 自然 release
+            log.info("[POOL] reload 完成, 新供应商数={}, 活跃租约数={}, 绑定数={}, 复用绑定={}, 直连兜底={}",
+                    this.providers.size(), activeLeases.size(), bindings.size(),
+                    this.reuseBoundIp, this.directModeAutoFallback);
+
+            // 5. 重新调度定时任务（如果调度器已就绪）
+            scheduleTasks();
+        } finally {
+            reloadLock.unlock();
         }
     }
 

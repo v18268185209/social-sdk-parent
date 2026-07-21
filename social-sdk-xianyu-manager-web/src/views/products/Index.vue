@@ -4,11 +4,23 @@
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span>商品管理</span>
-          <el-button type="primary" @click="showCreateDialog = true">
+          <el-button v-if="activeTab === 'xianyu'" type="primary" @click="showCreateDialog = true">
             <el-icon><Plus /></el-icon> 创建商品
+          </el-button>
+          <el-button v-else type="primary" @click="showLocalCreateDialog = true">
+            <el-icon><Plus /></el-icon> 新建本地商品
           </el-button>
         </div>
       </template>
+
+      <el-tabs v-model="activeTab" style="margin-bottom: 16px;">
+        <el-tab-pane label="闲鱼商品" name="xianyu">
+          <el-tag type="info" size="small" style="margin-bottom: 12px;">从闲鱼同步的在线商品，可编辑/改价/上下架</el-tag>
+        </el-tab-pane>
+        <el-tab-pane label="本地商品" name="local">
+          <el-tag type="warning" size="small" style="margin-bottom: 12px;">自建商品（草稿/待发布），发布成功后自动清理</el-tag>
+        </el-tab-pane>
+      </el-tabs>
 
       <el-form inline style="margin-bottom: 16px;">
         <el-form-item label="账号">
@@ -21,12 +33,20 @@
         </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="filters.status" placeholder="全部" clearable style="width: 120px;">
-            <el-option label="在售" value="ON_SALE" />
-            <el-option label="下架" value="OFF_SALE" />
-            <el-option label="草稿" value="DRAFT" />
+            <template v-if="activeTab === 'xianyu'">
+              <el-option label="在售" value="ON_SALE" />
+              <el-option label="下架" value="OFF_SALE" />
+              <el-option label="草稿" value="DRAFT" />
+            </template>
+            <template v-else>
+              <el-option label="草稿" value="DRAFT" />
+              <el-option label="待发布" value="PENDING" />
+              <el-option label="发布中" value="PUBLISHING" />
+              <el-option label="失败" value="FAILED" />
+            </template>
           </el-select>
         </el-form-item>
-        <el-form-item>
+        <el-form-item v-if="activeTab === 'xianyu'">
           <el-button
             type="primary"
             :disabled="!filters.accountId"
@@ -36,36 +56,70 @@
             <el-icon><Refresh /></el-icon> 同步闲鱼
           </el-button>
         </el-form-item>
-        <el-form-item>
+        <el-form-item v-if="activeTab === 'xianyu'">
           <el-button type="success" @click="showAiOptimizeDialog = true">
             <el-icon><MagicStick /></el-icon> AI 优化文案
           </el-button>
         </el-form-item>
+        <el-form-item v-if="activeTab === 'local'">
+          <el-button type="success" :loading="batchPublishing" @click="handleBatchPublish">
+            <el-icon><UploadFilled /></el-icon> 批量发布
+          </el-button>
+        </el-form-item>
       </el-form>
 
-      <el-table :data="products" stripe v-loading="loading">
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
-        <el-table-column label="价格" width="100">
-          <template #default="{ row }">¥{{ row.price }}</template>
-        </el-table-column>
-        <el-table-column prop="stock" label="库存" width="80" />
-        <el-table-column prop="status" label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="statusType(row.status)">{{ row.status }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="viewCount" label="浏览" width="70" />
-        <el-table-column prop="favoriteCount" label="收藏" width="70" />
-        <el-table-column label="操作" width="280" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" @click="viewDetail(row)">详情</el-button>
-            <el-button size="small" @click="editPrice(row)">改价</el-button>
-            <el-button size="small" @click="editStock(row)">改库存</el-button>
-            <el-button v-if="row.status === 'ON_SALE'" size="small" type="warning" @click="shelfOff(row)">下架</el-button>
-            <el-button size="small" type="danger" @click="deleteProduct(row)">删除</el-button>
-          </template>
-        </el-table-column>
+      <el-table :data="activeTab === 'xianyu' ? products : localProducts" stripe v-loading="loading">
+        <!-- 闲鱼商品列 -->
+        <template v-if="activeTab === 'xianyu'">
+          <el-table-column prop="id" label="ID" width="60" />
+          <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
+          <el-table-column label="价格" width="100">
+            <template #default="{ row }">¥{{ row.price }}</template>
+          </el-table-column>
+          <el-table-column prop="stock" label="库存" width="80" />
+          <el-table-column prop="status" label="状态" width="90">
+            <template #default="{ row }">
+              <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="viewCount" label="浏览" width="70" />
+          <el-table-column prop="favoriteCount" label="收藏" width="70" />
+          <el-table-column label="操作" width="280" fixed="right">
+            <template #default="{ row }">
+              <el-button size="small" @click="viewDetail(row)">详情</el-button>
+              <el-button size="small" @click="editPrice(row)">改价</el-button>
+              <el-button size="small" @click="editStock(row)">改库存</el-button>
+              <el-button v-if="row.status === 'ON_SALE'" size="small" type="warning" @click="shelfOff(row)">下架</el-button>
+              <el-button size="small" type="danger" @click="deleteProduct(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </template>
+
+        <!-- 本地商品列 -->
+        <template v-else>
+          <el-table-column type="selection" width="48" />
+          <el-table-column prop="id" label="ID" width="60" />
+          <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
+          <el-table-column label="价格" width="100">
+            <template #default="{ row }">¥{{ row.price }}</template>
+          </el-table-column>
+          <el-table-column prop="stock" label="库存" width="80" />
+          <el-table-column label="发布账号" width="140">
+            <template #default="{ row }">{{ accountName(row.accountId) }}</template>
+          </el-table-column>
+          <el-table-column prop="status" label="状态" width="90">
+            <template #default="{ row }">
+              <el-tag :type="localStatusType(row.status)">{{ localStatusLabel(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="280" fixed="right">
+            <template #default="{ row }">
+              <el-button size="small" @click="editLocalProduct(row)">编辑</el-button>
+              <el-button size="small" type="success" @click="publishLocalProduct(row)" :loading="row._publishing">发布</el-button>
+              <el-button size="small" type="danger" @click="deleteLocalProduct(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </template>
       </el-table>
 
       <el-pagination
@@ -74,7 +128,7 @@
         v-model:page-size="pagination.size"
         :total="pagination.total"
         layout="total, prev, pager, next"
-        @current-change="loadProducts"
+        @current-change="activeTab === 'xianyu' ? loadProducts() : loadLocalProducts()"
       />
     </el-card>
 
@@ -217,6 +271,88 @@
         <el-button type="primary" :loading="submitting" @click="handleCreate">创建</el-button>
       </template>
     </el-dialog>
+
+    <!-- 本地商品 创建/编辑对话框 -->
+    <el-dialog v-model="showLocalCreateDialog" :title="localForm.id ? '编辑本地商品' : '新建本地商品'" width="640px">
+      <el-form ref="localFormRef" :model="localForm" label-width="90px">
+        <el-form-item label="发布账号" required>
+          <el-select v-model="localForm.accountId" placeholder="选择要发布的闲鱼账号" style="width: 100%;">
+            <el-option v-for="a in accounts" :key="a.id" :label="a.accountName" :value="a.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="标题" required>
+          <el-input v-model="localForm.title" placeholder="商品标题" maxlength="30" show-word-limit />
+        </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="售价" required>
+              <el-input-number v-model="localForm.price" :min="0" :precision="2" style="width: 100%;" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="原价">
+              <el-input-number v-model="localForm.originalPrice" :min="0" :precision="2" style="width: 100%;" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="库存" required>
+              <el-input-number v-model="localForm.stock" :min="1" style="width: 100%;" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="商品类型">
+              <el-select v-model="localForm.goodsType" style="width: 100%;">
+                <el-option label="实物" value="PHYSICAL" />
+                <el-option label="虚拟" value="VIRTUAL" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="发货类型" v-if="localForm.goodsType === 'VIRTUAL'">
+          <el-select v-model="localForm.deliverType" style="width: 100%;">
+            <el-option label="卡密" value="CARD" />
+            <el-option label="账号" value="ACCOUNT" />
+            <el-option label="链接" value="LINK" />
+            <el-option label="网盘文件" value="FILE" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="发货内容模板" v-if="localForm.goodsType === 'VIRTUAL'">
+          <el-input v-model="localForm.deliverContentTemplate" type="textarea" :rows="3" placeholder="每行一条：卡密 / 账号 / 链接，发布后按顺序交付" />
+          <div style="font-size: 12px; color: #909399; margin-top: 4px;">支持变量 {orderNo} / {buyer}，运行时自动替换</div>
+        </el-form-item>
+        <el-form-item label="商品描述">
+          <el-input v-model="localForm.description" type="textarea" :rows="4" placeholder="商品详细描述（可选）" />
+        </el-form-item>
+        <el-form-item label="图片">
+          <el-upload
+            :file-list="localImageFileList"
+            list-type="picture-card"
+            :limit="9"
+            :on-change="(file, list) => handleLocalUploadChange(list)"
+            :on-remove="(file, list) => handleLocalUploadRemove(list)"
+            :http-request="(opts) => customLocalUpload(opts)"
+            accept="image/*"
+          >
+            <el-icon><Plus /></el-icon>
+            <template #tip>
+              <div style="font-size: 12px; color: #909399;">最多 9 张图片，单张不超过 10MB，首张为主图</div>
+            </template>
+          </el-upload>
+        </el-form-item>
+        <el-form-item label="操作">
+          <el-radio-group v-model="localForm.action">
+            <el-radio value="DRAFT">保存草稿</el-radio>
+            <el-radio value="PENDING">直接提交待发布</el-radio>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showLocalCreateDialog = false">取消</el-button>
+        <el-button type="primary" :loading="localSubmitting" @click="handleLocalSave">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 
   <!-- 商品详情抽屉 -->
@@ -289,28 +425,250 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, MagicStick, VideoPlay, Link, Plus, UploadFilled } from '@element-plus/icons-vue'
 import api from '@/api/request'
 import { optimizeTitle as optimizeTitleApi, optimizeDescription as optimizeDescriptionApi, extractKeywords as extractKeywordsApi } from '@/api/ai'
 
 const products = ref([])
+const localProducts = ref([])
+const selectedLocalProducts = ref([])
 const accounts = ref([])
 const aiModels = ref([])
 const loading = ref(false)
 const submitting = ref(false)
+const localSubmitting = ref(false)
 const syncing = ref(false)
+const batchPublishing = ref(false)
 const showCreateDialog = ref(false)
+const showLocalCreateDialog = ref(false)
 const showAiOptimizeDialog = ref(false)
 const showDetailDrawer = ref(false)
 const detail = ref(null)
 const imageFileList = ref([])
 const videoFileList = ref([])
+const localImageFileList = ref([])
 const aiLoading = ref(false)
 const aiActiveTab = ref('title')
 const filters = ref({ accountId: null, keyword: '', status: '' })
 const pagination = ref({ page: 1, size: 20, total: 0 })
+const localFormRef = ref(null)
+
+const localForm = reactive({
+  id: null,
+  accountId: null,
+  title: '',
+  price: 0,
+  originalPrice: 0,
+  stock: 1,
+  description: '',
+  goodsType: 'PHYSICAL',
+  deliverType: '',
+  deliverContentTemplate: '',
+  images: [],
+  action: 'DRAFT'
+})
+
+const batchForm = reactive({
+  partialSuccess: true,
+  maxConcurrency: 3,
+  delayMs: 2000,
+  retryTimes: 0
+})
+import * as localProductApi from '@/api/localProducts'
+
+const localStatusType = (s) => ({ DRAFT: 'info', PENDING: 'primary', PUBLISHING: 'warning', FAILED: 'danger' }[s] || 'info')
+const localStatusLabel = (s) => ({ DRAFT: '草稿', PENDING: '待发布', PUBLISHING: '发布中', FAILED: '失败' }[s] || s)
+const accountName = (id) => accounts.value.find(a => a.id === id)?.accountName || (id ? `#${id}` : '-')
+
+watch(activeTab, (tab) => {
+  pagination.value.page = 1
+  pagination.value.total = 0
+  if (tab === 'xianyu') loadProducts()
+  else loadLocalProducts()
+})
+
+async function loadLocalProducts() {
+  loading.value = true
+  try {
+    const params = { page: pagination.value.page, size: pagination.value.size }
+    if (filters.value.accountId) params.accountId = filters.value.accountId
+    if (filters.value.keyword) params.keyword = filters.value.keyword
+    if (filters.value.status) params.status = filters.value.status
+    const res = await localProductApi.listLocalProducts(params)
+    if (res.success) {
+      localProducts.value = (res.data.records || []).map(p => ({ ...p, _publishing: false }))
+      pagination.value.total = res.data.total || 0
+    }
+  } catch (e) { /* ignore */ }
+  finally { loading.value = false }
+}
+
+function resetLocalForm() {
+  Object.assign(localForm, {
+    id: null, accountId: null, title: '', price: 0, originalPrice: 0, stock: 1,
+    description: '', goodsType: 'PHYSICAL', deliverType: '', deliverContentTemplate: '', images: [], action: 'DRAFT'
+  })
+  localImageFileList.value = []
+}
+
+async function handleLocalSave() {
+  if (!localForm.accountId) return ElMessage.warning('请选择发布账号')
+  if (!localForm.title) return ElMessage.warning('请输入标题')
+  if (localForm.price == null || localForm.price <= 0) return ElMessage.warning('请输入有效售价')
+  localSubmitting.value = true
+  try {
+    const images = localImageFileList.value.filter(f => f.status === 'success' && f.url).map(f => f.url)
+    const payload = { ...localForm, images }
+    let res
+    if (localForm.id) {
+      res = await localProductApi.updateLocalProduct(localForm.id, payload)
+    } else {
+      res = await localProductApi.saveLocalProduct(payload)
+    }
+    if (res.success) {
+      ElMessage.success(localForm.id ? '保存成功' : '创建成功')
+      showLocalCreateDialog.value = false
+      resetLocalForm()
+      if (activeTab.value === 'local') await loadLocalProducts()
+      else { activeTab.value = 'local' }
+    } else {
+      ElMessage.error(res.message || '保存失败')
+    }
+  } catch (e) {
+    ElMessage.error('保存失败：' + (e?.message || ''))
+  } finally {
+    localSubmitting.value = false
+  }
+}
+
+function editLocalProduct(row) {
+  Object.assign(localForm, {
+    id: row.id,
+    accountId: row.accountId,
+    title: row.title || '',
+    price: row.price || 0,
+    originalPrice: row.originalPrice || 0,
+    stock: row.stock || 1,
+    description: row.description || '',
+    goodsType: row.goodsType || 'PHYSICAL',
+    deliverType: row.deliverType || '',
+    deliverContentTemplate: row.deliverContentTemplate || '',
+    action: 'DRAFT'
+  })
+  const imgs = parseJsonArray(row.images) || (row.imageUrl ? [row.imageUrl] : [])
+  localForm.images = imgs
+  localImageFileList.value = imgs.map((url, idx) => ({ uid: `img-${idx}`, url, name: `图片${idx + 1}`, status: 'success' }))
+  showLocalCreateDialog.value = true
+}
+
+async function publishLocalProduct(row) {
+  if (!row.accountId) return ElMessage.warning('请先编辑并指定发布账号')
+  try {
+    await ElMessageBox.confirm(`确认发布「${row.title || ('#' + row.id)}」？发布成功后本地记录将自动清理。`, '发布确认', { type: 'info' })
+  } catch { return }
+  row._publishing = true
+  try {
+    const res = await localProductApi.publishLocalProduct(row.id)
+    if (res.success) {
+      ElMessage.success('发布成功，本地记录已清理')
+      selectedLocalProducts.value = selectedLocalProducts.value.filter(s => s.id !== row.id)
+      await loadLocalProducts()
+    } else {
+      ElMessage.error(res.message || '发布失败')
+    }
+  } catch (e) { ElMessage.error('发布失败：' + (e?.message || '')) }
+  finally { row._publishing = false }
+}
+
+async function deleteLocalProduct(row) {
+  await ElMessageBox.confirm('确认删除该本地商品？此操作不会影响已上架的闲鱼商品。', '提示', { type: 'warning' })
+  try {
+    const res = await localProductApi.deleteLocalProduct(row.id)
+    if (res.success) {
+      ElMessage.success('已删除')
+      selectedLocalProducts.value = selectedLocalProducts.value.filter(s => s.id !== row.id)
+      await loadLocalProducts()
+    } else {
+      ElMessage.error(res.message || '删除失败')
+    }
+  } catch (e) { if (e !== 'cancel') ElMessage.error('删除失败：' + (e?.message || '')) }
+}
+
+async function handleBatchPublish() {
+  const selected = selectedLocalProducts.value.filter(s => !s._publishing)
+  if (!selected.length) return ElMessage.warning('请先勾选要发布的本地商品')
+  const missing = selected.find(s => !s.accountId)
+  if (missing) return ElMessage.warning(`商品 #${missing.id} 未设置发布账号，请先编辑指定`)
+  try {
+    await ElMessageBox.confirm(
+      `确认批量发布选中的 ${selected.length} 个商品？\n\n` +
+      `并发数：${batchForm.maxConcurrency}，账号间隔：${batchForm.delayMs}ms\n` +
+      `${batchForm.partialSuccess ? '部分成功的将删除本地记录，失败的保留。' : '全部成功才算部分停止。'}`,
+      '批量发布', { type: 'warning' }
+    )
+  } catch { return }
+  batchPublishing.value = true
+  try {
+    const res = await localProductApi.batchPublishLocalProducts({
+      ids: selected.map(s => s.id),
+      partialSuccess: batchForm.partialSuccess,
+      maxConcurrency: batchForm.maxConcurrency,
+      delayMs: batchForm.delayMs,
+      retryTimes: batchForm.retryTimes
+    })
+    if (res.success) {
+      const d = res.data || {}
+      ElMessage.success(`批量发布完成：成功 ${d.success || 0}，失败 ${d.fail || 0}，跳过 ${d.skip || 0}`)
+      if (d.errors && d.errors.length) {
+        await ElMessageBox.alert(d.errors.slice(0, 20).join('\n'), `失败详情（共 ${d.errors.length} 条）`, { type: 'warning' })
+      }
+      selectedLocalProducts.value = []
+      await loadLocalProducts()
+    } else {
+      ElMessage.error(res.message || '批量发布失败')
+    }
+  } catch (e) { ElMessage.error('批量发布失败：' + (e?.message || '')) }
+  finally { batchPublishing.value = false }
+}
+
+function onLocalSelectionChange(selection) {
+  selectedLocalProducts.value = selection
+}
+
+function handleLocalUploadChange(list) { localImageFileList.value = list }
+function handleLocalUploadRemove(list) { localImageFileList.value = list }
+async function customLocalUpload(options) {
+  const file = options.file
+  if (!file) return options.onError(new Error('文件为空'))
+  const maxSize = 10 * 1024 * 1024
+  if (file.size > maxSize) {
+    ElMessage.error('图片不能超过 10MB')
+    localImageFileList.value = localImageFileList.value.filter(f => f.uid !== file.uid)
+    return options.onError(new Error('文件过大'))
+  }
+  const formData = new FormData()
+  formData.append('file', file)
+  try {
+    const res = await api.post('/products/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+    if (res.success) {
+      localImageFileList.value = localImageFileList.value.map(f =>
+        f.uid === file.uid ? { ...f, url: res.data.url, status: 'success' } : f
+      )
+      options.onSuccess(res.data.url)
+    } else {
+      throw new Error(res.message || '上传失败')
+    }
+  } catch (err) {
+    ElMessage.error('上传失败：' + (err.message || ''))
+    localImageFileList.value = localImageFileList.value.filter(f => f.uid !== file.uid)
+    options.onError(err)
+  }
+}
+
+const activeTab = ref('xianyu')
+const createForm = ref({ accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '', categoryId: '', categoryIdPath: null, deliveryChoice: '按距离计费', postPrice: 0, location: '' })
 const createForm = ref({ accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '', categoryId: '', categoryIdPath: null, deliveryChoice: '按距离计费', postPrice: 0, location: '' })
 const categoryTree = ref([])
 const categoryTreeLoading = ref(false)
