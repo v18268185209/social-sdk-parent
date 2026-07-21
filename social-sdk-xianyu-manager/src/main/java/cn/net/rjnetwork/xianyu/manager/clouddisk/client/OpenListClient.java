@@ -22,6 +22,8 @@ public class OpenListClient {
         return properties.getUrl().replaceFirst("/$", "");
     }
 
+    // ============== 认证 ==============
+
     public String login() throws IOException {
         Map<String, String> req = new LinkedHashMap<>();
         req.put("username", properties.getUsername());
@@ -29,7 +31,7 @@ public class OpenListClient {
 
         String resp = postJson("/api/auth/login", req);
         token = extractToken(resp);
-        tokenExpireTime = System.currentTimeMillis() + 86400000; // 24 hours
+        tokenExpireTime = System.currentTimeMillis() + 86400000;
         return token;
     }
 
@@ -49,6 +51,8 @@ public class OpenListClient {
         }
         return token;
     }
+
+    // ============== 文件操作 ==============
 
     public String listFiles(String path) throws IOException {
         return get("/api/fs/list?path=" + URLEncoder.encode(path, "UTF-8"));
@@ -113,29 +117,91 @@ public class OpenListClient {
         }
     }
 
+    // ============== 存储管理 (Admin API) ==============
+
+    /**
+     * GET /api/admin/storage/list — 列出所有存储挂载
+     */
+    public String listStorages() throws IOException {
+        return get("/api/admin/storage/list");
+    }
+
+    /**
+     * POST /api/admin/storage/create — 添加存储挂载
+     * @param storage 存储配置对象，包含 mount_path, driver, config, order, enabled 等
+     */
+    public String createStorage(Map<String, Object> storage) throws IOException {
+        return postJson("/api/admin/storage/create", storage);
+    }
+
+    /**
+     * POST /api/admin/storage/update — 更新存储挂载
+     * @param storage 存储配置对象，必须包含 id
+     */
+    public String updateStorage(Map<String, Object> storage) throws IOException {
+        return postJson("/api/admin/storage/update", storage);
+    }
+
+    /**
+     * POST /api/admin/storage/delete?id=xxx — 删除存储挂载
+     */
+    public String deleteStorage(long id) throws IOException {
+        return post("/api/admin/storage/delete?id=" + id);
+    }
+
+    /**
+     * POST /api/admin/storage/enable?id=xxx — 启用存储挂载
+     */
+    public String enableStorage(long id) throws IOException {
+        return post("/api/admin/storage/enable?id=" + id);
+    }
+
+    /**
+     * POST /api/admin/storage/disable?id=xxx — 禁用存储挂载
+     */
+    public String disableStorage(long id) throws IOException {
+        return post("/api/admin/storage/disable?id=" + id);
+    }
+
+    /**
+     * GET /api/admin/driver/info?driver=xxx — 获取驱动配置 schema
+     */
+    public String getDriverInfo(String driverName) throws IOException {
+        return get("/api/admin/driver/info?driver=" + URLEncoder.encode(driverName, "UTF-8"));
+    }
+
+    // ============== HTTP 底层 ==============
+
     private String get(String endpoint) throws IOException {
-        return sendGet(endpoint);
-    }
-
-    private String postJson(String endpoint, Map<String, ?> body) throws IOException {
-        return sendPost(endpoint, body);
-    }
-
-    private String sendGet(String endpoint) throws IOException {
         URL u = new URL(getBaseUrl() + endpoint);
         HttpURLConnection conn = (HttpURLConnection) u.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer " + requireToken());
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(30000);
         return readResponse(conn);
     }
 
-    private String sendPost(String endpoint, Map<String, ?> body) throws IOException {
+    private String post(String endpoint) throws IOException {
+        URL u = new URL(getBaseUrl() + endpoint);
+        HttpURLConnection conn = (HttpURLConnection) u.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + requireToken());
+        conn.setDoOutput(true);
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(30000);
+        return readResponse(conn);
+    }
+
+    private String postJson(String endpoint, Map<String, ?> body) throws IOException {
         URL u = new URL(getBaseUrl() + endpoint);
         HttpURLConnection conn = (HttpURLConnection) u.openConnection();
         conn.setRequestMethod("POST");
         conn.setDoOutput(true);
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setRequestProperty("Authorization", "Bearer " + requireToken());
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(30000);
 
         String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body);
         try (OutputStream os = conn.getOutputStream()) {
@@ -145,20 +211,22 @@ public class OpenListClient {
         return readResponse(conn);
     }
 
-    private void putJson(String endpoint, Map<String, ?> body) throws IOException {
+    private String putJson(String endpoint, Map<String, ?> body) throws IOException {
         URL u = new URL(getBaseUrl() + endpoint);
         HttpURLConnection conn = (HttpURLConnection) u.openConnection();
         conn.setRequestMethod("PUT");
         conn.setDoOutput(true);
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setRequestProperty("Authorization", "Bearer " + requireToken());
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(30000);
 
         String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body);
         try (OutputStream os = conn.getOutputStream()) {
             os.write(json.getBytes("UTF-8"));
         }
 
-        readResponse(conn);
+        return readResponse(conn);
     }
 
     private void deleteJson(String endpoint, Map<String, ?> body) throws IOException {
@@ -168,6 +236,8 @@ public class OpenListClient {
         conn.setDoOutput(true);
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setRequestProperty("Authorization", "Bearer " + requireToken());
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(30000);
 
         String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body);
         try (OutputStream os = conn.getOutputStream()) {
