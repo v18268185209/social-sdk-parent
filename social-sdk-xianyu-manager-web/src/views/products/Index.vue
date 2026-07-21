@@ -477,7 +477,6 @@
         <el-button type="primary" :loading="localSubmitting" @click="handleLocalSave">保存</el-button>
       </template>
     </el-dialog>
-  </div>
 
   <!-- 商品详情抽屉 -->
   <el-drawer v-model="showDetailDrawer" :title="detail && detail._source === 'local' ? '本地商品详情' : '商品详情'" size="50%" direction="rtl">
@@ -568,6 +567,7 @@
     </div>
     <el-empty v-else description="加载中..." />
   </el-drawer>
+  </div>
 </template>
 
 <script setup>
