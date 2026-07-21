@@ -194,7 +194,6 @@
           </svg>
           18268185209
         </a>
-        </a>
         <span class="footer-divider">·</span>
         <span class="copyright">© 2026 AI鱼多宝</span>
       </el-footer>
