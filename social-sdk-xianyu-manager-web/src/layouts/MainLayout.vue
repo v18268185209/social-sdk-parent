@@ -113,6 +113,10 @@
           <span class="menu-icon-box"><el-icon><UserFilled /></el-icon></span>
           <span>账号管理</span>
         </el-menu-item>
+        <el-menu-item index="/chrome">
+          <span class="menu-icon-box"><el-icon><Setting /></el-icon></span>
+          <span>谷歌浏览器配置</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
@@ -130,6 +134,9 @@
           </div>
         </div>
         <div class="header-right">
+          <el-button text circle @click="openBrowserConfig" title="浏览器配置">
+            <el-icon :size="18"><Setting /></el-icon>
+          </el-button>
           <el-button text circle @click="openDataBoard" title="实时大屏（新窗口）">
             <el-icon :size="18"><FullScreen /></el-icon>
           </el-button>
@@ -212,6 +219,192 @@
           <div class="inbox-meta">{{ scenarioLabel(m.scenario) }} · {{ m.createdAt }}</div>
         </div>
       </el-drawer>
+
+      <!-- 浏览器配置可视化表单抽屉 -->
+      <el-drawer
+        v-model="browserConfigVisible"
+        title="浏览器配置"
+        direction="rtl"
+        size="540px"
+        :before-close="handleBrowserConfigClose"
+      >
+        <div class="browser-config-drawer">
+          <!-- 状态总览 -->
+          <div class="bc-summary">
+            <div class="bc-summary-card" :class="browserSummary.status">
+              <div class="bc-summary-icon">
+                <el-icon :size="22"><Monitor /></el-icon>
+              </div>
+              <div class="bc-summary-info">
+                <div class="bc-summary-title">{{ browserSummary.title }}</div>
+                <div class="bc-summary-desc">{{ browserSummary.desc }}</div>
+              </div>
+            </div>
+            <el-button type="primary" :loading="bcDetecting" @click="handleBrowserDetect">
+              <el-icon><Search /></el-icon>
+              重新探测
+            </el-button>
+            <el-button :loading="bcDownloading" @click="handleBrowserDownload">
+              <el-icon><Download /></el-icon>
+              自动下载
+            </el-button>
+          </div>
+
+          <!-- 表单 -->
+          <el-form
+            ref="browserFormRef"
+            :model="browserForm"
+            label-position="top"
+            class="bc-form"
+          >
+            <el-divider content-position="left">浏览器路径</el-divider>
+
+            <el-form-item>
+              <template #label>
+                <span>可执行文件路径</span>
+                <el-tooltip content="Chrome、Chromium、Edge、Brave 均可。留空则自动探测。">
+                  <el-icon class="bc-tip-icon"><InfoFilled /></el-icon>
+                </el-tooltip>
+              </template>
+              <div class="bc-input-row">
+                <el-input v-model="browserForm.executablePath" placeholder="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" clearable />
+                <el-button @click="handleBrowserValidate">校验</el-button>
+              </div>
+              <div class="bc-form-hint" v-if="browserForm.detected.path">
+                <el-icon><Check /></el-icon>
+                已探测到 {{ browserForm.detected.type }}：{{ browserForm.detected.path }}
+                <el-button type="primary" link size="small" @click="useDetected">使用</el-button>
+              </div>
+              <div class="bc-form-hint muted" v-else>
+                未发现浏览器，请手动指定或下载
+              </div>
+            </el-form-item>
+
+            <el-divider content-position="left">运行模式</el-divider>
+
+            <el-form-item>
+              <template #label>
+                <span>启动模式</span>
+                <el-tooltip content="有界面模式兼容性更好、滑块成功率更高；无头模式适合无显示器服务器。">
+                  <el-icon class="bc-tip-icon"><InfoFilled /></el-icon>
+                </el-tooltip>
+              </template>
+              <el-radio-group v-model="browserForm.headless">
+                <el-radio :value="false">
+                  <span>有界面模式</span>
+                  <span class="bc-recommend">(推荐)</span>
+                </el-radio>
+                <el-radio :value="true">无头模式</el-radio>
+              </el-radio-group>
+            </el-form-item>
+
+            <el-form-item v-if="browserForm.headless">
+              <template #label>
+                <span>无头模式版本</span>
+                <el-tooltip content="Chrome 112+ 推荐新版 headless，旧版兼容性更好。">
+                  <el-icon class="bc-tip-icon"><InfoFilled /></el-icon>
+                </el-tooltip>
+              </template>
+              <el-radio-group v-model="browserForm.headlessMode">
+                <el-radio value="new">新版 headless（推荐）</el-radio>
+                <el-radio value="legacy">旧版 --headless</el-radio>
+              </el-radio-group>
+            </el-form-item>
+
+            <el-form-item>
+              <template #label>
+                <span>窗口尺寸</span>
+                <el-tooltip content="模拟屏幕分辨率，影响指纹采集。">
+                  <el-icon class="bc-tip-icon"><InfoFilled /></el-icon>
+                </el-tooltip>
+              </template>
+              <div class="bc-size-row">
+                <el-input-number v-model="browserForm.windowWidth" :min="800" :max="3840" />
+                <span class="bc-size-sep">×</span>
+                <el-input-number v-model="browserForm.windowHeight" :min="600" :max="2160" />
+                <span class="bc-form-hint muted">推荐 1366×768</span>
+              </div>
+            </el-form-item>
+
+            <el-divider content-position="left">高级配置</el-divider>
+
+            <el-form-item>
+              <template #label>
+                <span>CDP 端口范围</span>
+                <el-tooltip content="每个账号独占一个 CDP 端口，段宽需 ≥ 账号数量。">
+                  <el-icon class="bc-tip-icon"><InfoFilled /></el-icon>
+                </el-tooltip>
+              </template>
+              <div class="bc-range-row">
+                <el-input-number v-model="browserForm.portRangeStart" :min="1024" :max="65535" />
+                <span class="bc-size-sep">至</span>
+                <el-input-number v-model="browserForm.portRangeEnd" :min="1024" :max="65535" />
+              </div>
+            </el-form-item>
+
+            <el-form-item>
+              <template #label>
+                <span>用户数据目录</span>
+                <el-tooltip content="Chrome Profile 根目录，每个账号在此下创建独立子目录。">
+                  <el-icon class="bc-tip-icon"><InfoFilled /></el-icon>
+                </el-tooltip>
+              </template>
+              <el-input v-model="browserForm.userDataDirRoot" placeholder="./chrome-profiles" />
+            </el-form-item>
+
+            <el-form-item>
+              <template #label>
+                <span>多账号指纹噪声</span>
+                <el-tooltip content="按账号 seed 生成唯一 canvas/WebGL 噪声，避免账号间指纹关联被封。">
+                  <el-icon class="bc-tip-icon"><InfoFilled /></el-icon>
+                </el-tooltip>
+              </template>
+              <el-switch v-model="browserForm.perAccountSeedNoise" active-text="启用" inactive-text="关闭" />
+            </el-form-item>
+
+            <el-form-item>
+              <template #label>
+                <span>启动超时</span>
+                <el-tooltip content="Chrome 容器 IPC 启动最长等待时间，超时触发崩溃恢复。">
+                  <el-icon class="bc-tip-icon"><InfoFilled /></el-icon>
+                </el-tooltip>
+              </template>
+              <el-input-number v-model="browserForm.launchTimeoutSeconds" :min="5" :max="120" :step="5" />
+              <span class="bc-form-hint muted">　秒</span>
+            </el-form-item>
+
+            <el-form-item>
+              <template #label>
+                <span>崩溃恢复次数</span>
+                <el-tooltip content="Chrome 异常退出后自动重启的次数上限。">
+                  <el-icon class="bc-tip-icon"><InfoFilled /></el-icon>
+                </el-tooltip>
+              </template>
+              <el-input-number v-model="browserForm.maxCrashRecoveryAttempts" :min="0" :max="10" />
+            </el-form-item>
+
+            <el-form-item>
+              <template #label>
+                <span>自定义启动参数</span>
+                <el-tooltip content="每行一个参数，保存后将覆盖默认反检测参数。">
+                  <el-icon class="bc-tip-icon"><InfoFilled /></el-icon>
+                </el-tooltip>
+              </template>
+              <el-input
+                v-model="browserForm.customLaunchArgsText"
+                type="textarea"
+                :rows="4"
+                placeholder="--disable-gpu&#10;--no-sandbox&#10;--mute-audio"
+              />
+            </el-form-item>
+          </el-form>
+
+          <div class="bc-actions">
+            <el-button type="primary" :loading="bcSaving" @click="handleBrowserSave">保存配置</el-button>
+            <el-button @click="handleBrowserReset">重置</el-button>
+          </div>
+        </div>
+      </el-drawer>
     </el-container>
   </el-container>
 </template>
@@ -221,8 +414,9 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { DataAnalysis, User, Goods, ChatDotRound, List, Operation, Money, Star, Cpu, Promotion, Van, UploadFilled, Monitor, Document, Bell, UserFilled, ArrowDown, FullScreen, Shop, Medal, Connection, Service, Sunrise, Switch, Timer, Setting, TrendCharts, Compass } from '@element-plus/icons-vue'
+import { DataAnalysis, User, Goods, ChatDotRound, List, Operation, Money, Star, Cpu, Promotion, Van, UploadFilled, Monitor, Document, Bell, UserFilled, ArrowDown, FullScreen, Shop, Medal, Connection, Service, Sunrise, Switch, Timer, Setting, TrendCharts, Compass, Search, Download, Check, InfoFilled } from '@element-plus/icons-vue'
 import * as notify from '@/api/notification'
+import { getChromeConfig, detectChrome, saveChromeConfig, downloadChrome, validateChromePath } from '@/api/chrome'
 
 const route = useRoute()
 const router = useRouter()
@@ -416,6 +610,177 @@ onMounted(() => {
   pollTimer = setInterval(loadUnread, 30000)
 })
 onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
+
+// ===== 浏览器配置抽屉 =====
+const browserConfigVisible = ref(false)
+const bcDetecting = ref(false)
+const bcDownloading = ref(false)
+const bcSaving = ref(false)
+const browserFormRef = ref(null)
+
+const browserForm = ref({
+  executablePath: '',
+  headless: false,
+  headlessMode: 'new',
+  portRangeStart: 9222,
+  portRangeEnd: 9322,
+  userDataDirRoot: './chrome-profiles',
+  windowWidth: 1366,
+  windowHeight: 768,
+  perAccountSeedNoise: true,
+  launchTimeoutSeconds: 30,
+  maxCrashRecoveryAttempts: 3,
+  customLaunchArgsText: '',
+  detected: { found: false, path: '', type: '' }
+})
+
+const browserSummary = computed(() => {
+  const f = browserForm.value
+  if (!f.executablePath && !f.detected.path) {
+    return { status: 'warning', title: '未配置浏览器', desc: '请指定路径或先探测系统浏览器' }
+  }
+  if (f.detected.found) {
+    return { status: 'success', title: '浏览器可用', desc: `${f.detected.type} · ${f.detected.path}` }
+  }
+  return { status: 'success', title: '浏览器路径已设置', desc: f.executablePath }
+})
+
+function openBrowserConfig() {
+  browserConfigVisible.value = true
+  if (!browserForm.value.executablePath && !browserForm.value.detected.path) {
+    loadBrowserConfig()
+  }
+}
+
+function handleBrowserConfigClose(done) {
+  done()
+}
+
+async function loadBrowserConfig() {
+  try {
+    const res = await getChromeConfig()
+    if (res.success && res.data) {
+      const d = res.data
+      browserForm.value = {
+        executablePath: d.executablePath || '',
+        headless: d.headless ?? false,
+        headlessMode: d.headlessMode || 'new',
+        portRangeStart: d.portRangeStart || 9222,
+        portRangeEnd: d.portRangeEnd || 9322,
+        userDataDirRoot: d.userDataDirRoot || './chrome-profiles',
+        windowWidth: d.windowWidth || 1366,
+        windowHeight: d.windowHeight || 768,
+        perAccountSeedNoise: d.perAccountSeedNoise ?? true,
+        launchTimeoutSeconds: d.launchTimeoutSeconds || 30,
+        maxCrashRecoveryAttempts: d.maxCrashRecoveryAttempts || 3,
+        customLaunchArgsText: (d.customLaunchArgs || []).join('\n'),
+        detected: {
+          found: d.detected?.found || false,
+          path: d.detected?.path || '',
+          type: d.detected?.type || ''
+        }
+      }
+    }
+  } catch (e) {
+    ElMessage.error('加载浏览器配置失败：' + (e.message || e))
+  }
+}
+
+async function handleBrowserDetect() {
+  bcDetecting.value = true
+  try {
+    const res = await detectChrome()
+    if (res.success && res.data) {
+      browserForm.value.detected = {
+        found: res.data.found,
+        path: res.data.path || '',
+        type: res.data.type || ''
+      }
+      if (res.data.found) {
+        ElMessage.success(`发现浏览器：${res.data.type}`)
+      } else {
+        ElMessage.warning('未发现浏览器，请手动指定或下载')
+      }
+    }
+  } catch (e) {
+    ElMessage.error('探测失败：' + (e.message || e))
+  } finally {
+    bcDetecting.value = false
+  }
+}
+
+function useDetected() {
+  if (browserForm.value.detected.path) {
+    browserForm.value.executablePath = browserForm.value.detected.path
+  }
+}
+
+async function handleBrowserValidate() {
+  if (!browserForm.value.executablePath) {
+    ElMessage.warning('请先输入路径')
+    return
+  }
+  try {
+    const res = await validateChromePath(browserForm.value.executablePath)
+    if (res.success && res.data) {
+      if (res.data.valid) {
+        ElMessage.success('路径校验通过，可执行')
+      } else {
+        ElMessage.warning('路径不可用：' + (res.data.reason || '不存在或无执行权限'))
+      }
+    }
+  } catch (e) {
+    ElMessage.error('校验失败：' + (e.message || e))
+  }
+}
+
+async function handleBrowserDownload() {
+  bcDownloading.value = true
+  try {
+    const res = await downloadChrome()
+    if (res.success && res.data) {
+      ElMessage.success(res.data.message || '下载完成')
+    } else {
+      ElMessage.warning(res.message || res.data?.message || '下载失败，请使用系统包管理器安装')
+    }
+  } catch (e) {
+    ElMessage.error('下载失败：' + (e.message || e))
+  } finally {
+    bcDownloading.value = false
+  }
+}
+
+async function handleBrowserSave() {
+  bcSaving.value = true
+  try {
+    const args = browserForm.value.customLaunchArgsText
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean)
+    const payload = {
+      ...browserForm.value,
+      customLaunchArgs: args.length ? args : null
+    }
+    const res = await saveChromeConfig(payload)
+    if (res.success) {
+      ElMessage.success('浏览器配置已保存')
+    } else {
+      ElMessage.error(res.message || '保存失败')
+    }
+  } catch (e) {
+    ElMessage.error('保存失败：' + (e.message || e))
+  } finally {
+    bcSaving.value = false
+  }
+}
+
+async function handleBrowserReset() {
+  if (!browserConfigVisible.value) return
+  browserConfigVisible.value = false
+  await loadBrowserConfig()
+  browserConfigVisible.value = true
+  ElMessage.info('已重置为当前配置')
+}
 </script>
 
 <style scoped>
@@ -708,5 +1073,138 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
   margin-top: 6px;
   color: #a8abb2;
   font-size: 12px;
+}
+
+/* 浏览器配置抽屉 */
+.browser-config-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 16px;
+}
+
+.bc-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bc-summary-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #f5f7fa;
+  border: 1px solid #ebeef5;
+  flex: 1;
+  min-width: 200px;
+}
+
+.bc-summary-card.success {
+  background: #f0f9eb;
+  border-color: #c2e7b0;
+  color: #67c23a;
+}
+
+.bc-summary-card.warning {
+  background: #fdf6ec;
+  border-color: #f5dab1;
+  color: #e6a23c;
+}
+
+.bc-summary-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bc-summary-info {
+  flex: 1;
+}
+
+.bc-summary-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.bc-summary-desc {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 2px;
+  word-break: break-all;
+}
+
+.bc-form {
+  background: #fafbfc;
+  border-radius: 8px;
+  padding: 16px 16px 4px;
+}
+
+.bc-form :deep(.el-form-item__label) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.bc-tip-icon {
+  color: #909399;
+  cursor: help;
+  font-size: 14px;
+}
+
+.bc-form-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #67c23a;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bc-form-hint.muted {
+  color: #909399;
+}
+
+.bc-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.bc-input-row :deep(.el-input) {
+  flex: 1;
+}
+
+.bc-recommend {
+  font-size: 12px;
+  color: #67c23a;
+  margin-left: 4px;
+}
+
+.bc-size-row,
+.bc-range-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bc-size-sep {
+  color: #909399;
+}
+
+.bc-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid #ebeef5;
+}
+
+.bc-divider {
+  margin: 12px 0;
 }
 </style>

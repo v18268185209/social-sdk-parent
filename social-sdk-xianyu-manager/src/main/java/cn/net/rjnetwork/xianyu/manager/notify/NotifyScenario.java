@@ -30,7 +30,7 @@ public enum NotifyScenario {
             30),
     CAPTCHA_REQUIRED("滑块验证需要处理",
             "账号 {accountName} 触发闲鱼滑块验证",
-            "账号 {accountName} 消息同步触发闲鱼风控。系统已优先尝试全自动处理；如仍未通过，请直接打开人工控制页：{controlUrl}。该页面会代理到已登录的 CDP Chrome，无需远程桌面；请在页面截图上拖动滑块，完成后点“检查并保存 Cookie”。验证页仅用于排查：{captchaUrl}；CDP：{cdpEndpoint}。若控制页显示登录页，请在控制页内完成登录。错误摘要：{errorSummary}",
+            "账号 {accountName} 消息同步触发闲鱼风控（{errorSummary}）。系统已优先尝试全自动处理；如仍未通过，请直接打开人工控制页：{controlUrl}。该页面会代理到已登录的 CDP Chrome，无需远程桌面；请在页面截图上拖动滑块，完成后点「检查并保存 Cookie」。验证页仅用于排查：{captchaUrl}；CDP：{cdpEndpoint}。若控制页显示登录页，请在控制页内完成登录。",
             300),
     WALLET_LOW_BALANCE("钱包余额预警",
             "账号 {accountName} 钱包余额偏低",

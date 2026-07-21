@@ -156,6 +156,12 @@ const routes = [
         name: 'Polish',
         component: () => import('@/views/polish/Index.vue'),
         meta: { title: '商品擦亮' }
+      },
+      {
+        path: 'chrome',
+        name: 'ChromeConfig',
+        component: () => import('@/views/chrome/Index.vue'),
+        meta: { title: '谷歌浏览器配置' }
       }
     ]
   }

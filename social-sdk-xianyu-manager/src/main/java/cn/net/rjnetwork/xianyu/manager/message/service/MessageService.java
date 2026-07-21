@@ -7,6 +7,8 @@ import cn.net.rjnetwork.xianyu.captcha.service.XianyuCaptchaSolver;
 import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import cn.net.rjnetwork.xianyu.manager.account.service.AccountService;
+import cn.net.rjnetwork.xianyu.manager.audit.model.AuditLog;
+import cn.net.rjnetwork.xianyu.manager.audit.service.AuditService;
 import cn.net.rjnetwork.xianyu.manager.message.dto.MessageSendRequest;
 import cn.net.rjnetwork.xianyu.manager.message.mapper.MessageMapper;
 import cn.net.rjnetwork.xianyu.manager.message.model.XianyuMessage;
@@ -49,15 +51,18 @@ public class MessageService {
 
     /** 账号服务 — 用于风控触发时按账号启动独占 Chrome 容器（per-account CDP 端点）。 */
     private AccountService accountService;
+    /** 审计服务 — 记录滑块验证失败事件到 audit_log 表。 */
+    private final AuditService auditService;
 
     public MessageService(MessageMapper messageMapper, RuleService ruleService,
                           ApplicationEventPublisher eventPublisher, AccountMapper accountMapper,
-                          XianyuCaptchaSolver captchaSolver) {
+                          XianyuCaptchaSolver captchaSolver, AuditService auditService) {
         this.messageMapper = messageMapper;
         this.ruleService = ruleService;
         this.eventPublisher = eventPublisher;
         this.accountMapper = accountMapper;
         this.captchaSolver = captchaSolver;
+        this.auditService = auditService;
     }
 
     /** Spring 注入 AccountService（可选，避免启动期循环依赖）。 */
@@ -471,6 +476,7 @@ public class MessageService {
             // 此时滑块过了也进不了消息页，推送 ACCOUNT_COOKIE_EXPIRED 通知，让用户在网页端重新登录。
             if (result.isLoginExpired()) {
                 log.error("[MESSAGE] Account {} login cookie expired, IM page redirected to login", acc.getId());
+                auditCaptchaFailure(acc, "滑块验证-登录过期", "登录态失效，IM 页重定向到登录页，需重新扫码登录");
                 publishLoginExpired(acc);
                 return false;
             }
@@ -491,10 +497,12 @@ public class MessageService {
 
             } else {
                 log.error("[MESSAGE] Slider captcha failed: {}", result.getError());
+                auditCaptchaFailure(acc, "滑块验证失败", result.getError());
                 return false;
             }
         } catch (Exception e) {
             log.error("[MESSAGE] Failed to solve captcha and retry: {}", e.getMessage(), e);
+            auditCaptchaFailure(acc, "滑块验证异常", e.getMessage());
             return false;
         }
     }
@@ -528,6 +536,7 @@ public class MessageService {
             // 登录态失效：推送 ACCOUNT_COOKIE_EXPIRED 通知，sendMessage 上层不再重试
             if (result.isLoginExpired()) {
                 log.error("[MESSAGE] sendMessage: Account {} login cookie expired", acc.getId());
+                auditCaptchaFailure(acc, "滑块验证-登录过期", "登录态失效，IM 页重定向到登录页，需重新扫码登录");
                 publishLoginExpired(acc);
                 return false;
             }
@@ -542,11 +551,35 @@ public class MessageService {
                 return true;
             } else {
                 log.error("[MESSAGE] sendMessage: Slider captcha failed: {}", result.getError());
+                auditCaptchaFailure(acc, "滑块验证失败", result.getError());
                 return false;
             }
         } catch (Exception e) {
             log.error("[MESSAGE] sendMessage: Failed to solve captcha: {}", e.getMessage(), e);
+            auditCaptchaFailure(acc, "滑块验证异常", e.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * 将滑块验证失败事件持久化到 audit_log，供「审计日志」页查询。
+     */
+    private void auditCaptchaFailure(XianyuAccount acc, String action, String errorDetail) {
+        try {
+            if (auditService == null) return;
+            AuditLog log = new AuditLog();
+            log.setOperatorId(acc.getId());
+            log.setOperatorName(acc.getAccountName() != null ? acc.getAccountName() : "账号#" + acc.getId());
+            log.setAction(action);
+            log.setResourceType("FAILURE");
+            log.setResourceId("accountId=" + acc.getId());
+            log.setDetail(errorDetail != null ? truncate(errorDetail, 500) : null);
+            log.setIpAddress("system");
+            log.setActionTime(LocalDateTime.now());
+            auditService.save(log);
+        } catch (Exception e) {
+            // 审计记录失败不应影响业务
+            this.log.debug("[MESSAGE] audit captcha failure skipped: {}", e.getMessage());
         }
     }
 
@@ -560,7 +593,7 @@ public class MessageService {
                             "captchaUrl", captchaUrl != null ? captchaUrl : "",
                             "imPageUrl", captchaSolver.getManualVerificationPageUrl(),
                             "cdpEndpoint", captchaSolver.getCdpHttpEndpoint(),
-                            "errorSummary", truncate(rawError, 500))));
+                            "errorSummary", extractErrorSummary(rawError))));
         } catch (Exception e) {
             log.debug("[MESSAGE] publish CAPTCHA_REQUIRED failed: {}", e.getMessage());
         }
@@ -681,6 +714,25 @@ public class MessageService {
             log.warn("[CDP-AUTH] Failed to parse error body as JSON: {}", e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * 从原始错误文本中提取用户友好的简短错误类型描述，避免把完整 JSON 直接塞进通知。
+     * 优先取 JSON ret[0] 的错误码（如 FAIL_SYS_USER_VALIDATE），否则截断明文。
+     */
+    private static String extractErrorSummary(String raw) {
+        if (raw == null || raw.isBlank()) return "未知风控";
+        // 尝试找 JSON 片断 ret[0]
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                "\"ret\"\\s*:\\s*\\[\\s*\"([^\"]+)\"\\]").matcher(raw);
+        if (m.find()) {
+            String ret = m.group(1);
+            // 取 :: 后面的中文描述更友好，否则返回完整 ret
+            int idx = ret.indexOf("::");
+            return idx > 0 ? ret.substring(idx + 2) : ret;
+        }
+        // 兜底：不是 JSON 就截断
+        return raw.length() > 200 ? raw.substring(0, 200) + "..." : raw;
     }
 
     private static String truncate(String s, int max) {

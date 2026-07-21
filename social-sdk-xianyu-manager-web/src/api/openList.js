@@ -32,8 +32,7 @@ export const deleteOpenListFile = (path, filename) => {
   return api.post('/cloud-storage/openlist/files/delete', { path, filename })
 }
 
-// 文件下载：后端 OpenListController 暂无 download 端点，
-// 文件通过 OpenList 自身 HTTP 服务（如 http://localhost:5244/d/{path}）直接访问。
+// 文件下载：后端 OpenListController 暂无 download 端点， 文件通过 OpenList 自身 HTTP 服务直接访问（cloudStorage/Index.vue 已用 /d/ 路径实现下载）
 
 // ============== 账号管理 API ==============
 export const listStorageAccounts = (accountId) => api.get('/cloud-storage/accounts', { params: accountId ? { accountId } : {} })

@@ -77,12 +77,19 @@ public class DatabaseInitializer {
             ensureBuyerProfileColumns();
             ensureCircuitBreakerColumns();
             ensureAiCsSessionStateColumns();
+
+            // ===== proxy 模块表初始化（proxy_account_binding / proxy_cool_down / proxy_audit_log）=====
+            // proxy 模块的 schema 文件在 social-sdk-proxys/db/proxy-bindings.sql，
+            // 但本类只加载 manager 自己的 schema，proxy 表不会被建 → 启动时 findAllActive 抛 no such table。
+            // 这里额外执行 proxy schema，保证删库重建时所有表都建好。
+            executeProxySchema();
+            // ===== Chrome 容器隔离字段补齐（旧库升级）=====
+            // 必须在主 schema 执行成功后跑；主 schema 失败时空库对着不存在的表 ALTER 会炸，
+            // ensureColumn 已加 tableExists 兜底，但放里层 try 更稳。
+            ensureChromeColumns();
         } catch (Exception e) {
             logger.warn("Database initialization skipped (may already exist): {}", e.getMessage());
         }
-
-        // ===== Chrome 容器隔离字段补齐（旧库升级） =====
-        ensureChromeColumns();
 
         try {
             authService.initDefaultAdmin("admin", "admin123");
@@ -128,8 +135,21 @@ public class DatabaseInitializer {
         }
     }
 
-    private void executeSchemaPerStatement() {
+    private void executeSchemaPerStatement() throws Exception {
         String schemaFile = databaseProvider != null ? databaseProvider.schemaFile() : "db/schema-sqlite.sql";
+        executeSchemaFile(schemaFile);
+    }
+
+    /**
+     * 执行 proxy 模块的 schema 文件（proxy-bindings.sql），建 proxy_account_binding / proxy_cool_down / proxy_audit_log。
+     * proxy 模块的 schema 在 social-sdk-proxys 里，本类只加载 manager 自己的 schema，proxy 表不会被建；
+     * 启动时 findAllActive 会抛 no such table: proxy_account_binding。这里额外执行一次，保证所有表都建好。
+     */
+    private void executeProxySchema() throws Exception {
+        executeSchemaFile("db/proxy-bindings.sql");
+    }
+
+    private void executeSchemaFile(String schemaFile) throws Exception {
         try (java.sql.Connection conn = dataSource.getConnection();
              Statement st = conn.createStatement();
              BufferedReader br = new BufferedReader(new InputStreamReader(
@@ -155,20 +175,31 @@ public class DatabaseInitializer {
             }
 
             int ok = 0, skip = 0;
+            Exception firstHardError = null;
             for (String sql : stmts) {
                 try {
                     st.execute(sql);
                     ok++;
                 } catch (Exception ex) {
-                    skip++;
-                    String msg = ex.getMessage();
-                    if (msg != null && msg.length() > 200) msg = msg.substring(0, 200);
-                    logger.debug("schema stmt skipped (may already exist): {}", msg);
+                    // 「表/索引已存在」是幂等建表（CREATE TABLE IF NOT EXISTS）的正常情况，跳过；
+                    // 其他错误（语法错、列冲突等）是真错误，必须冒泡让 init() 停下，否则后续
+                    // ensureColumn 会对着空库 ALTER TABLE 抛 no such table，刷屏。
+                    String msg = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase();
+                    boolean alreadyExists = msg.contains("already exists") || msg.contains("已存在");
+                    if (alreadyExists) {
+                        skip++;
+                        logger.debug("schema stmt skipped (already exists): {}", sql.substring(0, Math.min(80, sql.length())));
+                        continue;
+                    }
+                    if (firstHardError == null) firstHardError = ex;
+                    logger.error("schema stmt FAILED (hard error): {} | sql: {}", ex.getMessage(),
+                            sql.substring(0, Math.min(120, sql.length())));
                 }
             }
-            logger.info("Schema executed: {} statements ok, {} skipped", ok, skip);
-        } catch (Exception e) {
-            logger.warn("executeSchemaPerStatement failed: {}", e.getMessage());
+            logger.info("Schema executed ({}): {} statements ok, {} skipped", schemaFile, ok, skip);
+            if (firstHardError != null) {
+                throw firstHardError;
+            }
         }
     }
 
@@ -332,6 +363,12 @@ public class DatabaseInitializer {
 
     private void ensureColumn(String table, String column, String ddl) {
         try (java.sql.Connection conn = dataSource.getConnection()) {
+            // 先查表是否存在；主 schema 没执行成功时空库对着不存在的表 ALTER TABLE 会炸，
+            // 这里提前 return，避免刷屏 no such table。
+            if (!tableExists(conn, table)) {
+                logger.debug("ensureColumn {} on {}: table not exists, skip (schema may have failed)", column, table);
+                return;
+            }
             if (columnExists(conn, table, column)) {
                 return;
             }
@@ -341,6 +378,16 @@ public class DatabaseInitializer {
             }
         } catch (Exception e) {
             logger.debug("ensureColumn {} on {}: {}", column, table, e.getMessage());
+        }
+    }
+
+    private boolean tableExists(java.sql.Connection conn, String table) {
+        try (java.sql.Statement st = conn.createStatement();
+             java.sql.ResultSet rs = st.executeQuery(
+                     "SELECT name FROM sqlite_master WHERE type='table' AND name='" + table + "'")) {
+            return rs.next();
+        } catch (Exception e) {
+            return false;
         }
     }
 
