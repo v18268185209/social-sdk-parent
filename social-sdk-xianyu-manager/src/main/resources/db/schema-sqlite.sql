@@ -923,3 +923,31 @@ CREATE TABLE IF NOT EXISTS circuit_breaker_event (
 CREATE INDEX idx_circuit_event_breaker ON circuit_breaker_event(breaker_id);
 CREATE INDEX idx_circuit_event_time ON circuit_breaker_event(created_at);
 
+-- 本地商品表（待上架闲鱼）
+-- 发布成功后物理删除，不长期滞留
+CREATE TABLE IF NOT EXISTS local_product (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER REFERENCES xianyu_account(id),
+    title VARCHAR(255),
+    price DECIMAL(12,2),
+    original_price DECIMAL(12,2),
+    stock INTEGER DEFAULT 1,
+    category_id VARCHAR(64),
+    description TEXT,
+    images TEXT,           -- JSON array of image URLs
+    videos TEXT,           -- JSON array of video URLs
+    image_url VARCHAR(512),
+    goods_type VARCHAR(16) DEFAULT 'PHYSICAL',  -- PHYSICAL/VIRTUAL
+    deliver_type VARCHAR(16),                    -- CARD/ACCOUNT/LINK/FILE
+    deliver_content_template TEXT,
+    status VARCHAR(16) NOT NULL DEFAULT 'DRAFT', -- DRAFT/PENDING/PUBLISHING/FAILED
+    publish_error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0
+);
+
+CREATE INDEX idx_local_product_account ON local_product(account_id);
+CREATE INDEX idx_local_product_status ON local_product(status);
+CREATE INDEX idx_local_product_deleted ON local_product(deleted);
+
