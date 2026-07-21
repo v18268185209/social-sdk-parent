@@ -10,7 +10,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @SpringBootApplication
 @ComponentScan(basePackages = {
         "cn.net.rjnetwork.xianyu.manager",
-        "cn.net.rjnetwork.xianyu.captcha"
+        "cn.net.rjnetwork.xianyu.captcha",
+        "cn.net.rjnetwork.xianyu.chrome",
+        "cn.net.rjnetwork.xianyu.proxy"
 })
 @EnableScheduling
 @EnableAsync

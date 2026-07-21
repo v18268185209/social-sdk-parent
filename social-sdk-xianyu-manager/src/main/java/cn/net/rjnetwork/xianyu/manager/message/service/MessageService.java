@@ -6,6 +6,7 @@ import cn.net.rjnetwork.xianyu.api.XianyuMessageApiService;
 import cn.net.rjnetwork.xianyu.captcha.service.XianyuCaptchaSolver;
 import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
+import cn.net.rjnetwork.xianyu.manager.account.service.AccountService;
 import cn.net.rjnetwork.xianyu.manager.message.dto.MessageSendRequest;
 import cn.net.rjnetwork.xianyu.manager.message.mapper.MessageMapper;
 import cn.net.rjnetwork.xianyu.manager.message.model.XianyuMessage;
@@ -46,6 +47,9 @@ public class MessageService {
     private final Map<Long, XianyuMessageApiService> accountMessageApis = new ConcurrentHashMap<>();
     private final Map<Long, String> accountCookieFingerprints = new ConcurrentHashMap<>();
 
+    /** 账号服务 — 用于风控触发时按账号启动独占 Chrome 容器（per-account CDP 端点）。 */
+    private AccountService accountService;
+
     public MessageService(MessageMapper messageMapper, RuleService ruleService,
                           ApplicationEventPublisher eventPublisher, AccountMapper accountMapper,
                           XianyuCaptchaSolver captchaSolver) {
@@ -54,6 +58,12 @@ public class MessageService {
         this.eventPublisher = eventPublisher;
         this.accountMapper = accountMapper;
         this.captchaSolver = captchaSolver;
+    }
+
+    /** Spring 注入 AccountService（可选，避免启动期循环依赖）。 */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAccountService(AccountService accountService) {
+        this.accountService = accountService;
     }
 
     /** 返回会话摘要：sessionId、对方昵称、头像、最后消息时间、未读数（从缓存的 session 列表补） */
@@ -166,14 +176,12 @@ public class MessageService {
             throw new IllegalStateException("Account has no cookie, please re-login: " + accountId);
         }
         try {
-            // 如果已经保存过 IM 消息页 cookie，手动同步优先只用该 cookie 闭环，失败时不要再次自动打开验证码页；
-            // 否则用户刚人工过完滑块后，一次同步失败会立刻把 CDP 页面又带回滑块。
-            boolean hasImCookie = acc.getImCookieHeader() != null && !acc.getImCookieHeader().isBlank();
-            boolean ok = pullMessages(acc, true, !hasImCookie);
+            // 手动同步允许自动过滑块：若当前 imCookie 仍有效则直接成功；
+            // 若被 punish 拦截，pullHistoryInternal 会调 solveCaptchaAndRetry 自动刷新 IM cookie 并重试。
+            // 之前「已有 imCookie 就 allowCaptcha=false」会让滑块失效场景直接放弃，用户被迫手动重过验证。
+            boolean ok = pullMessages(acc, true, true);
             if (!ok) {
-                throw new IllegalStateException(hasImCookie
-                        ? "IM 同步失败：已使用 imCookieHeader 但仍被风控或接口失败，请重新完成消息页验证后重试"
-                        : "IM 同步失败：可能仍被风控拦截，请完成滑块验证后重试");
+                throw new IllegalStateException("IM 同步失败：可能仍被风控拦截或滑块自动解题失败，请完成滑块验证后重试");
             }
         } catch (Exception e) {
             log.warn("[MESSAGE] syncSingleAccount failed for account {}: {}", accountId, e.getMessage());
@@ -451,7 +459,21 @@ public class MessageService {
 
             log.info("[CDP-AUTH] Punish URL: {}", truncate(url, 250));
             publishCaptchaRequired(acc, url, rawError);
-            cn.net.rjnetwork.xianyu.captcha.model.CaptchaResult result = captchaSolver.solve(url);
+            // 风控触发时，按账号启动（或复用）独占 Chrome 容器，并把它返回的 CDP 端点传给 captchaSolver，
+            // 避免 captchaSolver 写死连全局单点 127.0.0.1:9222（用户没手动开 Chrome 时连不上）。
+            String accountCdpEndpoint = ensureAccountCdpEndpoint(acc);
+            // 把账号登录 cookie + IM cookie 一并传给 solver，让它在导航到 goofish.com/im 之前
+            // 通过 CDP Network.setCookies 注入到 Chrome 容器，解决空白 profile 没登录态的问题。
+            cn.net.rjnetwork.xianyu.captcha.model.CaptchaResult result = captchaSolver.solve(
+                    url, accountCdpEndpoint, acc.getCookieHeader(), acc.getImCookieHeader());
+
+            // 登录态失效：注入登录 cookie 后 IM 页仍跳到登录页，说明账号登录 cookie 已过期。
+            // 此时滑块过了也进不了消息页，推送 ACCOUNT_COOKIE_EXPIRED 通知，让用户在网页端重新登录。
+            if (result.isLoginExpired()) {
+                log.error("[MESSAGE] Account {} login cookie expired, IM page redirected to login", acc.getId());
+                publishLoginExpired(acc);
+                return false;
+            }
 
             if (result.isSuccess()) {
                 log.info("[MESSAGE] Slider captcha solved successfully!");
@@ -499,7 +521,16 @@ public class MessageService {
 
             log.info("[CDP-AUTH] sendMessage Punish URL: {}", truncate(url, 250));
             publishCaptchaRequired(acc, url, rawError);
-            cn.net.rjnetwork.xianyu.captcha.model.CaptchaResult result = captchaSolver.solve(url);
+            String accountCdpEndpoint = ensureAccountCdpEndpoint(acc);
+            cn.net.rjnetwork.xianyu.captcha.model.CaptchaResult result = captchaSolver.solve(
+                    url, accountCdpEndpoint, acc.getCookieHeader(), acc.getImCookieHeader());
+
+            // 登录态失效：推送 ACCOUNT_COOKIE_EXPIRED 通知，sendMessage 上层不再重试
+            if (result.isLoginExpired()) {
+                log.error("[MESSAGE] sendMessage: Account {} login cookie expired", acc.getId());
+                publishLoginExpired(acc);
+                return false;
+            }
 
             if (result.isSuccess()) {
                 log.info("[MESSAGE] sendMessage: Slider captcha solved successfully!");
@@ -532,6 +563,69 @@ public class MessageService {
                             "errorSummary", truncate(rawError, 500))));
         } catch (Exception e) {
             log.debug("[MESSAGE] publish CAPTCHA_REQUIRED failed: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 登录态失效时推送 ACCOUNT_COOKIE_EXPIRED 通知。
+     * <p>触发条件：solve 流程已注入账号登录 cookie，但 IM 页仍跳到登录页，
+     * 说明账号登录 Cookie 已过期，滑块过了也进不了消息页。</p>
+     * <p>动作：同时把账号 status 标记为 COOKIE_EXPIRED，让上层任务跳过该账号，
+     * 等用户在网页端重新登录后恢复。</p>
+     */
+    private void publishLoginExpired(XianyuAccount acc) {
+        try {
+            String accountName = accountName(acc.getId());
+            // 更新账号状态为 COOKIE_EXPIRED，避免后续定时任务继续重试同一个失效账号
+            acc.setStatus("COOKIE_EXPIRED");
+            acc.setLastError("Login cookie expired, IM page redirected to login");
+            acc.setUpdatedAt(java.time.LocalDateTime.now());
+            accountMapper.updateById(acc);
+            eventPublisher.publishEvent(new NotifyEvent("ACCOUNT_COOKIE_EXPIRED", acc.getId(), accountName,
+                    Map.of("accountName", accountName)));
+            log.warn("[MESSAGE] Published ACCOUNT_COOKIE_EXPIRED for account {} ({})",
+                    acc.getId(), accountName);
+        } catch (Exception e) {
+            log.warn("[MESSAGE] publish ACCOUNT_COOKIE_EXPIRED failed: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 风控触发时，按账号启动（或复用）独占 Chrome 容器，返回该容器的 CDP HTTP 端点。
+     * <p>如果 AccountService 不可用（非 Chrome 环境）或容器启动失败，返回 null，
+     * captchaSolver 会回落到全局配置的 CDP 端点（127.0.0.1:9222）。</p>
+     * <p>这是解决「无法连接 CDP 浏览器：null」的关键：
+     * 用户没手动用 {@code --remote-debugging-port=9222} 启动 Chrome 时，
+     * 系统按账号自动拉起一个独占 Chrome 容器（独立 profile dir + CDP 端口 + 代理 + 指纹 seed）。</p>
+     */
+    private String ensureAccountCdpEndpoint(XianyuAccount acc) {
+        if (accountService == null) {
+            log.warn("[MESSAGE] AccountService not injected, captchaSolver will fall back to global CDP endpoint");
+            return null;
+        }
+        try {
+            long accountId = acc.getId();
+            // 容器已存活 → 直接用账号记录里的 cdpPort
+            if (accountService.isChromeAlive(accountId) && acc.getCdpPort() != null && acc.getCdpPort() > 0) {
+                String endpoint = "http://127.0.0.1:" + acc.getCdpPort();
+                log.info("[MESSAGE] reuse alive Chrome container for account {}, cdpEndpoint={}",
+                        accountId, endpoint);
+                return endpoint;
+            }
+            // 容器未启动或已崩溃 → 启动该账号独占容器
+            boolean launched = accountService.launchChromeContainer(acc);
+            if (!launched || acc.getCdpPort() == null || acc.getCdpPort() <= 0) {
+                log.warn("[MESSAGE] launchChromeContainer failed for account {}, fall back to global CDP", accountId);
+                return null;
+            }
+            String endpoint = "http://127.0.0.1:" + acc.getCdpPort();
+            log.info("[MESSAGE] launched Chrome container for account {}, cdpEndpoint={}",
+                    accountId, endpoint);
+            return endpoint;
+        } catch (Exception e) {
+            log.warn("[MESSAGE] ensureAccountCdpEndpoint failed for account {}: {}",
+                    acc.getId(), e.getMessage());
+            return null;
         }
     }
 

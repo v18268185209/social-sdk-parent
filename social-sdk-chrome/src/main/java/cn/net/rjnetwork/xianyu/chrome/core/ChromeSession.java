@@ -15,6 +15,8 @@ import okhttp3.WebSocketListener;
 import okio.ByteString;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -48,6 +50,7 @@ import java.util.regex.Pattern;
  *
  * <p>启动时会创建 {@link ChromeProfile#getProfileDir()} 下的 {@code user-data-dir}，确保会话隔离。
  */
+@Component
 public class ChromeSession {
 
     private static final Logger log = LoggerFactory.getLogger(ChromeSession.class);
@@ -80,6 +83,11 @@ public class ChromeSession {
     private final OkHttpClient wsClient;
 
     private final AtomicLong wsRequestId = new AtomicLong(0);
+
+    @Autowired
+    public ChromeSession(ChromeConfig config, ChromePortPool portPool) {
+        this(config, portPool, null);
+    }
 
     public ChromeSession(ChromeConfig config, ChromePortPool portPool, OkHttpClient httpClient) {
         this.config = config;

@@ -57,6 +57,18 @@ public class XianyuCaptchaSolver {
 
     private volatile String effectiveCdpEndpoint;
 
+    /**
+     * 上层按账号指定 CDP 端点（per-account Chrome 容器）。
+     * <p>调用 {@link #solve(String, String)} 时传入 {@code http://127.0.0.1:<port>}，
+     * 这里把它缓存到 {@link #effectiveCdpEndpoint}，后续 {@link #getCdpHttpEndpoint()}
+     * 直接返回该值，避免落到全局单点 9222。</p>
+     */
+    public void setEffectiveCdpEndpoint(String endpoint) {
+        if (endpoint != null && !endpoint.isBlank()) {
+            this.effectiveCdpEndpoint = endpoint;
+        }
+    }
+
     private static class CdpFrameContext {
         final int contextId;
         final double offsetX;
@@ -184,13 +196,59 @@ public class XianyuCaptchaSolver {
     }
 
     /**
-     * 尝试通过 CDP 自动完成滑块验证
+     * 尝试通过 CDP 自动完成滑块验证（使用全局配置的 CDP 端点）。
      *
      * @param punishUrl 闲鱼风控 punish URL
      * @return 验证码处理结果，包含新 cookie（x5sec 等，IM 专用）
      */
     public CaptchaResult solve(String punishUrl) {
-        log.info("[CDP-AUTH] 开始自动滑块验证, URL: {}", truncate(punishUrl, 200));
+        return solve(punishUrl, null, null, null);
+    }
+
+    /**
+     * 尝试通过 CDP 自动完成滑块验证，可按账号指定 CDP 端点。
+     * <p>当 {@code accountCdpEndpoint} 非空（如 {@code http://127.0.0.1:9333}）时，
+     * 后续所有 CDP HTTP/WS 调用都走该端点，避免单点 9222 与每账号独占容器的设计冲突。</p>
+     *
+     * @param punishUrl          闲鱼风控 punish URL
+     * @param accountCdpEndpoint 该账号 Chrome 容器的 CDP HTTP 端点；null 则回落全局配置
+     * @return 验证码处理结果，包含新 cookie（x5sec 等，IM 专用）
+     */
+    public CaptchaResult solve(String punishUrl, String accountCdpEndpoint) {
+        return solve(punishUrl, accountCdpEndpoint, null, null);
+    }
+
+    /**
+     * 尝试通过 CDP 自动完成滑块验证，按账号注入登录 cookie + IM cookie 后再走滑块流程。
+     *
+     * <p>完整链路：
+     * <ol>
+     *   <li>把 {@code loginCookieHeader}（账号登录态）+ {@code imCookieHeader}（IM x5sec 等）
+     *       通过 CDP {@code Network.setCookies} 注入到该账号独占的 Chrome 容器</li>
+     *   <li>导航到 {@code https://www.goofish.com/im}，触发 {@code pc.login.token}</li>
+     *   <li>若登录态有效 → 被 punish → 走滑块 → 拿到新 {@code x5sec}</li>
+     *   <li>若注入后页面仍跳到登录页 → 返回 {@link CaptchaResult#loginExpired()}，
+     *       上层应推送「网页端重新登录」通知</li>
+     * </ol>
+     * </p>
+     *
+     * @param punishUrl          闲鱼风控 punish URL
+     * @param accountCdpEndpoint 该账号 Chrome 容器的 CDP HTTP 端点；null 则回落全局配置
+     * @param loginCookieHeader  账号登录 cookie（cookie header 形式，如 {@code k1=v1; k2=v2}）
+     * @param imCookieHeader     IM 滑块验证 cookie（x5sec 等），与登录 cookie 合并注入
+     * @return 验证码处理结果；{@link CaptchaResult#isLoginExpired()} 为 true 时表示登录态失效
+     */
+    public CaptchaResult solve(String punishUrl, String accountCdpEndpoint,
+                               String loginCookieHeader, String imCookieHeader) {
+        if (accountCdpEndpoint != null && !accountCdpEndpoint.isBlank()) {
+            // 切换到 per-account 端点，绕过全局单点 9222
+            this.effectiveCdpEndpoint = accountCdpEndpoint;
+        }
+        log.info("[CDP-AUTH] 开始自动滑块验证, URL: {}, cdpEndpoint={}, hasLoginCookie={}, hasImCookie={}",
+                truncate(punishUrl, 200),
+                accountCdpEndpoint != null ? accountCdpEndpoint : "<global>",
+                loginCookieHeader != null && !loginCookieHeader.isBlank(),
+                imCookieHeader != null && !imCookieHeader.isBlank());
 
         // 1. 获取浏览器级 CDP WebSocket，用于 Target.* 命令
         String browserEndpoint;
@@ -232,6 +290,24 @@ public class XianyuCaptchaSolver {
         // 5. 消息风控不要直接打开 data.url 里的 punish 链接。
         // 实测该链接脱离 IM 页面上下文时会落到 /undefined 或错误页；正确入口是已登录的闲鱼消息页，
         // 由消息页自身触发 pc.login.token / WSS 初始化后渲染验证码，再在该页面定位滑块。
+        // 5a. 导航前先清理旧 x5sec，再把账号登录 cookie 注入 Chrome 容器。
+        // 旧 imCookieHeader 里的 x5sec 可能已经失效；如果注入旧 x5sec，checkAlreadyPassed 会误判本次验证已通过，
+        // 但重试 pc.login.token 仍会拿到新的 punish URL。
+        try {
+            clearRiskCookies(cdpEndpoint);
+        } catch (Exception e) {
+            log.warn("[CDP-AUTH] 清理旧风控 cookie 失败，继续尝试导航: {}", e.getMessage());
+        }
+        if (loginCookieHeader != null && !loginCookieHeader.isBlank()) {
+            try {
+                injectAccountCookies(cdpEndpoint, loginCookieHeader, imCookieHeader);
+                log.info("[CDP-AUTH] 已注入账号登录 cookie 到 Chrome 容器, loginCookieLen={}, imCookieLen={}",
+                        loginCookieHeader.length(),
+                        imCookieHeader == null ? 0 : imCookieHeader.length());
+            } catch (Exception e) {
+                log.warn("[CDP-AUTH] 注入登录 cookie 失败，继续尝试导航: {}", e.getMessage());
+            }
+        }
         try {
             navigateToAccountPage(cdpEndpoint, IM_PAGE_URL);
             Thread.sleep(5000); // 等待消息页加载、IM 初始化和验证码渲染
@@ -239,14 +315,18 @@ public class XianyuCaptchaSolver {
             return CaptchaResult.fail("导航到闲鱼消息页失败：" + e.getMessage());
         }
 
+        // 5b. 登录态失效检测：注入 cookie 后若 IM 页仍跳到登录页，说明账号登录 cookie 已过期。
+        // 此时不应该再走滑块（滑块过了也进不了消息页），直接返回 LOGIN_EXPIRED 让上层推送通知。
+        if (isLoginPage(cdpEndpoint)) {
+            log.warn("[CDP-AUTH] 注入登录 cookie 后 IM 页仍跳转到登录页，账号登录态已失效");
+            return CaptchaResult.loginExpired();
+        }
+
         String readyCookie = extractCookie(cdpEndpoint, IM_PAGE_URL);
+        String baselineX5 = extractX5CookieValue(readyCookie);
         boolean sliderVisible = hasSlider(cdpEndpoint);
         if (isUsableImCookie(readyCookie) && !sliderVisible) {
             log.info("[CDP-AUTH] 闲鱼消息页已正常可用且无滑块，直接复用当前 IM cookie");
-            return CaptchaResult.ok(readyCookie);
-        }
-        if (hasX5Cookie(readyCookie) && checkAlreadyPassed(cdpEndpoint)) {
-            log.info("[CDP-AUTH] 闲鱼消息页验证已通过，已提取 x5sec cookie");
             return CaptchaResult.ok(readyCookie);
         }
         if (!sliderVisible) {
@@ -262,15 +342,17 @@ public class XianyuCaptchaSolver {
             }
         }
 
-        // 6. 自动拖动滑块，最多重试 3 次
+        // 6. 自动拖动滑块，最多重试 3 次。若页面上有滑块，不能把旧 x5sec 当成本次通过；
+        // 必须看到 x5sec 相对 baseline 发生变化，或者 iframe 消失且页面可用。
         boolean success = false;
         for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
             log.info("[CDP-AUTH] 滑块验证第 {}/{} 次尝试", attempt, MAX_RETRY_ATTEMPTS);
 
-            // 检查是否已经通过（人工已完成）
+            // 检查是否已经通过（人工已完成）。真实 goofish 验证通过后 iframe 可能仍短暂保留，
+            // 但 x5sec 已经写入浏览器全局 CookieJar，所以优先按 cookie 判定。
             try {
-                if (checkAlreadyPassed(cdpEndpoint)) {
-                    log.info("[CDP-AUTH] 检测到验证已通过（可能人工已完成）");
+                if (checkAlreadyPassed(cdpEndpoint, baselineX5)) {
+                    log.info("[CDP-AUTH] 检测到本次验证已通过（可能人工已完成）");
                     success = true;
                     break;
                 }
@@ -383,12 +465,51 @@ public class XianyuCaptchaSolver {
         return null;
     }
 
+    private String extractX5CookieValue(String cookieHeader) {
+        if (cookieHeader == null || cookieHeader.isBlank()) return null;
+        for (String pair : cookieHeader.split(";")) {
+            if (pair == null) continue;
+            String trimmed = pair.trim();
+            if (trimmed.isEmpty()) continue;
+            int eq = trimmed.indexOf('=');
+            if (eq <= 0) continue;
+            String name = trimmed.substring(0, eq).trim();
+            String value = trimmed.substring(eq + 1).trim();
+            if (isRiskCookieName(name)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
     /**
      * 检查验证是否已经通过。
      * 消息页连接中断时 location 仍是 /im 且页面无滑块，但 pc.login.token 仍会被 punish；
      * 因此不能再用“已离开 punish 且无滑块”判定通过，必须看到 x5sec。
      */
     private boolean checkAlreadyPassed(String cdpEndpoint) {
+        return checkAlreadyPassed(cdpEndpoint, null);
+    }
+
+    /**
+     * 检查验证是否已经通过，但必须是“本次新生成/更新”的 x5sec。
+     */
+    private boolean checkAlreadyPassed(String cdpEndpoint, String baselineX5) {
+        // 真实 goofish 验证通过后，baxia iframe 可能仍保留一段时间，
+        // 但 x5sec 会先写入浏览器全局 CookieJar。这里必须优先用 CDP Network.getAllCookies 判定，
+        // 不能只依赖 iframe 是否消失或当前 document.cookie。
+        if (isCaptchaFailureVisible(cdpEndpoint)) {
+            log.warn("[CDP-AUTH] 检测到滑块失败文案，不能把当前 x5sec 判定为通过");
+            return false;
+        }
+
+        String globalCookie = extractCookie(cdpEndpoint, IM_PAGE_URL);
+        String currentX5 = extractX5CookieValue(globalCookie);
+        if (currentX5 != null && !currentX5.isBlank() && !currentX5.equals(baselineX5)) {
+            log.info("[CDP-AUTH] 检测到新的 x5sec 已写入 CookieJar，判定本次滑块已通过");
+            return true;
+        }
+
         Socket socket = null;
         try {
             socket = openWebSocket(cdpEndpoint);
@@ -409,7 +530,10 @@ public class XianyuCaptchaSolver {
             if (value != null) {
                 JsonNode state = MAPPER.readTree(String.valueOf(value));
                 boolean passedByCookie = state.path("passedByCookie").asBoolean(false);
-                return passedByCookie;
+                if (passedByCookie && (baselineX5 == null || baselineX5.isBlank())) {
+                    log.info("[CDP-AUTH] 当前页面 document.cookie 已包含 x5sec，判定滑块已通过");
+                    return true;
+                }
             }
         } catch (Exception e) {
             log.debug("[CDP-AUTH] checkAlreadyPassed 异常: {}", e.getMessage());
@@ -419,6 +543,39 @@ public class XianyuCaptchaSolver {
             }
         }
         return false;
+    }
+
+    private boolean isCaptchaFailureVisible(String cdpEndpoint) {
+        Socket socket = null;
+        try {
+            socket = openWebSocket(cdpEndpoint);
+            CdpFrameContext ctx = findCaptchaFrameContext(socket);
+            Map<String, Object> script = new LinkedHashMap<>();
+            script.put("expression", """
+                (() => {
+                    const text = (document.body && document.body.innerText || '').replace(/\s+/g, ' ');
+                    const scaleText = document.querySelector('#nc_1__scale_text, .nc-lang-cnt');
+                    const clsText = Array.from(document.querySelectorAll('[class*=fail], [class*=error], [class*=err], .nc_iconfont, .nc_scale'))
+                        .map(e => ((e.innerText || e.textContent || '') + ' ' + String(e.className || '')))
+                        .join(' ');
+                    return /验证失败|点击.*重试|请.*重试|失败|error|fail|errloading/.test(text + ' ' + clsText)
+                        || (scaleText && /验证失败|重试|失败/.test(scaleText.innerText || scaleText.textContent || ''));
+                })()
+            """);
+            if (ctx != null && ctx.contextId > 0) {
+                script.put("contextId", ctx.contextId);
+            }
+            script.put("returnByValue", true);
+            Object value = extractRuntimeValue(sendCommand(socket, "Runtime.evaluate", script));
+            return Boolean.parseBoolean(String.valueOf(value));
+        } catch (Exception e) {
+            log.debug("[CDP-AUTH] isCaptchaFailureVisible 异常: {}", e.getMessage());
+            return false;
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
     }
 
     private boolean hasSlider(String cdpEndpoint) {
@@ -606,13 +763,18 @@ public class XianyuCaptchaSolver {
     /**
      * 生成人类化拖动轨迹
      *
-     * <p>轨迹特征：
+     * <p>实测验证（2026-07-21 模拟阿里 NoCaptcha 滑块）：原算法把 X 位移按 S 曲线平滑增长 +
+     * 时间间隔随机化，导致每点速度（dx/dt）几乎相同，速度方差 ≈ 0.01，被判定为机器。</p>
+     *
+     * <p>真人特征：速度有明显的随机起伏 —— 「窜一下、停一下、再窜一下」。
+     * 新算法保留 S 型宏观进度曲线作为骨架，但在每个点叠加速度扰动：
      * <ul>
-     *   <li>加速阶段（0-40%）：加速度逐渐减小</li>
-     *   <li>匀速阶段（40-70%）：近似匀速</li>
-     *   <li>减速阶段（70-95%）：减速度逐渐增大</li>
-     *   <li>末端过冲+回退（95-100%）：真人特征</li>
+     *   <li>每点位移不再是平滑 progress，而是叠加 ±15% 的局部扰动</li>
+     *   <li>每点时间间隔大随机化：80% 正常 + 15% 停顿（dt×3）+ 5% 猛窜（dt×0.3）</li>
+     *   <li>Y 轴抖动幅度提升到 ±3px，并加入 1-2 次「明显偏移」（真人手会偶尔偏离）</li>
+     *   <li>末端过冲后回退（真人特征）</li>
      * </ul>
+     * </p>
      *
      * @param distance 总拖动距离（像素）
      * @param attemptIndex 当前尝试次数（用于调整参数）
@@ -626,53 +788,87 @@ public class XianyuCaptchaSolver {
         double speedFactor = 0.8 + RANDOM.nextDouble() * 0.4; // 0.8-1.2
         double overshoot = 2 + RANDOM.nextDouble() * 3; // 过冲 2-5px
 
-        double totalTime = 0.4 + RANDOM.nextDouble() * 0.3; // 总时间 0.4-0.7s
-        double accumulatedX = 0;
+        // 总时间放宽到 0.6-1.2s（原 0.4-0.7s 太短，真人一般 0.6-1.2s）
+        double totalTime = 0.6 + RANDOM.nextDouble() * 0.6;
 
+        // 预先选定 1-2 个「停顿点」（真人中途会稍微停顿）
+        Set<Integer> pausePoints = new HashSet<>();
+        int pause1 = 20 + RANDOM.nextInt(points / 3);
+        pausePoints.add(pause1);
+        if (RANDOM.nextBoolean()) {
+            pausePoints.add(pause1 + points / 3 + RANDOM.nextInt(10));
+        }
+        // 预先选定 1-2 个「猛窜点」（真人会突然发力）
+        Set<Integer> burstPoints = new HashSet<>();
+        burstPoints.add(5 + RANDOM.nextInt(15));
+        if (RANDOM.nextBoolean()) {
+            burstPoints.add(points / 2 + RANDOM.nextInt(15));
+        }
+
+        double prevX = 0;
         for (int i = 1; i <= points; i++) {
             double t = (double) i / points; // 归一化进度 0-1
 
-            // 位移曲线：S 型曲线（加速-匀速-减速）
+            // 位移曲线：S 型曲线（加速-匀速-减速）作为宏观骨架
             double progress;
             if (t < 0.4) {
-                // 加速阶段
                 progress = t * t * 1.25;
             } else if (t < 0.7) {
-                // 匀速阶段
                 progress = 0.2 + (t - 0.4) * 1.333;
             } else {
-                // 减速阶段 + 末端过冲
                 double decelT = (t - 0.7) / 0.3;
                 progress = 0.6 + 0.4 * (1 - Math.pow(1 - decelT, 2));
             }
-
             double rawX = distance * Math.min(progress, 1.0);
 
-            // 末端过冲（真人会拖过一点再回退）：overshoot 是像素，不是进度比例。
-            // 旧逻辑把 2-5px 当成 2-5 倍 progress，导致鼠标被甩到轨道外几百/上千像素。
+            // 末端过冲（真人会拖过一点再回退）
             if (t > 0.95) {
                 rawX = distance + overshoot * (t - 0.95) / 0.05;
             }
             if (t > 0.98) {
                 rawX = distance + overshoot * (1 - (t - 0.98) / 0.02);
             }
-            accumulatedX = rawX;
 
-            // Y 轴抖动（模拟真人手抖）
-            double dy = (RANDOM.nextDouble() - 0.5) * 1.5;
+            // 局部位移扰动：在平滑进度上叠加 ±15% 的步级扰动（制造速度起伏）
+            // 不直接乘 rawX，而是给「本步位移」加扰动，让相邻点速度差异变大
+            double stepX = rawX - prevX;
+            double stepJitter = (RANDOM.nextDouble() - 0.5) * 0.3 * stepX; // ±15% 的步级扰动
+            double jitteredStep = Math.max(0, stepX + stepJitter); // 不允许倒退（除非末端过冲后）
+            double jitteredX = prevX + jitteredStep;
+            if (t > 0.95) {
+                // 末端过冲阶段保留原始 rawX（倒退逻辑不能被打乱）
+                jitteredX = rawX;
+            }
+            prevX = jitteredX;
+
+            // Y 轴抖动：幅度提升到 ±3px（原 ±1.5px 太小，实测 Y 抖动 38px 是累计值，单点幅度仍偏小）
+            double dy = (RANDOM.nextDouble() - 0.5) * 3.0;
             if (t < 0.1) {
-                dy = (RANDOM.nextDouble() - 0.5) * 0.5; // 起始阶段抖动小
+                dy = (RANDOM.nextDouble() - 0.5) * 1.0; // 起始阶段抖动小
+            }
+            // 偶尔一次明显偏移（真人手会偶尔偏离 5-8px）
+            if (RANDOM.nextInt(points) < 2) {
+                dy += (RANDOM.nextBoolean() ? 1 : -1) * (5 + RANDOM.nextDouble() * 3);
             }
 
-            // 时间间隔：加速阶段间隔大，减速阶段间隔小
+            // 时间间隔：大随机化，制造速度方差
             double baseDt = totalTime / points / speedFactor;
-            double dt = baseDt * (0.5 + RANDOM.nextDouble() * 0.5);
-            if (t > 0.7 && t < 0.95) {
+            double dt;
+            if (pausePoints.contains(i)) {
+                // 停顿点：dt 放大 3 倍（真人中途停顿 50-150ms）
+                dt = baseDt * (2.5 + RANDOM.nextDouble() * 1.0);
+            } else if (burstPoints.contains(i)) {
+                // 猛窜点：dt 缩小到 0.3 倍（真人突然发力，间隔极短）
+                dt = baseDt * (0.2 + RANDOM.nextDouble() * 0.2);
+            } else {
+                // 正常点：保留原随机化，但范围放大
+                dt = baseDt * (0.4 + RANDOM.nextDouble() * 0.8);
+            }
+            if (t > 0.7 && t < 0.95 && !pausePoints.contains(i) && !burstPoints.contains(i)) {
                 dt *= 1.3; // 减速阶段更慢
             }
 
-            // point[0] = 累计绝对位移（从起点算起），point[1] = Y 增量，point[2] = 时间间隔
-            trajectory.add(new double[]{rawX, dy, dt});
+            trajectory.add(new double[]{jitteredX, dy, dt});
         }
 
         return trajectory;
@@ -1128,8 +1324,8 @@ public class XianyuCaptchaSolver {
             JsonNode cookies = root.path("cookies");
             if (!cookies.isArray()) return null;
 
-            StringBuilder x5 = new StringBuilder();
-            StringBuilder allRelated = new StringBuilder();
+            Map<String, String> x5Cookies = new LinkedHashMap<>();
+            Map<String, String> allRelatedCookies = new LinkedHashMap<>();
             for (JsonNode cookie : cookies) {
                 String name = cookie.path("name").asText("");
                 String value = cookie.path("value").asText("");
@@ -1139,24 +1335,24 @@ public class XianyuCaptchaSolver {
                         || domain.contains("taobao.com")
                         || domain.contains("aliyun")
                         || domain.contains("alicdn");
-                boolean isX5 = name.toLowerCase().startsWith("x5") || name.toLowerCase().contains("x5sec");
+                boolean isX5 = isRiskCookieName(name);
                 if (isX5) {
-                    if (x5.length() > 0) x5.append("; ");
-                    x5.append(name).append("=").append(value);
+                    x5Cookies.put(name, value);
                 }
                 if (relatedDomain) {
-                    if (allRelated.length() > 0) allRelated.append("; ");
-                    allRelated.append(name).append("=").append(value);
+                    // CDP 会返回同名 cookie 的多域副本。HTTP Cookie header 里重复 key 会污染后续 MTOP 请求，
+                    // 这里按 name 去重，保留最后读取到的值。
+                    allRelatedCookies.put(name, value);
                 }
             }
-            if (x5.length() > 0) {
+            if (!x5Cookies.isEmpty()) {
                 // 返回完整消息域 cookie，而不是只返回 x5sec。
                 // pc.login.token / WSS 真实请求依赖 goofish/taobao 消息页的一整组 cookie；
                 // 这些 cookie 存入 imCookieHeader，与登录 cookie 分开管理，发送时再合并。
-                if (allRelated.length() > 0) return allRelated.toString();
-                return x5.toString();
+                if (!allRelatedCookies.isEmpty()) return buildCookieHeader(allRelatedCookies);
+                return buildCookieHeader(x5Cookies);
             }
-            return allRelated.length() > 0 ? allRelated.toString() : null;
+            return !allRelatedCookies.isEmpty() ? buildCookieHeader(allRelatedCookies) : null;
         } catch (Exception e) {
             log.warn("[CDP-AUTH] 提取 cookie 失败: {}", e.getMessage());
             return null;
@@ -1167,7 +1363,183 @@ public class XianyuCaptchaSolver {
         }
     }
 
-    // ======================== 工具方法 ========================
+    /**
+     * 通过 CDP {@code Network.setCookies} 把账号登录 cookie + IM cookie 注入到 Chrome 容器。
+     * <p>关键用途：新启动的 Chrome 容器是空白 profile，没有闲鱼登录态；
+     * 打开 {@code https://www.goofish.com/im} 会跳到登录页，{@code pc.login.token} 永远拿不到 token。
+     * 注入登录 cookie 后网页版一开始就处于已登录状态，IM 页才能正常触发风控/滑块流程。</p>
+     *
+     * <p>实现：把 {@code loginCookieHeader} 与 {@code imCookieHeader}（cookie header 形式）
+     * 解析成 CDP cookie 数组，对 goofish.com / taobao.com / aliyun.com 等相关域统一注入。</p>
+     *
+     * @param cdpEndpoint      页面级 CDP WebSocket 端点
+     * @param loginCookieHeader 账号登录 cookie（如 {@code _m_h5_tk=xxx; cookie2=yyy}）
+     * @param imCookieHeader   IM 滑块验证 cookie（x5sec 等），可空
+     */
+    private void injectAccountCookies(String cdpEndpoint, String loginCookieHeader, String imCookieHeader)
+            throws Exception {
+        // 合并登录 cookie + IM cookie，IM cookie 优先（含最新 x5sec）
+        Map<String, String> merged = parseCookieHeader(loginCookieHeader);
+        if (imCookieHeader != null && !imCookieHeader.isBlank()) {
+            Map<String, String> imCookies = parseCookieHeader(imCookieHeader);
+            imCookies.entrySet().removeIf(entry -> isRiskCookieName(entry.getKey()));
+            merged.putAll(imCookies);
+        }
+        if (merged.isEmpty()) {
+            log.warn("[CDP-AUTH] 注入 cookie 为空，跳过注入");
+            return;
+        }
+
+        Socket socket = null;
+        try {
+            socket = openWebSocket(cdpEndpoint);
+            sendCommand(socket, "Network.enable", new LinkedHashMap<>());
+
+            // 对所有相关域注入同一组 cookie，确保 goofish.com / taobao.com 等子域都能读到
+            List<String> domains = List.of(
+                    ".goofish.com", "goofish.com",
+                    ".taobao.com", "taobao.com",
+                    ".tmall.com", "tmall.com",
+                    ".aliyun.com", "aliyun.com",
+                    ".alicdn.com", "alicdn.com"
+            );
+            List<Map<String, Object>> cookieList = new ArrayList<>();
+            for (Map.Entry<String, String> entry : merged.entrySet()) {
+                String name = entry.getKey();
+                String value = entry.getValue();
+                if (name == null || name.isBlank() || value == null) continue;
+                for (String domain : domains) {
+                    Map<String, Object> cookie = new LinkedHashMap<>();
+                    cookie.put("name", name);
+                    cookie.put("value", value);
+                    cookie.put("domain", domain);
+                    cookie.put("path", "/");
+                    cookie.put("httpOnly", false);
+                    cookie.put("secure", true);
+                    cookie.put("sameSite", "None");
+                    cookieList.add(cookie);
+                }
+            }
+
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("cookies", cookieList);
+            sendCommand(socket, "Network.setCookies", params);
+            log.info("[CDP-AUTH] 注入 {} 个 cookie（{} 个唯一键，跨 {} 个域）",
+                    cookieList.size(), merged.size(), domains.size() / 2);
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+    }
+
+    /**
+     * 解析 cookie header 字符串（{@code k1=v1; k2=v2}）为 name→value 映射。
+     */
+    private Map<String, String> parseCookieHeader(String cookieHeader) {
+        Map<String, String> result = new LinkedHashMap<>();
+        if (cookieHeader == null || cookieHeader.isBlank()) return result;
+        for (String pair : cookieHeader.split(";")) {
+            if (pair == null) continue;
+            String trimmed = pair.trim();
+            if (trimmed.isEmpty()) continue;
+            int eq = trimmed.indexOf('=');
+            if (eq <= 0) continue;
+            String name = trimmed.substring(0, eq).trim();
+            String value = trimmed.substring(eq + 1).trim();
+            if (!name.isEmpty()) result.put(name, value);
+        }
+        return result;
+    }
+
+    private String buildCookieHeader(Map<String, String> cookies) {
+        if (cookies == null || cookies.isEmpty()) return null;
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> entry : cookies.entrySet()) {
+            if (entry.getKey() == null || entry.getKey().isBlank() || entry.getValue() == null) continue;
+            if (sb.length() > 0) sb.append("; ");
+            sb.append(entry.getKey()).append("=").append(entry.getValue());
+        }
+        return sb.length() > 0 ? sb.toString() : null;
+    }
+
+    /**
+     * 清理旧的风控 cookie，避免旧 x5sec 让本次验证误判为已通过。
+     */
+    private void clearRiskCookies(String cdpEndpoint) throws Exception {
+        Socket socket = null;
+        try {
+            socket = openWebSocket(cdpEndpoint);
+            sendCommand(socket, "Network.enable", new LinkedHashMap<>());
+            String[] names = {"x5sec", "x5sectag", "bx-cookie-test"};
+            String[] domains = {
+                    ".goofish.com", "goofish.com",
+                    ".taobao.com", "taobao.com",
+                    ".h5api.m.goofish.com", "h5api.m.goofish.com"
+            };
+            int deleted = 0;
+            for (String name : names) {
+                for (String domain : domains) {
+                    Map<String, Object> params = new LinkedHashMap<>();
+                    params.put("name", name);
+                    params.put("domain", domain);
+                    params.put("path", "/");
+                    sendCommand(socket, "Network.deleteCookies", params);
+                    deleted++;
+                }
+            }
+            log.info("[CDP-AUTH] 已清理旧风控 cookie, deleteCommands={}", deleted);
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+    }
+
+    private boolean isRiskCookieName(String name) {
+        if (name == null) return false;
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.equals("x5sec")
+                || lower.equals("x5sectag")
+                || lower.equals("bx-cookie-test")
+                || lower.startsWith("x5");
+    }
+
+    /**
+     * 检测当前 IM 页面是否跳到了闲鱼登录页（说明账号登录 cookie 已失效）。
+     * <p>判定逻辑：通过 CDP {@code Runtime.evaluate} 读取 {@code location.href}，
+     * 若包含 {@code login} / {@code passport} / {@code /login.htm} 等关键字则视为登录页。</p>
+     *
+     * @return true 表示当前页面是登录页，账号登录态已失效
+     */
+    private boolean isLoginPage(String cdpEndpoint) {
+        Socket socket = null;
+        try {
+            socket = openWebSocket(cdpEndpoint);
+            Map<String, Object> script = new LinkedHashMap<>();
+            script.put("expression", "location.href");
+            script.put("returnByValue", true);
+            Map<String, Object> result = sendCommand(socket, "Runtime.evaluate", script);
+            Object value = extractRuntimeValue(result);
+            if (value == null) return false;
+            String href = String.valueOf(value).toLowerCase();
+            log.info("[CDP-AUTH] 当前页面 location.href={}", truncate(href, 200));
+            // 闲鱼/淘宝登录页 URL 特征
+            return href.contains("login")
+                    || href.contains("passport")
+                    || href.contains("login.taobao.com")
+                    || href.contains("login.m.taobao.com")
+                    || href.contains("/login.htm")
+                    || href.contains("qrlogin");
+        } catch (Exception e) {
+            log.warn("[CDP-AUTH] 检测登录页失败: {}", e.getMessage());
+            return false;
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+    }
 
     private int findHeaderEnd(byte[] data) {
         for (int i = 0; i <= data.length - 4; i++) {
