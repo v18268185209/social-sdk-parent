@@ -14,6 +14,18 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -156,10 +168,18 @@ public class ChromeProfileManager {
             throw ce;
         }
 
-        // 6. 启动成功后注入反检测 JS（应用 per-account seed 噪声）
-        injectFingerprintScript(profile);
+        // 6. 启动成功后注入反检测 JS（应用 per-account seed 噪声，失败不影响启动））
+        safeInjectFingerprint(profile);
 
         return profile;
+    }
+
+    private void safeInjectFingerprint(ChromeProfile profile) {
+        try {
+            injectFingerprintScript(profile);
+        } catch (Exception e) {
+            log.warn("[LAUNCH] 指纹注入失败（非关键）, accountId={}, err={}", profile.getAccountId(), e.getMessage());
+        }
     }
 
     /**
@@ -208,233 +228,41 @@ public class ChromeProfileManager {
         activeProfiles.clear();
     }
 
-    // ==================== 指纹噪声注入 ====================
+    // ==================== 指纹注入 ====================
 
     /**
-     * 根据账号 seed 派生生成反检测 JS 脚本。
-     *
-     * <p>同 seed = 同 JS（跨重启指纹不变）；不同 seed → 不同的 canvas/WebGL 噪声（账号间指纹唯一）。
-     *
-     * @param seed 派生种子
-     * @return 完整的反检测 JS 字符串
-     */
-    public String generateFingerprintScript(long seed) {
-        long canvasNoise = deriveNoise(seed, "canvas");
-        long webglNoise = deriveNoise(seed, "webgl");
-        int screenW = (int) (deriveNoise(seed, "screenW") % 200 + 1280);
-        int screenH = (int) (deriveNoise(seed, "screenH") % 200 + 600);
-        long hwConcurrency = (deriveNoise(seed, "hw") % 4) + 4; // 4-7
-        long deviceMemory = (long) Math.pow(2, (deriveNoise(seed, "mem") % 3) + 2); // 4/8/16 GB
-
-        String webglVendor = pickVendor(webglNoise);
-        String webglRenderer = pickRenderer(webglNoise);
-
-        return ""
-                + "// ====== Per-Account Anti-Detect Init (seed=" + seed + ") ======\n"
-                + "(() => {\n"
-                + "  'use strict';\n"
-                + "  const SEED = " + seed + ";\n"
-                + "\n"
-                + "  // 1. 隐藏 webdriver\n"
-                + "  try {\n"
-                + "    Object.defineProperty(navigator, 'webdriver', { get: () => false });\n"
-                + "    delete navigator.__proto__.webdriver;\n"
-                + "  } catch (e) {}\n"
-                + "\n"
-                + "  // 2. 伪造 chrome.runtime\n"
-                + "  try {\n"
-                + "    window.chrome = window.chrome || {};\n"
-                + "    window.chrome.runtime = window.chrome.runtime || {};\n"
-                + "    window.chrome.loadTimes = function() { return {}; };\n"
-                + "    window.chrome.csi = function() { return {}; };\n"
-                + "    window.chrome.app = window.chrome.app || {};\n"
-                + "  } catch (e) {}\n"
-                + "\n"
-                + "  // 3. 伪造 plugins\n"
-                + "  try {\n"
-                + "    const plugins = [\n"
-                + "      { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },\n"
-                + "      { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },\n"
-                + "      { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2 },\n"
-                + "    ];\n"
-                + "    plugins.item = (i) => plugins[i] || null;\n"
-                + "    plugins.namedItem = (name) => plugins.find(p => p.name === name) || null;\n"
-                + "    plugins.refresh = () => {};\n"
-                + "    Object.defineProperty(navigator, 'plugins', {\n"
-                + "      get: () => Object.setPrototypeOf(plugins, PluginArray.prototype),\n"
-                + "    });\n"
-                + "  } catch (e) {}\n"
-                + "\n"
-                + "  // 4. 伪造 languages\n"
-                + "  try {\n"
-                + "    Object.defineProperty(navigator, 'languages', {\n"
-                + "      get: () => ['zh-CN', 'zh', 'en-US', 'en'],\n"
-                + "    });\n"
-                + "  } catch (e) {}\n"
-                + "\n"
-                + "  // 5. Canvas fingerprint — per-account noise\n"
-                + "  try {\n"
-                + "    const _toDataURL = HTMLCanvasElement.prototype.toDataURL;\n"
-                + "    HTMLCanvasElement.prototype.toDataURL = function(type) {\n"
-                + "      const ctx = this.getContext('2d');\n"
-                + "      if (ctx && this.width > 10 && this.height > 10) {\n"
-                + "        const imageData = ctx.getImageData(0, 0, this.width, this.height);\n"
-                + "        if (imageData.data.length > 3) {\n"
-                + "          const noise = " + canvasNoise + ";\n"
-                + "          imageData.data[(noise) % imageData.data.length] ^= 1;\n"
-                + "          imageData.data[(noise + 37) % imageData.data.length] ^= 1;\n"
-                + "        }\n"
-                + "        ctx.putImageData(imageData, 0, 0);\n"
-                + "      }\n"
-                + "      return _toDataURL.apply(this, arguments);\n"
-                + "    };\n"
-                + "  } catch (e) {}\n"
-                + "\n"
-                + "  // 6. WebGL fingerprint — per-account noise\n"
-                + "  try {\n"
-                + "    const _getParameter = WebGLRenderingContext.prototype.getParameter;\n"
-                + "    WebGLRenderingContext.prototype.getParameter = function(parameter) {\n"
-                + "      if (parameter === 37445) {\n"
-                + "        return '" + webglVendor + "';\n"
-                + "      }\n"
-                + "      if (parameter === 37446) {\n"
-                + "        return '" + webglRenderer + "';\n"
-                + "      }\n"
-                + "      return _getParameter.call(this, parameter);\n"
-                + "    };\n"
-                + "  } catch (e) {}\n"
-                + "\n"
-                + "  // 7. permissions query override\n"
-                + "  try {\n"
-                + "    const _query = window.navigator.permissions ? window.navigator.permissions.query : null;\n"
-                + "    if (_query) {\n"
-                + "      window.navigator.permissions.query = function(parameters) {\n"
-                + "        if (parameters && parameters.name === 'notifications') {\n"
-                + "          return Promise.resolve({ state: Notification.permission, onchange: null });\n"
-                + "        }\n"
-                + "        return _query.call(this, parameters);\n"
-                + "      };\n"
-                + "    }\n"
-                + "  } catch (e) {}\n"
-                + "\n"
-                + "  // 8. Headless UA scrub\n"
-                + "  try {\n"
-                + "    if (navigator.userAgent && navigator.userAgent.includes('Headless')) {\n"
-                + "      Object.defineProperty(navigator, 'userAgent', {\n"
-                + "        get: () => navigator.userAgent.replace('Headless', ''),\n"
-                + "      });\n"
-                + "    }\n"
-                + "  } catch (e) {}\n"
-                + "\n"
-                + "  // 9. Screen fingerprint consistency (per-account)\n"
-                + "  try {\n"
-                + "    Object.defineProperty(screen, 'width', { get: () => " + screenW + " });\n"
-                + "    Object.defineProperty(screen, 'height', { get: () => " + screenH + " });\n"
-                + "    Object.defineProperty(screen, 'availWidth', { get: () => " + screenW + " });\n"
-                + "    Object.defineProperty(screen, 'availHeight', { get: () => " + screenH + " });\n"
-                + "    Object.defineProperty(screen, 'colorDepth', { get: () => 24 });\n"
-                + "    Object.defineProperty(screen, 'pixelDepth', { get: () => 24 });\n"
-                + "  } catch (e) {}\n"
-                + "\n"
-                + "  // 10. Connection rtt\n"
-                + "  try {\n"
-                + "    if (navigator.connection) {\n"
-                + "      Object.defineProperty(navigator.connection, 'rtt', { get: () => 50 });\n"
-                + "    }\n"
-                + "  } catch (e) {}\n"
-                + "\n"
-                + "  // 11. Hardware concurrency / device memory (per-account)\n"
-                + "  try {\n"
-                + "    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => " + hwConcurrency + " });\n"
-                + "    Object.defineProperty(navigator, 'deviceMemory', { get: () => " + deviceMemory + " });\n"
-                + "  } catch (e) {}\n"
-                + "\n"
-                + "  // 12. isTrusted bypass attempt via dispatchEvent shim\n"
-                + "  try {\n"
-                + "    const _createEvent = document.createEvent;\n"
-                + "    document.createEvent = function(type) {\n"
-                + "      const evt = _createEvent.call(this, type);\n"
-                + "      if (evt && typeof evt.initEvent === 'function') {\n"
-                + "        Object.defineProperty(evt, 'isTrusted', { get: () => true });\n"
-                + "      }\n"
-                + "      return evt;\n"
-                + "    };\n"
-                + "  } catch (e) {}\n"
-                + "\n"
-                + "})();\n";
-    }
-
-    /**
-     * 构造指纹噪声（从 seed + label 派生）。
+     * 构造指纹 accountId → seed（SHA-256 派生）。
+     * <p>同 accountId → 同 seed（跨重启指纹不变）；不同 accountId → 不同 seed（账号间指纹唯一）。
      */
     public long deriveSeed(long accountId) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             byte[] hash = md.digest(String.valueOf(accountId).getBytes(StandardCharsets.UTF_8));
-            // 取前 8 字节组成 long
             long seed = 0L;
             for (int i = 0; i < 8 && i < hash.length; i++) {
                 seed = (seed << 8) | (hash[i] & 0xFFL);
             }
             return seed;
         } catch (NoSuchAlgorithmException e) {
-            // SHA-256 必可用
             return accountId * 31L;
         }
     }
 
     /**
-     * 从 seed + label 派生长噪声值。
+     * 向指定容器的 page target 注入反检测脚本（双通道）。
+     *
+     * <p>通过 {@link ChromeSession#injectFingerprintScript(int, java.util.function.LongSupplier)} 发送：
+     * <ol>
+     *   <li>{@code Page.addScriptToEvaluateOnNewDocument} — 持久化，每次 SPA 跳转/刷新都自动注入</li>
+     *   <li>{@code Runtime.evaluate} — 立刻在当前页面生效</li>
+     * </ol>
+     *
+     * <p>脚本由 {@link SliderAntiDetect#buildScript(long)} 按 seed 派生（per-account 指纹隔离）。
      */
-    public long deriveNoise(long seed, String label) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hash = md.digest((seed + ":" + label).getBytes(StandardCharsets.UTF_8));
-            long value = 0L;
-            for (int i = 0; i < 8 && i < hash.length; i++) {
-                value = (value << 8) | (hash[i] & 0xFFL);
-            }
-            return Math.abs(value);
-        } catch (NoSuchAlgorithmException e) {
-            return Math.abs(seed * 31L + label.hashCode());
-        }
-    }
-
-    /**
-     * 根据噪声选 WebGL vendor 字符串。
-     */
-    public String pickVendor(long noise) {
-        String[] vendors = {
-                "Google Inc.",
-                "Google Inc. (Intel)",
-                "Google Inc. (NVIDIA)",
-                "Google Inc. (AMD)",
-        };
-        return vendors[(int) (noise % vendors.length)];
-    }
-
-    /**
-     * 根据噪声选 WebGL renderer 字符串。
-     */
-    public String pickRenderer(long noise) {
-        String[] renderers = {
-                "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)",
-                "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0, D3D11)",
-                "ANGLE (AMD, AMD Radeon RX 580 Direct3D11 vs_5_0 ps_5_0, D3D11)",
-                "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)",
-        };
-        return renderers[(int) (noise % renderers.length)];
-    }
-
-    /**
-     * 向指定容器的所有 page target 注入反检测脚本。
-     */
-    public void injectFingerprintScript(ChromeProfile profile) {
-        String script = generateFingerprintScript(profile.getSeed());
-        // 实际注入可以通过 CDP Runtime.evaluate 在 target 上执行
-        // 这里仅记录，完整注入逻辑需要与 CDP WebSocket 集成
-        log.debug("[INJECT] 反检测脚本已生成, accountId={}, scriptHash={}",
-                profile.getAccountId(), script.hashCode());
+    public void injectFingerprintScript(ChromeProfile profile) throws IOException, TimeoutException {
+        log.info("[INJECT] 开始注入指纹脚本, accountId={}, seed={}",
+                profile.getAccountId(), profile.getSeed());
+        session.injectFingerprintScript(profile.getCdpPort(), profile::getSeed);
     }
 
     // ==================== 查询 API ====================

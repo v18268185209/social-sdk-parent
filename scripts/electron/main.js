@@ -187,7 +187,7 @@ function createTray() {
         },
         {
             label: '访问 Web UI',
-            click: => { shell.openExternal(`http://127.0.0.1:${store.get('lastPort', 8080)}`); }
+            click: () => { shell.openExternal(`http://127.0.0.1:${store.get('lastPort', 8080)}`); }
         },
         { type: 'separator' },
         {

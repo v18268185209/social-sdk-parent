@@ -1,6 +1,7 @@
 package cn.net.rjnetwork.xianyu.manager.rule.service;
 
 import cn.net.rjnetwork.xianyu.manager.ai.service.AiChatService;
+import cn.net.rjnetwork.xianyu.manager.product.service.PolishService;
 import cn.net.rjnetwork.xianyu.manager.reply.service.AutoReplyLogService;
 import cn.net.rjnetwork.xianyu.manager.rule.dto.RuleCreateRequest;
 import cn.net.rjnetwork.xianyu.manager.rule.dto.RuleTestRequest;
@@ -29,15 +30,17 @@ public class RuleService {
     private final AutoReplyConfigMapper autoReplyConfigMapper;
     private final AiChatService aiChatService;
     private final AutoReplyLogService logService;
+    private final PolishService polishService;
     // 内存缓存：accountId -> list of rules
     private final Map<Long, List<XianyuKeywordRule>> ruleCache = new ConcurrentHashMap<>();
     private static final Logger log = LoggerFactory.getLogger(RuleService.class);
 
-    public RuleService(RuleMapper ruleMapper, AutoReplyConfigMapper autoReplyConfigMapper, AiChatService aiChatService, AutoReplyLogService logService) {
+    public RuleService(RuleMapper ruleMapper, AutoReplyConfigMapper autoReplyConfigMapper, AiChatService aiChatService, AutoReplyLogService logService, PolishService polishService) {
         this.ruleMapper = ruleMapper;
         this.autoReplyConfigMapper = autoReplyConfigMapper;
         this.aiChatService = aiChatService;
         this.logService = logService;
+        this.polishService = polishService;
     }
 
     public List<XianyuKeywordRule> listRules(Long accountId) {
@@ -72,6 +75,8 @@ public class RuleService {
         rule.setReplyText(request.getReplyText());
         rule.setEnabled(true);
         rule.setPriority(request.getPriority() != null ? request.getPriority() : 100);
+        rule.setAction(request.getAction());
+        rule.setActionTargetItemId(request.getActionTargetItemId());
         rule.setCreatedAt(LocalDateTime.now());
         rule.setUpdatedAt(LocalDateTime.now());
         ruleMapper.insert(rule);
@@ -90,6 +95,8 @@ public class RuleService {
         if (request.getMatchType() != null) rule.setMatchType(request.getMatchType());
         if (request.getReplyText() != null) rule.setReplyText(request.getReplyText());
         if (request.getPriority() != null) rule.setPriority(request.getPriority());
+        if (request.getAction() != null) rule.setAction(request.getAction());
+        if (request.getActionTargetItemId() != null) rule.setActionTargetItemId(request.getActionTargetItemId());
         rule.setUpdatedAt(LocalDateTime.now());
         ruleMapper.updateById(rule);
         return rule;
@@ -126,6 +133,8 @@ public class RuleService {
             if (!"KEYWORD".equals(rule.getReplyType())) continue;
             if (KeywordRuleEngine.testRule(rule.getMatchType(), rule.getKeyword(), message)) {
                 logService.log(accountId, rule.getId(), rule.getRuleName(), "KEYWORD", rule.getKeyword(), message, rule.getReplyText(), true);
+                // 触发动作：POLISH（擦亮）/ SUPER_POLISH（超级擦亮），异步执行不阻塞回复
+                triggerAction(accountId, rule);
                 return rule.getReplyText();
             }
         }
@@ -150,6 +159,38 @@ public class RuleService {
         // 记录未匹配
         logService.log(accountId, null, null, null, null, message, null, false);
         return null;
+    }
+
+    /**
+     * 触发规则动作：POLISH（擦亮）/ SUPER_POLISH（超级擦亮）。
+     * <p>异步执行，不阻塞回复链路；动作失败只记日志，不影响主回复。</p>
+     * <p>actionTargetItemId 为 null 时，跳过动作（防止误擦全架商品），
+     * 调用方应在规则配置时显式指定目标 itemId。</p>
+     */
+    private void triggerAction(Long accountId, XianyuKeywordRule rule) {
+        String action = rule.getAction();
+        if (action == null || action.isBlank()) return;
+        String itemId = rule.getActionTargetItemId();
+        if (itemId == null || itemId.isBlank()) {
+            log.warn("[RULE] action {} 触发但未配 actionTargetItemId，跳过 (accountId={}, ruleId={})",
+                    action, accountId, rule.getId());
+            return;
+        }
+        // 异步执行：擦亮耗时（超级擦亮可达数分钟），不阻塞买家回复
+        new Thread(() -> {
+            try {
+                if ("SUPER_POLISH".equals(action)) {
+                    polishService.superPolish(accountId, itemId, 3);
+                } else if ("POLISH".equals(action)) {
+                    polishService.polish(accountId, itemId);
+                } else {
+                    log.warn("[RULE] 未知 action {}，跳过 (ruleId={})", action, rule.getId());
+                }
+            } catch (Exception e) {
+                log.warn("[RULE] action {} 执行失败 (accountId={}, itemId={}): {}",
+                        action, accountId, itemId, e.getMessage());
+            }
+        }, "rule-action-" + rule.getId()).start();
     }
 
     /**

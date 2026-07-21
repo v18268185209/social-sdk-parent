@@ -29,13 +29,16 @@ public class DatabaseInitializer {
 
     private final DataSource dataSource;
     private final AuthService authService;
+    private final cn.net.rjnetwork.xianyu.manager.config.db.DatabaseProvider databaseProvider;
 
     @Value("${jwt.secret}")
     private String jwtSecret;
 
-    public DatabaseInitializer(DataSource dataSource, AuthService authService) {
+    public DatabaseInitializer(DataSource dataSource, AuthService authService,
+                               cn.net.rjnetwork.xianyu.manager.config.db.DatabaseProvider databaseProvider) {
         this.dataSource = dataSource;
         this.authService = authService;
+        this.databaseProvider = databaseProvider;
     }
 
     @PostConstruct
@@ -47,10 +50,17 @@ public class DatabaseInitializer {
                 dbDir.mkdirs();
             }
 
-            ClassPathResource resource = new ClassPathResource("db/schema.sql");
+            ClassPathResource resource = new ClassPathResource(
+                    databaseProvider != null ? databaseProvider.schemaFile() : "db/schema-sqlite.sql");
             if (resource.exists()) {
                 executeSchemaPerStatement();
-                logger.info("Database schema initialized successfully");
+                logger.info("Database schema initialized successfully (dialect={})",
+                        databaseProvider != null ? databaseProvider.dialect() : "sqlite(fallback)");
+            } else {
+                // 兜底：profile 指定的 schema 文件不存在时退回默认 schema.sql（向后兼容）
+                logger.warn("Schema file not found, fallback to db/schema.sql");
+                new ClassPathResource("db/schema.sql");
+                executeSchemaPerStatement();
             }
             ensureNotifyRetryColumns();
             ensureNotifyDigestConfigTable();
@@ -116,10 +126,11 @@ public class DatabaseInitializer {
     }
 
     private void executeSchemaPerStatement() {
+        String schemaFile = databaseProvider != null ? databaseProvider.schemaFile() : "db/schema-sqlite.sql";
         try (java.sql.Connection conn = dataSource.getConnection();
              Statement st = conn.createStatement();
              BufferedReader br = new BufferedReader(new InputStreamReader(
-                     new ClassPathResource("db/schema.sql").getInputStream(), StandardCharsets.UTF_8))) {
+                     new ClassPathResource(schemaFile).getInputStream(), StandardCharsets.UTF_8))) {
 
             StringBuilder cur = new StringBuilder();
             List<String> stmts = new ArrayList<>();

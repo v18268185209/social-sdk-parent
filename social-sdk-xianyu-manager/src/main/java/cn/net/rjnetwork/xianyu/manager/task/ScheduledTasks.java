@@ -10,7 +10,9 @@ import cn.net.rjnetwork.xianyu.manager.product.service.ProductSyncService;
 import cn.net.rjnetwork.xianyu.manager.product.service.ProductSyncService.SyncResult;
 import cn.net.rjnetwork.xianyu.manager.virtual.service.VirtualShipService;
 import cn.net.rjnetwork.xianyu.manager.order.service.OrderSyncService;
-import cn.net.rjnetwork.xianyu.manager.order.service.OrderSyncService.SyncResult as OrderSyncResult;
+import cn.net.rjnetwork.xianyu.manager.monitor.service.MonitorTaskService;
+import cn.net.rjnetwork.xianyu.manager.monitor.service.MonitorTaskRunner;
+import cn.net.rjnetwork.xianyu.manager.monitor.model.MonitorTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -31,12 +33,16 @@ public class ScheduledTasks {
     private final ImMessageWatcherService watcherService;
     private final VirtualShipService virtualShipService;
     private final OrderSyncService orderSyncService;
+    private final MonitorTaskService monitorTaskService;
+    private final MonitorTaskRunner monitorTaskRunner;
 
     public ScheduledTasks(AccountMapper accountMapper, ProductSyncService productSyncService,
                           MonitorService monitorService, AccountHealthTask healthTask,
                           ImMessageWatcherService watcherService,
                           VirtualShipService virtualShipService,
-                          OrderSyncService orderSyncService) {
+                          OrderSyncService orderSyncService,
+                          MonitorTaskService monitorTaskService,
+                          MonitorTaskRunner monitorTaskRunner) {
         this.accountMapper = accountMapper;
         this.productSyncService = productSyncService;
         this.monitorService = monitorService;
@@ -44,6 +50,8 @@ public class ScheduledTasks {
         this.watcherService = watcherService;
         this.virtualShipService = virtualShipService;
         this.orderSyncService = orderSyncService;
+        this.monitorTaskService = monitorTaskService;
+        this.monitorTaskRunner = monitorTaskRunner;
     }
 
     @Scheduled(cron = "0 0/30 * * * *")
@@ -116,7 +124,7 @@ public class ScheduledTasks {
         List<XianyuAccount> accounts = accountMapper.selectList(null);
         for (XianyuAccount acc : accounts) {
             try {
-                OrderSyncResult r = orderSyncService.syncOrders(acc.getId());
+                OrderSyncService.SyncResult r = orderSyncService.syncOrders(acc.getId());
                 if (r.success) {
                     log.info("[Schedule] sync orders account {}: bought={}, sold={}",
                             acc.getId(), r.boughtCount, r.soldCount);
@@ -126,6 +134,27 @@ public class ScheduledTasks {
             } catch (Exception e) {
                 log.warn("[Schedule] sync orders account {} error: {}", acc.getId(), e.getMessage());
             }
+        }
+    }
+
+    // ======================== 监控任务定时链路 ========================
+
+    /** 每 30 秒扫描到期监控任务（getDueTasks），逐个执行（executeTask） */
+    @Scheduled(cron = "0/30 * * * * *")
+    public void runMonitorTasks() {
+        try {
+            List<MonitorTask> due = monitorTaskService.getDueTasks(50);
+            if (due == null || due.isEmpty()) return;
+            log.info("[Schedule] monitor due tasks: {}", due.size());
+            for (MonitorTask task : due) {
+                try {
+                    monitorTaskRunner.executeTask(task);
+                } catch (Exception e) {
+                    log.warn("[Schedule] monitor task {} failed: {}", task.getId(), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[Schedule] runMonitorTasks failed: {}", e.getMessage());
         }
     }
 

@@ -255,11 +255,12 @@ function avatarText(name) {
   return str ? str.slice(0, 1) : '?'
 }
 
-async function scrollToBottom() {
-  await nextTick()
-  if (chatBoxRef.value) {
-    chatBoxRef.value.scrollTop = chatBoxRef.value.scrollHeight
-  }
+function scrollToBottom() {
+  nextTick(() => {
+    if (chatBoxRef.value) {
+      chatBoxRef.value.scrollTop = chatBoxRef.value.scrollHeight
+    }
+  })
 }
 
 // ==================== 数据加载 ====================

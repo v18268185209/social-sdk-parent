@@ -1,0 +1,46 @@
+[mysqld]
+# ── 基础配置 ───────────────────────────────────────────────────────────────
+pid-file        = /var/run/mysqld/mysqld.pid
+socket          = /var/run/mysqld/mysqld.sock
+datadir         = /var/lib/mysql
+symbolic-links  = 0
+
+# ── 字符集 ─────────────────────────────────────────────────────────────────
+character-set-server  = utf8mb4
+collation-server      = utf8mb4_unicode_ci
+init_connect          = 'SET NAMES utf8mb4'
+
+# ── InnoDB ─────────────────────────────────────────────────────────────────
+default-storage-engine        = InnoDB
+innodb_buffer_pool_size       = 256M
+innodb_log_file_size          = 64M
+innodb_flush_log_at_trx_commit = 1
+innodb_flush_method           = O_DIRECT
+innodb_file_per_table         = 1
+
+# ── 连接 ───────────────────────────────────────────────────────────────────
+max_connections         = 200
+max_connect_errors      = 10000
+wait_timeout            = 28800
+interactive_timeout     = 28800
+
+# ── 日志 ───────────────────────────────────────────────────────────────────
+log_error               = /var/log/mysql/error.log
+slow_query_log          = 1
+slow_query_log_file     = /var/log/mysql/slow.log
+long_query_time         = 2
+
+# ── SQL Mode ───────────────────────────────────────────────────────────────
+sql-mode = STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+
+# ── binlog（如需主从复制可开启） ────────────────────────────────────────────
+# server-id              = 1
+# log_bin                = /var/log/mysql/mysql-bin.log
+# binlog_format          = ROW
+# expire_logs_days       = 7
+
+[client]
+default-character-set = utf8mb4
+
+[mysql]
+default-character-set = utf8mb4

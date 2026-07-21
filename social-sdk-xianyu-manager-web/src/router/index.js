@@ -144,6 +144,18 @@ const routes = [
         name: 'Tasks',
         component: () => import('@/views/tasks/Index.vue'),
         meta: { title: '监控任务' }
+      },
+      {
+        path: 'reviews',
+        name: 'Reviews',
+        component: () => import('@/views/reviews/Index.vue'),
+        meta: { title: '评价与信用' }
+      },
+      {
+        path: 'polish',
+        name: 'Polish',
+        component: () => import('@/views/polish/Index.vue'),
+        meta: { title: '商品擦亮' }
       }
     ]
   }

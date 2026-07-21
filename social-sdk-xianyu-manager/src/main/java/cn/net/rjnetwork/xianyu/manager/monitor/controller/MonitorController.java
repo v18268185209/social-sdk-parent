@@ -4,6 +4,7 @@ import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import cn.net.rjnetwork.xianyu.manager.monitor.model.MonitorResult;
 import cn.net.rjnetwork.xianyu.manager.monitor.model.MonitorTask;
 import cn.net.rjnetwork.xianyu.manager.monitor.service.MonitorResultService;
+import cn.net.rjnetwork.xianyu.manager.monitor.service.MonitorService;
 import cn.net.rjnetwork.xianyu.manager.monitor.service.MonitorTaskService;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,10 +17,37 @@ public class MonitorController {
 
     private final MonitorTaskService taskService;
     private final MonitorResultService resultService;
+    private final MonitorService monitorService;
 
-    public MonitorController(MonitorTaskService taskService, MonitorResultService resultService) {
+    public MonitorController(MonitorTaskService taskService, MonitorResultService resultService, MonitorService monitorService) {
         this.taskService = taskService;
         this.resultService = resultService;
+        this.monitorService = monitorService;
+    }
+
+    /**
+     * 运营仪表盘 - 汇总概览 + 各账号详细指标
+     */
+    @GetMapping("/dashboard")
+    public ApiResponse<Map<String, Object>> dashboard() {
+        return ApiResponse.success(monitorService.getDashboardStats());
+    }
+
+    /**
+     * 各账号运营指标（独立接口）
+     */
+    @GetMapping("/accounts")
+    public ApiResponse<List<Map<String, Object>>> accountStats() {
+        return ApiResponse.success(monitorService.getAccountStats());
+    }
+
+    /**
+     * 清除仪表盘缓存
+     */
+    @PostMapping("/cache/clear")
+    public ApiResponse<String> clearCache() {
+        monitorService.invalidateCache();
+        return ApiResponse.success("缓存已清除");
     }
 
     @GetMapping("/tasks")

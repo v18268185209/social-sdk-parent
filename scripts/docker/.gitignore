@@ -1,0 +1,16 @@
+# 构建产物
+build/
+*.log
+
+# 数据目录（运行时生成）
+data/
+chrome-profiles/
+logs/
+config/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store

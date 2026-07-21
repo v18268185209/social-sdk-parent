@@ -5,8 +5,10 @@ import cn.net.rjnetwork.xianyu.proxy.config.ProxyProperties;
 import cn.net.rjnetwork.xianyu.proxy.config.ProxyType;
 import cn.net.rjnetwork.xianyu.proxy.health.DefaultHealthChecker;
 import cn.net.rjnetwork.xianyu.proxy.provider.AbuyunProvider;
-import cn.net.rjnetwork.xianyu.proxy.provider.KuaidailiProvider;
 import cn.net.rjnetwork.xianyu.proxy.provider.SmartproxyProvider;
+import cn.net.rjnetwork.xianyu.proxy.provider.kuaidaili.KuaidailiAuth;
+import cn.net.rjnetwork.xianyu.proxy.provider.kuaidaili.KuaidailiPrivateProvider;
+import cn.net.rjnetwork.xianyu.proxy.provider.kuaidaili.KuaidailiTunnelProvider;
 import cn.net.rjnetwork.xianyu.proxy.provider.qg.QgShortLivedProvider;
 import cn.net.rjnetwork.xianyu.proxy.provider.qg.QgTunnelProvider;
 import org.slf4j.Logger;
@@ -138,18 +140,38 @@ public class ProxyAutoConfiguration {
     }
 
     /**
-     * 快代理供应商 bean（条件注册）。
+     * 快代理认证 bean（隧道代理和私密代理共用）。
      */
     @Bean
     @ConditionalOnProperty(prefix = "proxy.providers.kuaidaili", name = "enabled", havingValue = "true")
-    public KuaidailiProvider kuaidailiProvider() {
-        ProxyProperties.ProviderConfig cfg = properties.getProviders().get("kuaidaili");
-        if (cfg == null) {
-            throw new IllegalStateException("快代理启用但未配置 proxy.providers.kuaidaili.*");
+    public KuaidailiAuth kuaidailiAuth() {
+        if (properties.getKuaidaili().getSecretId() == null || properties.getKuaidaili().getSecretId().isBlank()) {
+            throw new IllegalStateException("快代理启用但未配置 proxy.providers.kuaidaili.secretId");
         }
-        KuaidailiProvider provider = new KuaidailiProvider(
-                cfg.getOrderId(), cfg.getApiKey(), cfg.getTunnelHost(), cfg.getTunnelPort());
-        log.info("[PROXY-AUTOCONFIG] 注册快代理供应商, tunnelHost={}:{}", cfg.getTunnelHost(), cfg.getTunnelPort());
+        KuaidailiAuth auth = new KuaidailiAuth(properties.getKuaidaili());
+        log.info("[PROXY-AUTOCONFIG] 创建 KuaidailiAuth, authType={}", properties.getKuaidaili().getAuthType());
+        return auth;
+    }
+
+    /**
+     * 快代理 隧道代理供应商 bean（条件注册）。
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "proxy.providers.kuaidaili.tunnel", name = "enabled", havingValue = "true")
+    public KuaidailiTunnelProvider kuaidailiTunnelProvider(KuaidailiAuth auth) {
+        KuaidailiTunnelProvider provider = new KuaidailiTunnelProvider(auth, properties.getKuaidaili().getTunnel());
+        log.info("[PROXY-AUTOCONFIG] 注册快代理隧道代理供应商");
+        return provider;
+    }
+
+    /**
+     * 快代理 私密代理供应商 bean（条件注册）。
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "proxy.providers.kuaidaili.private_", name = "enabled", havingValue = "true")
+    public KuaidailiPrivateProvider kuaidailiPrivateProvider(KuaidailiAuth auth) {
+        KuaidailiPrivateProvider provider = new KuaidailiPrivateProvider(auth, properties.getKuaidaili().getPrivate_());
+        log.info("[PROXY-AUTOCONFIG] 注册快代理私密代理供应商");
         return provider;
     }
 
@@ -207,10 +229,11 @@ public class ProxyAutoConfiguration {
     public ProxyPoolRegistrar proxyPoolRegistrar(
             DefaultProxyPoolManager poolManager,
             @org.springframework.beans.factory.annotation.Autowired(required = false) AbuyunProvider abuyunProvider,
-            @org.springframework.beans.factory.annotation.Autowired(required = false) KuaidailiProvider kuaidailiProvider,
             @org.springframework.beans.factory.annotation.Autowired(required = false) SmartproxyProvider smartproxyProvider,
             @org.springframework.beans.factory.annotation.Autowired(required = false) QgTunnelProvider qgTunnelProvider,
             @org.springframework.beans.factory.annotation.Autowired(required = false) QgShortLivedProvider qgShortLivedProvider,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) KuaidailiTunnelProvider kuaidailiTunnelProvider,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) KuaidailiPrivateProvider kuaidailiPrivateProvider,
             @Qualifier("proxyTaskScheduler") TaskScheduler taskScheduler) {
 
         poolManager.setHealthCheckScheduler(
@@ -223,9 +246,6 @@ public class ProxyAutoConfiguration {
         if (abuyunProvider != null) {
             poolManager.registerProvider(ProviderType.ABUYUN, abuyunProvider);
         }
-        if (kuaidailiProvider != null) {
-            poolManager.registerProvider(ProviderType.KUAILAILI, kuaidailiProvider);
-        }
         if (smartproxyProvider != null) {
             poolManager.registerProvider(ProviderType.SMARTPROXY, smartproxyProvider);
         }
@@ -234,6 +254,12 @@ public class ProxyAutoConfiguration {
         }
         if (qgShortLivedProvider != null) {
             poolManager.registerProvider(ProviderType.QG, qgShortLivedProvider);
+        }
+        if (kuaidailiTunnelProvider != null) {
+            poolManager.registerProvider(ProviderType.KUAILAILI_TUNNEL, kuaidailiTunnelProvider);
+        }
+        if (kuaidailiPrivateProvider != null) {
+            poolManager.registerProvider(ProviderType.KUAILAILI_PRIVATE, kuaidailiPrivateProvider);
         }
 
         log.info("[PROXY-AUTOCONFIG] 供应商注册完成, providers={}", poolManager.listRegisteredProviders());

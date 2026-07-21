@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # ── 闲鱼管理器（SQLite 版，默认） ─────────────────────────────────────────
+  xianyu-manager:
+    build:
+      context: ../..
+      dockerfile: scripts/docker/Dockerfile
+      args:
+        DB_MODE: sqlite
+    image: xianyu-manager:sqlite-latest
+    container_name: xianyu-manager
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./chrome-profiles:/app/chrome-profiles
+      - ./logs:/app/logs
+      - ./config:/app/config
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - TZ=Asia/Shanghai
+      # 覆盖 application.yml 中的 DB 路径
+      - DB_PATH=/app/data/xianyu-manager.db
+      # JVM 参数
+      - JAVA_OPTS=-Xmx512m -Xms256m
+      # 自定义 JWT/Crypto 密钥（必须修改！）
+      - XIANYU_JWT_SECRET=${XIANYU_JWT_SECRET:-change-me-in-production}
+      - XIANYU_CRYPTO_SECRET=${XIANYU_CRYPTO_SECRET:-change-me-in-production}
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - seccomp=unconfined  # Chromium 需要
+    networks:
+      - xianyu-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  xianyu-net:
+    driver: bridge
+
+# ── 使用说明 ───────────────────────────────────────────────────────────────
+# 启动: docker compose -f scripts/docker/docker-compose.yml up -d
+# 停止: docker compose -f scripts/docker/docker-compose.yml down
+# 日志: docker compose -f scripts/docker/docker-compose.yml logs -f
+# 数据目录: ./data/ （首次启动自动初始化）

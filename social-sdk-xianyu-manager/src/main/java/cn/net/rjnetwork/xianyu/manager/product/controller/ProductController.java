@@ -6,6 +6,7 @@ import cn.net.rjnetwork.xianyu.manager.product.dto.ProductCreateRequest;
 import cn.net.rjnetwork.xianyu.manager.product.dto.ProductUpdateRequest;
 import cn.net.rjnetwork.xianyu.manager.product.model.XianyuProduct;
 import cn.net.rjnetwork.xianyu.manager.product.service.ProductService;
+import cn.net.rjnetwork.xianyu.manager.product.service.PolishService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,9 +18,11 @@ import java.util.Map;
 public class ProductController {
 
     private final ProductService productService;
+    private final PolishService polishService;
 
-    public ProductController(ProductService productService) {
+    public ProductController(ProductService productService, PolishService polishService) {
         this.productService = productService;
+        this.polishService = polishService;
     }
 
     @GetMapping
@@ -138,6 +141,45 @@ public class ProductController {
             return ApiResponse.fail("COOKIE_EXPIRED", e.getMessage());
         } catch (Exception e) {
             return ApiResponse.fail("SYNC_FAILED", "Sync failed: " + e.getMessage());
+        }
+    }
+
+    // ======================== 商品擦亮（对齐前端 /api/products/polish）========================
+
+    @PostMapping("/polish")
+    public ApiResponse<Map<String, Object>> polish(@RequestParam Long accountId, @RequestParam String itemId) {
+        try {
+            return ApiResponse.ok(polishService.polish(accountId, itemId));
+        } catch (IllegalStateException e) {
+            return ApiResponse.fail("RISK_CONTROL", e.getMessage());
+        } catch (Exception e) {
+            return ApiResponse.fail("POLISH_FAILED", "擦亮失败: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/polish/batch")
+    public ApiResponse<Map<String, Object>> polishBatch(@RequestBody Map<String, Object> body) {
+        try {
+            Long accountId = Long.valueOf(String.valueOf(body.get("accountId")));
+            @SuppressWarnings("unchecked")
+            java.util.List<String> itemIds = (java.util.List<String>) body.get("itemIds");
+            return ApiResponse.ok(polishService.batchPolish(accountId, itemIds));
+        } catch (IllegalStateException e) {
+            return ApiResponse.fail("RISK_CONTROL", e.getMessage());
+        } catch (Exception e) {
+            return ApiResponse.fail("POLISH_FAILED", "批量擦亮失败: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/polish/super")
+    public ApiResponse<Map<String, Object>> polishSuper(@RequestParam Long accountId, @RequestParam String itemId,
+                                                        @RequestParam(required = false) Integer times) {
+        try {
+            return ApiResponse.ok(polishService.superPolish(accountId, itemId, times));
+        } catch (IllegalStateException e) {
+            return ApiResponse.fail("RISK_CONTROL", e.getMessage());
+        } catch (Exception e) {
+            return ApiResponse.fail("POLISH_FAILED", "超级擦亮失败: " + e.getMessage());
         }
     }
 }

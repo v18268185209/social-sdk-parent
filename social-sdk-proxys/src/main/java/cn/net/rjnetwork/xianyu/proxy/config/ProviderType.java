@@ -6,7 +6,8 @@ package cn.net.rjnetwork.xianyu.proxy.config;
  * <p>已有的适配器：</p>
  * <ul>
  *   <li>{@link #ABUYUN}     - 阿布云 (abuyun.com)    — 国内住宅，按请求计费</li>
- *   <li>{@link #KUAILAILI}  - 快代理 (kuaidaili.com) — 国内住宅，隧道代理</li>
+ *   <li>{@link #KUAILAILI_TUNNEL}  - 快代理 (kuaidaili.com) 隧道代理</li>
+ *   <li>{@link #KUAILAILI_PRIVATE} - 快代理 (kuaidaili.com) 私密代理</li>
  *   <li>{@link #SMARTPROXY}- Smartproxy            — 国际住宅，按流量计费</li>
  *   <li>{@link #CUSTOM}    - 自定义实现，业务方自己写适配器</li>
  * </ul>
@@ -16,8 +17,11 @@ public enum ProviderType {
     /** 阿布云 (abuyun.com) — 国内住宅代理 */
     ABUYUN("Abuyun", "阿布云"),
 
-    /** 快代理 (kuaidaili.com) — 国内住宅隧道代理 */
-    KUAILAILI("Kuaidaili", "快代理"),
+    /** 快代理 (kuaidaili.com) — 隧道代理（固定 host:port，云端自动切 IP） */
+    KUAILAILI_TUNNEL("KuaidailiTunnel", "快代理-隧道代理"),
+
+    /** 快代理 (kuaidaili.com) — 私密代理（动态短效，按 IP 付费，真实 ip:port） */
+    KUAILAILI_PRIVATE("KuaidailiPrivate", "快代理-私密代理"),
 
     /** Smartproxy — 国际住宅代理 */
     SMARTPROXY("Smartproxy", "Smartproxy"),

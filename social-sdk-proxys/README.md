@@ -181,6 +181,113 @@ DefaultProxyPoolManager
 
 ---
 
+## 快代理 (kuaidaili.com) 接入
+
+快代理是国内老牌代理 IP 服务商，官网 https://www.kuaidaili.com 。
+social-sdk-proxys 内置两个 Provider：**隧道代理（快速跑通）** + **私密代理（长期稳定）**。
+
+### 1. 开通快代理
+
+1. 注册快代理账号 https://www.kuaidaili.com
+2. 后台获取订单的 `secretId` 和 `secretKey`（每个订单对应一组密钥）
+3. 设置白名单 IP 或配置账密鉴权
+4. 开通套餐（隧道代理 / 私密代理）
+
+### 2. 二选一或全都要
+
+| 套餐 | 适用场景 | Provider |
+|---|---|---|
+| **隧道代理** | 快速上线，账号-IP 绑定要求不强，云端自动切 IP | `KuaidailiTunnelProvider` |
+| **私密代理** | 每个账号固定一个住宅 IP，降低风控 | `KuaidailiPrivateProvider` |
+| **两者配合** | 私密代理优先，隧道代理兜底 | 两者都启用 |
+
+### 3. 配置 application.yml
+
+```yaml
+proxy:
+  providers:
+    # 快代理 (kuaidaili.com) 共用一组 secretId/secretKey
+    kuaidaili:
+      enabled: true                       # 整体开关（仅作标记，bean 注册看内部子开关）
+      secretId: your_secret_id            # 订单 SecretId
+      secretKey: your_secret_key          # 订单 SecretKey（hmacsha1 模式必填）
+      authType: token                     # token（默认）或 hmacsha1
+
+      # 方案 A：隧道代理（固定入口，云端自动切 IP）
+      tunnel:
+        enabled: true                     # 加这个才装配 kuaidailiTunnelProvider
+        num: 1                            # 提取数量（固定为 1）
+        format: json                      # 返回格式：json / text / xml
+
+      # 方案 B：私密代理（每次调 API 提取，账号固定 IP）
+      private:
+        enabled: false                    # 设为 true 启用私密代理
+        num: 1                            # 单次提取数量（建议 1）
+        pt: 1                             # IP 协议：1=http 2=socks5
+        distinct: true                    # 去重提取：避免分到其他账号用过的 IP
+        format: json                      # 返回格式：json / text / xml
+        areaCode: ""                      # 可选：限定 IP 地区编码
+        isp: 0                            # 运营商筛选：0=不筛选 1=电信 2=移动 3=联通
+        keepAliveSec: 120                 # IP 可用时长（秒）
+```
+
+### 4. 两种方案的请求流
+
+**方案 A：隧道代理**
+
+```
+XianyuMtopApiClient
+    ↓ acquire(ProxyAcquireRequest)
+KuaidailiTunnelProvider
+    ↓ 调用 tps.kdlapi.com/api/gettps → 返回固定 host:port
+    ↓ 快代理云端自动切每个请求的出口 IP
+DefaultProxyPoolManager
+    ↓ cache binding (accountId → kdl-tunnel)
+    ↓ 返回 ProxyLease
+```
+
+* 请求示例：`http://secretId:secretKey@tps121.kdlapi.com:15818`
+* 快代理云端自动路由到不同出口 IP，SDK 无感知
+* 支持通过 `changetpsip` 接口主动换 IP
+
+**方案 B：私密代理**
+
+```
+XianyuMtopApiClient
+    ↓ acquire(ProxyAcquireRequest)
+KuaidailiPrivateProvider
+    ↓ 调用 dps.kdlapi.com/api/getdps → 返回真实 ip:port
+    ↓ 构造 ProxyInfo（带 expireAt）
+DefaultProxyPoolManager
+    ↓ binding (accountId → ip:port)
+    ↓ 健康检查
+    ↓ 返回 ProxyLease
+```
+
+* 请求示例：`http://123.54.55.24:59419`（使用 secretId/secretKey 作为账密）
+* SDK 记录 `expireAt`（到期自动失效）
+* 可开启 `distinct=true` 去重，避免分到已用过的 IP
+* 支持 `checkdpsvalid` / `getdpsvalidtime` 检测代理有效性
+
+### 5. 鉴权方式
+
+| 方式 | 说明 | 配置 |
+|---|---|---|
+| **token**（默认） | 调用 `auth.kdlapi.com/api/get_secret_token` 获取 token，直接作为 signature | `authType: token` |
+| **hmacsha1** | 用 secret_key 对请求串做 HMAC-SHA1 + Base64 签名，更安全 | `authType: hmacsha1` |
+
+参考文档：https://help.kuaidaili.com/api/auth/
+
+### 6. 推荐优先级
+
+在 `ProxyPoolRegistrar` 中，默认按注册顺序排列：
+
+```
+私密快代理 → 隧道快代理 → 阿布云 → 直连兜底
+```
+
+---
+
 ## 快速接入
 
 ### 1. 加依赖

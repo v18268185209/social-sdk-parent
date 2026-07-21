@@ -157,7 +157,7 @@ public class MonitorTaskRunner {
             circuitBreaker.recordFailure(task.getAccountId(), "MONITOR", e.getMessage());
             task.setConsecutiveFailures(task.getConsecutiveFailures() + 1);
             checkCircuit(task);
-            task.setNextRunAt(LocalDateTime.now().plusMinutes(5); // 失败后 5 分钟重试
+            task.setNextRunAt(LocalDateTime.now().plusMinutes(5)); // 失败后 5 分钟重试
             taskMapper.updateById(task);
         }
     }

@@ -2,6 +2,8 @@
   port: 8080
 
 spring:
+  profiles:
+    active: sqlite
   application:
     name: xianyu-manager
   web:
@@ -10,8 +12,8 @@ spring:
   mvc:
     # 让未匹配的导航请求抛出 NoHandlerFoundException，交给 SpaFallbackAdvice 转发到 index.html
     # （已存在的静态资源仍由 ResourceHttpRequestHandler 正常返回，不受影响）
-    # throw-exception-if-no-handler-found: true
-    static-path-pattern: /**
+    throw-exception-if-no-handler-found: true
+    static-path-pattern: /static/**
   datasource:
     type: com.alibaba.druid.pool.DruidDataSource
     driver-class-name: org.sqlite.JDBC

@@ -57,6 +57,13 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Internal: 复用 social-sdk-cdp-auth 的验证码能力 -->
+        <dependency>
+            <groupId>cn.net.rjnetwork</groupId>
+            <artifactId>social-sdk-cdp-auth</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- 测试依赖 -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>

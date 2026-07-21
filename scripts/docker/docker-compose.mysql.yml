@@ -1,0 +1,79 @@
+version: '3.8'
+
+# ============================================================================
+# Docker Compose 配置 — MySQL 8 模式
+#
+# 使用方式:
+#   docker compose -f docker-compose.yml -f docker-compose.mysql.yml up -d
+#
+# 包含:
+#   - xianyu-manager: 闲鱼管理器主应用
+#   - mysql: MySQL 8 数据库
+# ============================================================================
+
+services:
+  # ── 覆盖 xianyu-manager 配置（MySQL 版） ──────────────────────────────────
+  xianyu-manager:
+    build:
+      context: ../..
+      dockerfile: scripts/docker/Dockerfile
+      args:
+        DB_MODE: mysql
+    image: xianyu-manager:mysql-latest
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod,mysql
+      - TZ=Asia/Shanghai
+      # MySQL 数据源配置
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/xianyu_manager?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=xianyu
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_PASSWORD:-xianyu123456}
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=com.mysql.cj.jdbc.Driver
+      # MyBatis-Plus 方言
+      - MYBATIS_PLUS_GLOBAL_CONFIG_DB_CONFIG_ID_TYPE=auto
+      - JAVA_OPTS=-Xmx512m -Xms256m
+      - XIANYU_JWT_SECRET=${XIANYU_JWT_SECRET:-change-me-in-production}
+      - XIANYU_CRYPTO_SECRET=${XIANYU_CRYPTO_SECRET:-change-me-in-production}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - xianyu-net
+
+  # ── MySQL 8 ──────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: xianyu-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
+      - ./mysql-config:/etc/mysql/conf.d:ro
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root123456}
+      - MYSQL_DATABASE=xianyu_manager
+      - MYSQL_USER=xianyu
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-xianyu123456}
+      - TZ=Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+      - --sql-mode=STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - xianyu-net
+
+volumes:
+  mysql-data:
+    driver: local
+
+networks:
+  xianyu-net:
+    driver: bridge

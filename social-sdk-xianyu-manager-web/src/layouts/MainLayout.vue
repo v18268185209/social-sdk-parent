@@ -75,6 +75,9 @@
       <el-header class="header">
         <span class="page-title">{{ currentTitle }}</span>
         <div class="header-right">
+          <el-button text circle @click="openDataBoard" title="实时大屏（新窗口）">
+            <el-icon :size="18"><FullScreen /></el-icon>
+          </el-button>
           <el-badge :value="unread" :hidden="unread === 0" :max="99" class="bell-badge">
             <el-button text circle @click="openInbox" title="站内通知">
               <el-icon :size="18"><Bell /></el-icon>
@@ -163,7 +166,7 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { DataAnalysis, User, Goods, ChatDotRound, List, Operation, Money, Star, Cpu, Promotion, Van, UploadFilled, Monitor, Document, Bell, UserFilled, ArrowDown } from '@element-plus/icons-vue'
+import { DataAnalysis, User, Goods, ChatDotRound, List, Operation, Money, Star, Cpu, Promotion, Van, UploadFilled, Monitor, Document, Bell, UserFilled, ArrowDown, FullScreen } from '@element-plus/icons-vue'
 import * as notify from '@/api/notification'
 
 const route = useRoute()
@@ -189,6 +192,10 @@ const titleMap = {
 }
 
 const currentTitle = computed(() => titleMap[route.path] || '管理后台')
+
+function openDataBoard() {
+  window.open('/data-board', '_blank')
+}
 
 function handleCommand(cmd) {
   if (cmd === 'logout') {
@@ -326,7 +333,7 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
   cursor: pointer;
   color: #606266;
 }
-.main-content { background: #f0f2f5; }
+.main-content { background: #f0f2f5; padding: 0 !important; overflow: hidden; display: flex; flex-direction: column; }
 
 /* 业务合作页脚 */
 .app-footer {

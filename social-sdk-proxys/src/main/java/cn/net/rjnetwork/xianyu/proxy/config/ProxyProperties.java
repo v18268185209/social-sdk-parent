@@ -78,6 +78,9 @@ public class ProxyProperties {
     /** 青果网络 (qg.net) 专属配置 */
     private QgConfig qg = new QgConfig();
 
+    /** 快代理 (kuaidaili.com) 专属配置 */
+    private KuaidailiConfig kuaidaili = new KuaidailiConfig();
+
     /**
      * 青果网络 (qg.net) 专属配置。top-level <b>apiKey</b> 被隧道代理和短效代理共用。
      *
@@ -171,6 +174,84 @@ public class ProxyProperties {
     }
 
     /**
+     * 快代理 (kuaidaili.com) 专属配置。top-level <b>secretId/secretKey</b> 被隧道代理和私密代理共用。
+     *
+     * <p>yaml 结构：</p>
+     * <pre>{@code
+     * proxy:
+     *   providers:
+     *     kuaidaili:
+     *       enabled: true
+     *       secretId: your_secret_id       # 订单 SecretId
+     *       secretKey: your_secret_key     # 订单 SecretKey（hmacsha1 模式必填）
+     *       authType: token                # token 或 hmacsha1
+     *       tunnel:
+     *         enabled: true
+     *         num: 1
+     *         format: json
+     *       private:
+     *         enabled: false
+     *         num: 1
+     *         pt: 1
+     *         distinct: true
+     *         format: json
+     *         keepAliveSec: 120
+     * }</pre>
+     *
+     * <p>参考文档：https://help.kuaidaili.com/api/auth/ / https://help.kuaidaili.com/api/gettps/ / https://help.kuaidaili.com/api/getdps/</p>
+     */
+    @Data
+    public static class KuaidailiConfig {
+        /** 是否启用快代理（仅作标记，bean 注册看内部子开关） */
+        private boolean enabled = false;
+
+        /** 订单 SecretId（隧道/私密共用，快代理控制台获取） */
+        private String secretId;
+
+        /** 订单 SecretKey（hmacsha1 模式必填，token 模式可选） */
+        private String secretKey;
+
+        /** 鉴权方式：token（默认）或 hmacsha1 */
+        private String authType = "token";
+
+        /** 隧道代理子配置 */
+        private KuaidailiTunnelSubConfig tunnel = new KuaidailiTunnelSubConfig();
+
+        /** 私密代理子配置 */
+        private KuaidailiPrivateSubConfig private_ = new KuaidailiPrivateSubConfig();
+    }
+
+    /**
+     * 隧道代理子配置。
+     */
+    @Data
+    public static class KuaidailiTunnelSubConfig {
+        private boolean enabled = false;
+        private int num = 1;
+        private String format = "json";
+    }
+
+    /**
+     * 私密代理子配置。
+     */
+    @Data
+    public static class KuaidailiPrivateSubConfig {
+        private boolean enabled = false;
+        private int num = 1;
+        /** IP 协议：1=http 2=socks5 */
+        private int pt = 1;
+        /** 去重提取 */
+        private boolean distinct = true;
+        private String format = "json";
+        /** 地区编码 */
+        private String areaCode;
+        /** 运营商筛选：0=不筛选 1=电信 2=移动 3=联通 */
+        private int isp;
+        /** 可用时长（秒） */
+        private int keepAliveSec = 120;
+    }
+
+    /**
      * 健康检查配置
      */
     @Data
@@ -198,4 +279,5 @@ public class ProxyProperties {
         private String tunnelHost;
         private int tunnelPort;
     }
+
 }

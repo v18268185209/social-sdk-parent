@@ -291,7 +291,7 @@ public class ChromeSession {
      * @param port          CDP 端口
      * @param scriptProvider 反检测脚本提供者（per-account seed 派生）
      */
-    public void injectFingerprintScript(int port, java.util.function.LongSupplier scriptProvider) {
+    public void injectFingerprintScript(int port, java.util.function.LongSupplier scriptProvider) throws IOException, TimeoutException {
         String script = SliderAntiDetect.buildScript(scriptProvider.getAsLong());
         // 找到第一个 page target 的 webSocketDebuggerUrl
         String wsUrl = findPageTargetWsUrl(port);
@@ -341,11 +341,11 @@ public class ChromeSession {
      * @param params    JSON 格式的参数字符串（不含外层 id/response）
      * @return CDP 响应的 result JSON 字符串
      */
-    public String sendCdpCommand(String wsUrl, String method, String params) {
+    public String sendCdpCommand(String wsUrl, String method, String params) throws IOException, TimeoutException {
         return sendCdpCommand(wsUrl, method, params, null);
     }
 
-    public String sendCdpCommand(String wsUrl, String method, String params, String requireField) {
+    public String sendCdpCommand(String wsUrl, String method, String params, String requireField) throws IOException, TimeoutException {
         if (wsUrl == null || wsUrl.isEmpty()) {
             throw new IllegalArgumentException("wsUrl 不能为空");
         }
@@ -429,7 +429,7 @@ public class ChromeSession {
     /**
      * 在 page target 上执行 {@code Runtime.evaluate}。
      */
-    private String evaluateOnPage(String wsUrl, String expression) {
+    private String evaluateOnPage(String wsUrl, String expression) throws IOException, TimeoutException {
         String params = "{\"expression\":\"" + escapeJson(expression) + "\",\"returnByValue\":true}";
         return sendCdpCommand(wsUrl, "Runtime.evaluate", params, "result");
     }

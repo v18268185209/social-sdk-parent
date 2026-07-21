@@ -69,7 +69,7 @@ public class KuaidailiProvider implements ProxyProvider {
         // 隧道代理模式：直接返回隧道入口
         if (tunnelHost != null && !tunnelHost.isBlank()) {
             return ProxyInfo.builder()
-                    .providerType(ProviderType.KUAILAILI)
+                    .providerType(ProviderType.KUAILAILI_TUNNEL)
                     .proxyType(ProxyType.RESIDENTIAL)
                     .host(tunnelHost)
                     .port(tunnelPort)
@@ -155,7 +155,7 @@ public class KuaidailiProvider implements ProxyProvider {
             String[] hostPort = first.asText().split(":");
 
             return ProxyInfo.builder()
-                    .providerType(ProviderType.KUAILAILI)
+                    .providerType(ProviderType.KUAILAILI_TUNNEL)
                     .proxyType(ProxyType.RESIDENTIAL)
                     .host(hostPort[0])
                     .port(Integer.parseInt(hostPort[1]))
@@ -171,7 +171,7 @@ public class KuaidailiProvider implements ProxyProvider {
             throw e;
         } catch (Exception e) {
             throw new cn.net.rjnetwork.xianyu.proxy.core.ProxyException(
-                    "FETCH_EXCLUSIVE_IP_ERROR", "获取独享 IP 失败: " + e.getMessage(), e, ProviderType.KUAILAILI, true);
+                    "FETCH_EXCLUSIVE_IP_ERROR", "获取独享 IP 失败: " + e.getMessage(), e, ProviderType.KUAILAILI_PRIVATE, true);
         }
     }
 
