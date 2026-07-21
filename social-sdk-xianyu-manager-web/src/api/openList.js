@@ -21,6 +21,10 @@ export function restartOpenList() {
   return api.post('/cloud-storage/openlist/restart')
 }
 
+export function getOpenListProgress() {
+  return api.get('/cloud-storage/openlist/progress')
+}
+
 export function getOpenListInfo() {
   return api.get('/cloud-storage/openlist/info')
 }

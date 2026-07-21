@@ -55,8 +55,39 @@ public class XianyuCaptchaSolver {
         this.config = config;
     }
 
+    private volatile String effectiveCdpEndpoint;
+
     public String getCdpHttpEndpoint() {
-        return config.getCdpEndpoint();
+        String cached = effectiveCdpEndpoint;
+        if (cached != null && !cached.isBlank()) return cached;
+        String configured = config.getCdpEndpoint();
+        for (String candidate : List.of(configured, "http://127.0.0.1:9222")) {
+            if (candidate == null || candidate.isBlank()) continue;
+            if (isCdpAlive(candidate)) {
+                effectiveCdpEndpoint = candidate;
+                if (!candidate.equals(configured)) {
+                    log.warn("[CDP-AUTH] configured CDP {} unavailable, fallback to {}", configured, candidate);
+                }
+                return candidate;
+            }
+        }
+        return configured;
+    }
+
+    private boolean isCdpAlive(String endpoint) {
+        try {
+            HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(2)).build();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(endpoint + "/json/version"))
+                    .timeout(java.time.Duration.ofSeconds(2))
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() >= 200 && response.statusCode() < 300
+                    && response.body() != null && response.body().contains("webSocketDebuggerUrl");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public String getManualVerificationPageUrl() {
@@ -186,21 +217,37 @@ public class XianyuCaptchaSolver {
             return CaptchaResult.fail("获取页面 CDP 端点失败：" + e.getMessage());
         }
 
-        // 5. IM 风控必须在真实闲鱼消息页处理。
-        // pc.login.token 返回的 punish URL 可能过完后跳 taobao.com，不能作为消息链路验证入口；
-        // 进入 goofish.com/im 才会触发消息页登录/验证码/WSS cookie 落盘。
+        // 5. 消息风控不要直接打开 data.url 里的 punish 链接。
+        // 实测该链接脱离 IM 页面上下文时会落到 /undefined 或错误页；正确入口是已登录的闲鱼消息页，
+        // 由消息页自身触发 pc.login.token / WSS 初始化后渲染验证码，再在该页面定位滑块。
         try {
             navigateToAccountPage(cdpEndpoint, IM_PAGE_URL);
-            Thread.sleep(5000); // 等待消息页加载、MTOP/WSS 初始化和验证码渲染
+            Thread.sleep(5000); // 等待消息页加载、IM 初始化和验证码渲染
         } catch (Exception e) {
             return CaptchaResult.fail("导航到闲鱼消息页失败：" + e.getMessage());
         }
 
-        // 消息页可能已经可用：直接提取 goofish/taobao 消息域 cookie，存入 imCookieHeader。
         String readyCookie = extractCookie(cdpEndpoint, IM_PAGE_URL);
-        if (isUsableImCookie(readyCookie)) {
-            log.info("[CDP-AUTH] 闲鱼消息页已可用，已提取消息页 cookie");
+        boolean sliderVisible = hasSlider(cdpEndpoint);
+        if (isUsableImCookie(readyCookie) && !sliderVisible) {
+            log.info("[CDP-AUTH] 闲鱼消息页已正常可用且无滑块，直接复用当前 IM cookie");
             return CaptchaResult.ok(readyCookie);
+        }
+        if (hasX5Cookie(readyCookie) && checkAlreadyPassed(cdpEndpoint)) {
+            log.info("[CDP-AUTH] 闲鱼消息页验证已通过，已提取 x5sec cookie");
+            return CaptchaResult.ok(readyCookie);
+        }
+        if (!sliderVisible) {
+            log.warn("[CDP-AUTH] 闲鱼消息页未发现滑块元素，继续尝试触发/等待验证码渲染");
+            triggerImCaptchaRender(cdpEndpoint);
+            sliderVisible = waitForSlider(cdpEndpoint, 8000);
+            if (!sliderVisible) {
+                String cookie = extractCookie(cdpEndpoint, IM_PAGE_URL);
+                if (isUsableImCookie(cookie)) {
+                    log.info("[CDP-AUTH] 等待后仍无滑块，IM 页面可用，复用当前 IM cookie");
+                    return CaptchaResult.ok(cookie);
+                }
+            }
         }
 
         // 6. 自动拖动滑块，最多重试 3 次
@@ -255,22 +302,22 @@ public class XianyuCaptchaSolver {
         if (!success) {
             log.warn("[CDP-AUTH] 自动滑块失败，保留 CDP 页面等待人工完成验证，最长等待 {} 秒", config.getTimeoutSeconds());
             String manualCookie = waitForManualCaptchaAndCookie(cdpEndpoint, IM_PAGE_URL);
-            if (isUsableImCookie(manualCookie)) {
-                log.info("[CDP-AUTH] 人工验证完成，已提取消息页 cookie");
+            if (hasX5Cookie(manualCookie)) {
+                log.info("[CDP-AUTH] 人工验证完成，已提取 IM x5sec cookie");
                 return CaptchaResult.ok(manualCookie);
             }
             return CaptchaResult.fail("滑块验证失败，已尝试 " + MAX_RETRY_ATTEMPTS + " 次，且等待人工验证超时");
         }
 
-        // 7. 提取消息页 cookie（goofish/taobao 消息域一整组），存入 imCookieHeader
+        // 7. 提取本次 punish 验证产生的 x5sec，存入 imCookieHeader
         try {
             Thread.sleep(1000); // 等待 cookie 落盘
             String cookie = extractCookie(cdpEndpoint, IM_PAGE_URL);
-            if (isUsableImCookie(cookie)) {
-                log.info("[CDP-AUTH] 消息页 cookie 提取成功");
+            if (hasX5Cookie(cookie)) {
+                log.info("[CDP-AUTH] IM x5sec cookie 提取成功");
                 return CaptchaResult.ok(cookie);
             } else {
-                return CaptchaResult.fail("验证后未提取到可用消息页 cookie，验证可能未真正通过");
+                return CaptchaResult.fail("验证后未从 IM 页面提取到 x5sec cookie，验证可能未真正通过");
             }
         } catch (Exception e) {
             return CaptchaResult.fail("提取 cookie 异常：" + e.getMessage());
@@ -285,10 +332,14 @@ public class XianyuCaptchaSolver {
     private boolean isUsableImCookie(String cookie) {
         if (cookie == null || cookie.isBlank()) return false;
         String lower = cookie.toLowerCase();
-        if (lower.contains("x5sec")) return true;
+        if (hasX5Cookie(lower)) return true;
         boolean hasH5tk = lower.contains("_m_h5_tk") || lower.contains("m_h5_tk");
         boolean hasLogin = lower.contains("unb") || lower.contains("cookie2") || lower.contains("sgcookie");
         return hasH5tk && hasLogin;
+    }
+
+    private boolean hasX5Cookie(String cookie) {
+        return cookie != null && cookie.toLowerCase().contains("x5sec");
     }
 
     /**
@@ -358,6 +409,69 @@ public class XianyuCaptchaSolver {
         } finally {
             if (socket != null) {
                 try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+        return false;
+    }
+
+    private boolean hasSlider(String cdpEndpoint) {
+        Socket socket = null;
+        try {
+            socket = openWebSocket(cdpEndpoint);
+            Map<String, Object> script = new LinkedHashMap<>();
+            script.put("expression", "!!document.querySelector('#nc_1_n1z, .btn_slide, .nc_iconfont, #nocaptcha, #nc_1_wrapper, .nc-container')");
+            script.put("returnByValue", true);
+            Object value = extractRuntimeValue(sendCommand(socket, "Runtime.evaluate", script));
+            return Boolean.parseBoolean(String.valueOf(value));
+        } catch (Exception e) {
+            log.debug("[CDP-AUTH] hasSlider 异常: {}", e.getMessage());
+            return false;
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+    }
+
+    private void triggerImCaptchaRender(String cdpEndpoint) {
+        Socket socket = null;
+        try {
+            socket = openWebSocket(cdpEndpoint);
+            Map<String, Object> script = new LinkedHashMap<>();
+            script.put("expression", """
+                (() => {
+                    try { window.scrollTo(0, 0); } catch (e) {}
+                    try { document.dispatchEvent(new Event('visibilitychange')); } catch (e) {}
+                    try { window.dispatchEvent(new Event('focus')); } catch (e) {}
+                    try {
+                        const btn = Array.from(document.querySelectorAll('button, a, div, span'))
+                            .find(e => /消息|聊天|重试|刷新|验证/.test(e.innerText || e.textContent || ''));
+                        if (btn) btn.click();
+                    } catch (e) {}
+                    return JSON.stringify({href: location.href, title: document.title});
+                })()
+            """);
+            script.put("awaitPromise", true);
+            script.put("returnByValue", true);
+            sendCommand(socket, "Runtime.evaluate", script);
+        } catch (Exception e) {
+            log.debug("[CDP-AUTH] 触发 IM 验证渲染异常: {}", e.getMessage());
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+    }
+
+    private boolean waitForSlider(String cdpEndpoint, long timeoutMillis) {
+        long deadline = System.currentTimeMillis() + Math.max(1000, timeoutMillis);
+        while (System.currentTimeMillis() < deadline) {
+            if (hasSlider(cdpEndpoint)) return true;
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
             }
         }
         return false;
@@ -597,7 +711,7 @@ public class XianyuCaptchaSolver {
     private String getCdpEndpointFromBrowser() throws Exception {
         HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(config.getCdpEndpoint() + "/json/version"))
+                .uri(URI.create(getCdpHttpEndpoint() + "/json/version"))
                 .timeout(java.time.Duration.ofSeconds(5))
                 .GET()
                 .build();
@@ -616,7 +730,7 @@ public class XianyuCaptchaSolver {
     private String getPageWebSocketEndpoint(String targetId) throws Exception {
         HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(config.getCdpEndpoint() + "/json/list"))
+                .uri(URI.create(getCdpHttpEndpoint() + "/json/list"))
                 .timeout(java.time.Duration.ofSeconds(5))
                 .GET()
                 .build();
@@ -692,7 +806,7 @@ public class XianyuCaptchaSolver {
     private Map<String, Object> getTargets(String cdpEndpoint) throws Exception {
         HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(config.getCdpEndpoint() + "/json/list"))
+                .uri(URI.create(getCdpHttpEndpoint() + "/json/list"))
                 .timeout(java.time.Duration.ofSeconds(5))
                 .GET()
                 .build();
@@ -736,7 +850,7 @@ public class XianyuCaptchaSolver {
     private String createNewTarget(String cdpEndpoint, String url) throws Exception {
         HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(config.getCdpEndpoint() + "/json/new?" + url))
+                .uri(URI.create(getCdpHttpEndpoint() + "/json/new?" + url))
                 .timeout(java.time.Duration.ofSeconds(5))
                 .PUT(HttpRequest.BodyPublishers.noBody())
                 .build();

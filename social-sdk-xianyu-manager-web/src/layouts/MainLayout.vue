@@ -1,73 +1,117 @@
 <template>
   <el-container class="layout">
     <el-aside width="220px" class="sidebar">
-      <div class="logo">AI鱼多宝</div>
+      <div class="logo">
+        <div class="logo-icon">AI</div>
+        <div class="logo-text">
+          <div class="logo-title">AI鱼多宝</div>
+          <div class="logo-subtitle">智能运营平台</div>
+        </div>
+      </div>
       <el-menu
         :default-active="route.path"
         router
-        background-color="#304156"
-        text-color="#bfcbd9"
-        active-text-color="#409EFF"
+        class="sidebar-menu"
       >
         <el-menu-item index="/dashboard">
-          <el-icon><DataAnalysis /></el-icon>
+          <span class="menu-icon-box"><el-icon><DataAnalysis /></el-icon></span>
           <span>仪表盘</span>
         </el-menu-item>
+
+        <el-menu-item-group title="店铺管理">
+          <el-menu-item index="/products">
+            <span class="menu-icon-box"><el-icon><Goods /></el-icon></span>
+            <span>商品管理</span>
+          </el-menu-item>
+          <el-menu-item index="/orders">
+            <span class="menu-icon-box"><el-icon><List /></el-icon></span>
+            <span>订单管理</span>
+          </el-menu-item>
+          <el-menu-item index="/messages">
+            <span class="menu-icon-box"><el-icon><ChatDotRound /></el-icon></span>
+            <span>消息管理</span>
+          </el-menu-item>
+          <el-menu-item index="/collect">
+            <span class="menu-icon-box"><el-icon><Star /></el-icon></span>
+            <span>收藏关注</span>
+          </el-menu-item>
+          <el-menu-item index="/reviews">
+            <span class="menu-icon-box"><el-icon><Medal /></el-icon></span>
+            <span>评价与信用</span>
+          </el-menu-item>
+        </el-menu-item-group>
+
+        <el-menu-item-group title="AI 智能">
+          <el-menu-item index="/ai-ops">
+            <span class="menu-icon-box"><el-icon><Promotion /></el-icon></span>
+            <span>AI 运营</span>
+          </el-menu-item>
+          <el-menu-item index="/ai">
+            <span class="menu-icon-box"><el-icon><Connection /></el-icon></span>
+            <span>AI 厂商</span>
+          </el-menu-item>
+          <el-menu-item index="/ai-cs">
+            <span class="menu-icon-box"><el-icon><Service /></el-icon></span>
+            <span>AI 客服</span>
+          </el-menu-item>
+          <el-menu-item index="/polish">
+            <span class="menu-icon-box"><el-icon><Sunrise /></el-icon></span>
+            <span>商品擦亮</span>
+          </el-menu-item>
+        </el-menu-item-group>
+
+        <el-menu-item-group title="发货仓储">
+          <el-menu-item index="/virtual-ship">
+            <span class="menu-icon-box"><el-icon><Switch /></el-icon></span>
+            <span>虚拟发货</span>
+          </el-menu-item>
+          <el-menu-item index="/cloud-storage">
+            <span class="menu-icon-box"><el-icon><UploadFilled /></el-icon></span>
+            <span>网盘存储</span>
+          </el-menu-item>
+          <el-menu-item index="/tasks">
+            <span class="menu-icon-box"><el-icon><Timer /></el-icon></span>
+            <span>监控任务</span>
+          </el-menu-item>
+        </el-menu-item-group>
+
+        <el-menu-item-group title="规则合规">
+          <el-menu-item index="/rules">
+            <span class="menu-icon-box"><el-icon><Setting /></el-icon></span>
+            <span>规则管理</span>
+          </el-menu-item>
+          <el-menu-item index="/notify">
+            <span class="menu-icon-box"><el-icon><Bell /></el-icon></span>
+            <span>消息通知</span>
+          </el-menu-item>
+          <el-menu-item index="/audit">
+            <span class="menu-icon-box"><el-icon><Document /></el-icon></span>
+            <span>审计日志</span>
+          </el-menu-item>
+        </el-menu-item-group>
+
+        <el-menu-item-group title="数据资产">
+          <el-menu-item index="/wallet">
+            <span class="menu-icon-box"><el-icon><Money /></el-icon></span>
+            <span>钱包资产</span>
+          </el-menu-item>
+          <el-menu-item index="/monitor">
+            <span class="menu-icon-box"><el-icon><Monitor /></el-icon></span>
+            <span>监控面板</span>
+          </el-menu-item>
+          <el-menu-item index="/market">
+            <span class="menu-icon-box"><el-icon><Compass /></el-icon></span>
+            <span>市场情报</span>
+          </el-menu-item>
+          <el-menu-item index="/buyer">
+            <span class="menu-icon-box"><el-icon><User /></el-icon></span>
+            <span>买家画像</span>
+          </el-menu-item>
+        </el-menu-item-group>
+
         <el-menu-item index="/accounts">
-          <el-icon><User /></el-icon>
+          <span class="menu-icon-box"><el-icon><UserFilled /></el-icon></span>
           <span>账号管理</span>
-        </el-menu-item>
-        <el-menu-item index="/products">
-          <el-icon><Goods /></el-icon>
-          <span>商品管理</span>
-        </el-menu-item>
-        <el-menu-item index="/messages">
-          <el-icon><ChatDotRound /></el-icon>
-          <span>消息管理</span>
-        </el-menu-item>
-        <el-menu-item index="/orders">
-          <el-icon><List /></el-icon>
-          <span>订单管理</span>
-        </el-menu-item>
-        <el-menu-item index="/rules">
-          <el-icon><Operation /></el-icon>
-          <span>规则管理</span>
-        </el-menu-item>
-        <el-menu-item index="/wallet">
-          <el-icon><Money /></el-icon>
-          <span>钱包资产</span>
-        </el-menu-item>
-        <el-menu-item index="/collect">
-          <el-icon><Star /></el-icon>
-          <span>收藏关注</span>
-        </el-menu-item>
-        <el-menu-item index="/ai">
-          <el-icon><Cpu /></el-icon>
-          <span>AI 厂商</span>
-        </el-menu-item>
-        <el-menu-item index="/ai-ops">
-          <el-icon><Promotion /></el-icon>
-          <span>AI 运营</span>
-        </el-menu-item>
-        <el-menu-item index="/virtual-ship">
-          <el-icon><Van /></el-icon>
-          <span>虚拟发货</span>
-        </el-menu-item>
-        <el-menu-item index="/cloud-storage">
-          <el-icon><UploadFilled /></el-icon>
-          <span>网盘存储</span>
-        </el-menu-item>
-        <el-menu-item index="/monitor">
-          <el-icon><Monitor /></el-icon>
-          <span>监控面板</span>
-        </el-menu-item>
-        <el-menu-item index="/audit">
-          <el-icon><Document /></el-icon>
-          <span>审计日志</span>
-        </el-menu-item>
-        <el-menu-item index="/notify">
-          <el-icon><Bell /></el-icon>
-          <span>消息通知</span>
         </el-menu-item>
       </el-menu>
     </el-aside>
@@ -166,7 +210,7 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { DataAnalysis, User, Goods, ChatDotRound, List, Operation, Money, Star, Cpu, Promotion, Van, UploadFilled, Monitor, Document, Bell, UserFilled, ArrowDown, FullScreen } from '@element-plus/icons-vue'
+import { DataAnalysis, User, Goods, ChatDotRound, List, Operation, Money, Star, Cpu, Promotion, Van, UploadFilled, Monitor, Document, Bell, UserFilled, ArrowDown, FullScreen, Shop, Medal, Connection, Service, Sunrise, Switch, Timer, Setting, TrendCharts, Compass } from '@element-plus/icons-vue'
 import * as notify from '@/api/notification'
 
 const route = useRoute()
@@ -188,7 +232,13 @@ const titleMap = {
   '/cloud-storage': '网盘存储',
   '/monitor': '监控面板',
   '/audit': '审计日志',
-  '/notify': '消息通知'
+  '/notify': '消息通知',
+  '/market': '市场情报',
+  '/buyer': '买家画像',
+  '/ai-cs': 'AI 客服',
+  '/tasks': '监控任务',
+  '/reviews': '评价与信用',
+  '/polish': '商品擦亮'
 }
 
 const currentTitle = computed(() => titleMap[route.path] || '管理后台')
@@ -306,17 +356,45 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 <style scoped>
 .layout { height: 100vh; }
 .sidebar {
-  background: #304156;
+  background: #fff;
   overflow-y: auto;
+  border-right: 1px solid #e4e7ed;
 }
 .logo {
   height: 60px;
-  line-height: 60px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border-bottom: 1px solid #f0f2f5;
+  gap: 10px;
+}
+.logo-icon {
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, #409EFF 0%, #1D9E75 100%);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #fff;
-  font-size: 18px;
-  font-weight: bold;
-  border-bottom: 1px solid #3d4d60;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.logo-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.logo-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+.logo-subtitle {
+  font-size: 11px;
+  color: #909399;
+  margin-top: 2px;
 }
 .header {
   display: flex;
@@ -334,6 +412,55 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
   color: #606266;
 }
 .main-content { background: #f0f2f5; padding: 0 !important; overflow: hidden; display: flex; flex-direction: column; }
+
+/* 侧边栏菜单样式 — 浅色主题 */
+.sidebar-menu {
+  border-right: none !important;
+  padding: 8px 0;
+}
+.sidebar-menu :deep(.el-menu-item) {
+  margin: 0 8px;
+  border-radius: 6px;
+  height: 40px;
+  line-height: 40px;
+  color: #606266;
+  font-size: 13px;
+  padding: 0 12px !important;
+}
+.sidebar-menu :deep(.el-menu-item:hover) {
+  background: #f5f7fa !important;
+  color: #303133;
+}
+.sidebar-menu :deep(.el-menu-item.is-active) {
+  background: #ecf5ff !important;
+  color: #409EFF !important;
+  font-weight: 500;
+}
+.sidebar-menu :deep(.el-menu-item-group__title) {
+  padding: 12px 20px 6px;
+  font-size: 11px;
+  color: #909399;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.menu-icon-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 8px;
+  border-radius: 4px;
+  background: #f0f2f5;
+  color: #606266;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.sidebar-menu :deep(.el-menu-item.is-active) .menu-icon-box {
+  background: #409EFF;
+  color: #fff;
+}
 
 /* 业务合作页脚 */
 .app-footer {

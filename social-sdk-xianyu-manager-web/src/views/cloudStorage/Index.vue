@@ -6,78 +6,126 @@
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span>📦 OpenList</span>
           <div style="display: flex; gap: 10px;">
-            <el-button v-if="!openlistStatus.installed" type="primary" size="small" @click="installOpenList" :loading="installing">
-              <el-icon><Download /></el-icon> 下载安装
+            <el-button
+              v-if="!status.installed"
+              type="primary"
+              size="small"
+              @click="handleInstall"
+              :loading="busy"
+              :disabled="busy"
+            >
+              <el-icon><Download /></el-icon>
+              {{ busy && status.phase === 'downloading' ? '下载中...' : busy && status.phase === 'extracting' ? '解压中...' : '下载安装' }}
             </el-button>
-            <el-button v-if="openlistStatus.installed && !openlistStatus.running" type="success" size="small" @click="startOpenList" :loading="starting">
-              <el-icon><VideoPlay /></el-icon> 启动
+            <el-button
+              v-if="status.installed && !status.running"
+              type="success"
+              size="small"
+              @click="handleStart"
+              :loading="busy"
+              :disabled="busy"
+            >
+              <el-icon><VideoPlay /></el-icon>
+              {{ busy && status.phase === 'starting' ? '启动中...' : '启动' }}
             </el-button>
-            <el-button v-if="openlistStatus.running" type="warning" size="small" @click="stopOpenList" :loading="stopping">
+            <el-button
+              v-if="status.running"
+              type="warning"
+              size="small"
+              @click="handleStop"
+              :loading="busy"
+              :disabled="busy"
+            >
               <el-icon><VideoPause /></el-icon> 停止
             </el-button>
-            <el-button v-if="openlistStatus.installed" type="info" size="small" @click="restartOpenList" :loading="restarting">
-              <el-icon><RefreshRight /></el-icon> 重启
+            <el-button
+              v-if="status.installed"
+              type="info"
+              size="small"
+              @click="handleRestart"
+              :loading="busy"
+              :disabled="busy"
+            >
+              <el-icon><RefreshRight /></el-icon>
+              {{ busy && status.phase === 'starting' ? '重启中...' : '重启' }}
             </el-button>
           </div>
         </div>
       </template>
 
+      <!-- 进度条 -->
+      <div v-if="busy || status.phase === 'downloading' || status.phase === 'extracting' || status.phase === 'starting'" style="margin-bottom: 16px;">
+        <el-progress
+          :percentage="Math.round(progressPercent)"
+          :status="progressStatus"
+          :stroke-width="20"
+          striped
+          striped-flow
+        />
+        <p style="margin-top: 8px; color: #909399; font-size: 13px;">
+          {{ status.message || '处理中...' }}
+        </p>
+      </div>
+
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;">
         <el-descriptions :column="1" border>
           <el-descriptions-item label="状态">
-            <el-tag :type="statusType(openlistStatus)">
-              {{ statusText(openlistStatus) }}
+            <el-tag :type="statusTagType(status)">
+              {{ statusText(status) }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="版本">{{ openlistStatus.version || '未安装' }}</el-descriptions-item>
-          <el-descriptions-item label="端口">{{ openlistStatus.port || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="版本">{{ status.version || '未安装' }}</el-descriptions-item>
+          <el-descriptions-item label="端口">{{ status.port || '-' }}</el-descriptions-item>
           <el-descriptions-item label="访问地址">
-            <el-link :href="openlistStatus.url" target="_blank" type="primary" v-if="openlistStatus.url">
-              {{ openlistStatus.url }}
+            <el-link :href="status.url" target="_blank" type="primary" v-if="status.url">
+              {{ status.url }}
             </el-link>
             <span v-else>-</span>
           </el-descriptions-item>
           <el-descriptions-item label="默认账号">
-            {{ openlistStatus.username || 'openlist' }}
+            {{ status.username || 'openlist' }}
           </el-descriptions-item>
           <el-descriptions-item label="默认密码">
-            {{ openlistStatus.password || 'openlist' }}
+            {{ status.password || 'openlist' }}
           </el-descriptions-item>
           <el-descriptions-item label="系统架构">
-            {{ openlistStatus.arch || '检测中...' }}
+            {{ status.arch || '检测中...' }}
           </el-descriptions-item>
         </el-descriptions>
 
         <el-alert
-          v-if="!openlistStatus.installed"
+          v-if="!status.installed"
           title="OpenList 尚未安装"
           type="info"
           :closable="false"
-          show-icon>
+          show-icon
+        >
           <template #default>
-            点击下方“下载安装”按钮自动检测系统架构并下载对应版本。
+            点击"下载安装"按钮自动检测系统架构并下载对应版本。
           </template>
         </el-alert>
 
         <el-alert
-          v-if="openlistStatus.installed && !openlistStatus.running"
+          v-if="status.installed && !status.running"
           title="OpenList 已安装但未启动"
           type="warning"
           :closable="false"
-          show-icon>
+          show-icon
+        >
           <template #default>
-            点击“启动”按钮运行 OpenList 服务。
+            点击"启动"按钮运行 OpenList 服务，将监听 <code>0.0.0.0:{{ status.port }}</code>。
           </template>
         </el-alert>
 
         <el-alert
-          v-if="openlistStatus.running"
+          v-if="status.running"
           title="OpenList 运行中"
           type="success"
           :closable="false"
-          show-icon>
+          show-icon
+        >
           <template #default>
-            访问 <a :href="openlistStatus.dashboardUrl" target="_blank">{{ openlistStatus.dashboardUrl }}</a> 管理网盘挂载。
+            访问 <a :href="status.url + '/d'" target="_blank">{{ status.url }}/d</a> 管理网盘挂载。
           </template>
         </el-alert>
       </div>
@@ -103,7 +151,6 @@
         </el-table-column>
         <el-table-column prop="name" label="名称" width="180" />
         <el-table-column prop="mount_path" label="挂载路径" width="180" />
-        <el-table-column prop="root_folder_id" label="根目录" width="140" />
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="row.status === 'ok' ? 'success' : 'danger'">
@@ -150,7 +197,7 @@
         </el-table-column>
         <el-table-column label="上传状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="statusType(row.uploadStatus)">{{ row.uploadStatus }}</el-tag>
+            <el-tag :type="fileStatusType(row.uploadStatus)">{{ row.uploadStatus }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="分享链接" min-width="200">
@@ -204,12 +251,6 @@
         <el-form-item label="根目录 ID">
           <el-input v-model="mountForm.rootFolderId" placeholder="/" />
         </el-form-item>
-        <el-form-item label="客户端 ID">
-          <el-input v-model="mountForm.clientId" placeholder="OAuth Client ID" />
-        </el-form-item>
-        <el-form-item label="客户端密钥">
-          <el-input v-model="mountForm.clientSecret" type="password" show-password placeholder="OAuth Client Secret" />
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showMountDialog = false">取消</el-button>
@@ -238,7 +279,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, Upload, UploadFilled, Download, VideoPlay, VideoPause, RefreshRight
@@ -249,7 +290,7 @@ import {
 } from '@/api/openList'
 
 // ============== OpenList 状态 ==============
-const openlistStatus = ref({
+const status = ref({
   installed: false,
   running: false,
   version: '',
@@ -258,89 +299,105 @@ const openlistStatus = ref({
   username: 'openlist',
   password: 'openlist',
   arch: 'unknown',
-  dashboardUrl: ''
+  phase: 'idle',
+  progress: 0,
+  message: '空闲'
 })
 
-const installing = ref(false)
-const starting = ref(false)
-const stopping = ref(false)
-const restarting = ref(false)
+const busy = computed(() => {
+  const p = status.value.phase
+  return p === 'downloading' || p === 'extracting' || p === 'starting'
+})
 
-const loadOpenListStatus = async () => {
+const progressPercent = computed(() => (status.value.progress || 0) * 100)
+
+const progressStatus = computed(() => {
+  if (status.value.phase === 'running') return 'success'
+  if (status.value.phase === 'failed') return 'exception'
+  return ''
+})
+
+let pollTimer = null
+
+const loadStatus = async () => {
   try {
     const res = await getOpenListStatus()
-    const data = res.data
-    openlistStatus.value = {
-      ...data,
-      dashboardUrl: data.url + '/d'
+    if (res.data) {
+      status.value = res.data
     }
-  } catch {}
-}
-
-const installOpenListAction = async () => {
-  installing.value = true
-  try {
-    const res = await installOpenList()
-    ElMessage.success(res.message || '安装成功')
-    loadOpenListStatus()
   } catch (e) {
-    ElMessage.error('安装失败')
-  } finally {
-    installing.value = false
+    console.error('加载状态失败:', e)
   }
 }
 
-const startOpenListAction = async () => {
-  starting.value = true
+const startPolling = () => {
+  if (pollTimer) return
+  pollTimer = setInterval(loadStatus, 2000)
+}
+
+const stopPolling = () => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+const handleInstall = async () => {
   try {
-    const res = await startOpenList()
-    if (res.data?.message?.includes('未安装')) {
-      await installOpenListAction()
-    } else {
-      ElMessage.success(res.message || '启动成功')
-    }
-    loadOpenListStatus()
+    await installOpenList()
+    ElMessage.info('安装已在后台启动')
+    startPolling()
+  } catch (e) {
+    ElMessage.error('启动安装失败')
+  }
+}
+
+const handleStart = async () => {
+  try {
+    await startOpenList()
+    ElMessage.info('启动中...')
+    startPolling()
   } catch (e) {
     ElMessage.error('启动失败')
-  } finally {
-    starting.value = false
   }
 }
 
-const stopOpenListAction = async () => {
-  stopping.value = true
+const handleStop = async () => {
   try {
-    const res = await stopOpenList()
-    ElMessage.success(res.message || '已停止')
-    loadOpenListStatus()
+    await stopOpenList()
+    ElMessage.success('已停止')
+    loadStatus()
   } catch (e) {
     ElMessage.error('停止失败')
-  } finally {
-    stopping.value = false
   }
 }
 
-const restartOpenListAction = async () => {
-  restarting.value = true
+const handleRestart = async () => {
   try {
-    const res = await restartOpenList()
-    ElMessage.success(res.message || '重启成功')
-    loadOpenListStatus()
+    await restartOpenList()
+    ElMessage.info('重启中...')
+    startPolling()
   } catch (e) {
     ElMessage.error('重启失败')
-  } finally {
-    restarting.value = false
   }
 }
 
-const statusType = s => {
+const statusTagType = s => {
   if (!s.installed) return 'info'
-  return s.running ? 'success' : 'warning'
+  if (s.running) return 'success'
+  if (s.phase === 'failed') return 'danger'
+  return 'warning'
 }
 
 const statusText = s => {
   if (!s.installed) return '未安装'
-  return s.running ? '运行中' : '已停止'
+  if (s.running) return '运行中'
+  if (s.phase === 'downloading') return '下载中...'
+  if (s.phase === 'extracting') return '解压中...'
+  if (s.phase === 'starting') return '启动中...'
+  if (s.phase === 'failed') return '失败'
+  if (s.phase === 'stopped') return '已停止'
+  return '空闲'
 }
 
 // ============== 网盘挂载 ==============
@@ -351,15 +408,12 @@ const showMountDialog = ref(false)
 const mountForm = ref({
   type: 'baidu',
   mountPath: '/',
-  rootFolderId: '/',
-  clientId: '',
-  clientSecret: ''
+  rootFolderId: '/'
 })
 
 const loadMounts = async () => {
   mountLoading.value = true
   try {
-    // TODO: 调用实际挂载列表 API
     mounts.value = []
   } catch {}
   mountLoading.value = false
@@ -403,6 +457,7 @@ const formatSize = bytes => {
   return `${bytes.toFixed(1)} ${units[i]}`
 }
 const providerLabel = p => ({ BAIDU_NETDISK: '百度网盘', QUARK_NETDISK: '夸克网盘', ALIYUN_DRIVE: '阿里云盘' }[p] || p)
+const fileStatusType = s => ({ COMPLETED: 'success', UPLOADING: 'warning', FAILED: 'danger', PENDING: 'info' }[s] || 'info')
 
 const loadAccounts = async () => {
   loading.value = true
@@ -424,13 +479,13 @@ const loadFiles = async () => {
   }
 }
 
-const shareFileAction = async (row) => {
+const shareFile = async (row) => {
   const res = await shareStorageFile(row.id)
   ElMessage.success(`分享链接: ${res.data}`)
   loadFiles()
 }
 
-const cancelShareAction = async (row) => {
+const cancelShare = async (row) => {
   await cancelShareStorageFile(row.id)
   ElMessage.success('已取消分享')
   loadFiles()
@@ -440,7 +495,7 @@ const handleFileChange = (uploadFile) => {
   selectedFile.value = uploadFile.raw
 }
 
-const uploadFileAction = async () => {
+const uploadFile = async () => {
   if (!selectedFile.value) return ElMessage.warning('请先选择文件')
   uploading.value = true
   try {
@@ -455,13 +510,16 @@ const uploadFileAction = async () => {
   }
 }
 
-const statusTypeFile = s => ({ COMPLETED: 'success', UPLOADING: 'warning', FAILED: 'danger', PENDING: 'info' }[s] || 'info')
-
 watch(filterAccountId, () => loadFiles())
 
 onMounted(() => {
-  loadOpenListStatus()
+  loadStatus()
   loadAccounts()
   loadMounts()
+  startPolling()
+})
+
+onUnmounted(() => {
+  stopPolling()
 })
 </script>

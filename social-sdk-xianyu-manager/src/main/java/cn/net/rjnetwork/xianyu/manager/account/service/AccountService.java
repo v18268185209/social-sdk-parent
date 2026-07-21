@@ -5,6 +5,7 @@ import cn.net.rjnetwork.xianyu.api.XianyuMtopApiClient;
 import cn.net.rjnetwork.xianyu.api.XianyuProfileApiService;
 import cn.net.rjnetwork.xianyu.chrome.core.ChromeProfileManager;
 import cn.net.rjnetwork.xianyu.chrome.model.ChromeProfile;
+import cn.net.rjnetwork.xianyu.manager.account.dto.AccountEditRequest;
 import cn.net.rjnetwork.xianyu.manager.account.dto.AccountLoginRequest;
 import cn.net.rjnetwork.xianyu.manager.account.dto.AccountStatusUpdateRequest;
 import cn.net.rjnetwork.xianyu.manager.account.dto.QrLoginRequest;

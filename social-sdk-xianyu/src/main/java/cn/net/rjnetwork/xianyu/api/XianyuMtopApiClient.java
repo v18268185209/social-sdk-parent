@@ -234,10 +234,9 @@ public class XianyuMtopApiClient {
                     .setVersion(v)
                     .setDataJson(dataJson != null ? dataJson : "{}");
 
-            String url = builder.buildUrl();
-            String body = builder.buildPostBody();
-
-            JsonNode resp = send(url, "POST", body);
+            // 一次性构建 URL + body，共用同一 t/sign
+            XianyuMtopRequestBuilder.MtopRequest req = builder.buildRequest();
+            JsonNode resp = send(req.url, "POST", req.postBody);
             rememberBusinessError(resp);
 
             // 处理 token 过期：返回 ret[0]=FAIL_SYS_TOKEN_EXOIRED 时，重新预热后重试一次
@@ -248,7 +247,8 @@ public class XianyuMtopApiClient {
                         .setCookie(getMergedCookie())
                         .setVersion(v)
                         .setDataJson(dataJson != null ? dataJson : "{}");
-                JsonNode retryResp = send(retry.buildUrl(), "POST", retry.buildPostBody());
+                XianyuMtopRequestBuilder.MtopRequest retryReq = retry.buildRequest();
+                JsonNode retryResp = send(retryReq.url, "POST", retryReq.postBody);
                 rememberBusinessError(retryResp);
                 return retryResp;
             }
@@ -351,8 +351,9 @@ public class XianyuMtopApiClient {
                     "mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get")
                     .setCookie(getMergedCookie())
                     .setDataJson(dataJson);
-            String url = builder.buildUrl();
-            String body = builder.buildPostBody();
+            XianyuMtopRequestBuilder.MtopRequest req = builder.buildRequest();
+            String url = req.url;
+            String body = req.postBody;
 
             HttpRequest.Builder rb = HttpRequest.newBuilder()
                     .uri(URI.create(url))

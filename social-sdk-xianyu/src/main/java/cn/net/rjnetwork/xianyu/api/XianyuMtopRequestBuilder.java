@@ -99,14 +99,30 @@ public class XianyuMtopRequestBuilder {
     }
 
     /**
-     * 构建完整的请求 URL（只含公共参数，业务参数走 body）
+     * 构建完整的请求 URL（公共参数全部在 URL query，与参考项目 xianyu-auto-reply 真验通结构对齐）。
+     * <p>注意：必须与 {@link #buildPostBody()} 使用同一个 t/sign，故二者都从 {@link #buildRequest()}
+     * 派生。直接调用本方法会触发一次独立构建，调用方应优先用 {@link #buildRequest()}。</p>
      */
     public String buildUrl() {
+        return buildRequest().url;
+    }
+
+    /**
+     * 构建 POST body —— 只放 data 字段（与参考项目真验通结构对齐）。
+     */
+    public String buildPostBody() {
+        return buildRequest().postBody;
+    }
+
+    /**
+     * 一次性构建 URL + POST body，共用同一个 t/sign，避免时间戳不一致导致 sign 校验失败。
+     */
+    public MtopRequest buildRequest() {
         long t = System.currentTimeMillis();
         String sign = computeSign(t);
 
         StringBuilder url = new StringBuilder();
-        url.append("https://").append(API_HOST).append(API_BASE_PATH)
+        url.append("https://").append(API_HOST).append("/h5/")
                 .append(api).append("/").append(version).append("/");
 
         Map<String, String> qs = new LinkedHashMap<>();
@@ -120,35 +136,27 @@ public class XianyuMtopRequestBuilder {
         qs.put("dataType", DATA_TYPE);
         qs.put("timeout", TIMEOUT);
         qs.put("api", api);
+        // 参考项目真验通必需参数
+        qs.put("sessionOption", "AutoLoginOnly");
+        qs.put("spm_cnt", "a21ybx.item.0.0");
         url.append("?").append(buildFormBody(qs));
-        return url.toString();
+
+        // POST body 只放 data 字段（公共参数全在 URL query）
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("data", dataJson != null ? dataJson : "{}");
+        String postBody = buildFormBody(body);
+
+        return new MtopRequest(url.toString(), postBody);
     }
 
-    /**
-     * 构建 POST body（form-encoded，包含公共参数 + data 业务 JSON）
-     */
-    public String buildPostBody() {
-        long t = System.currentTimeMillis();
-        String sign = computeSign(t);
-
-        Map<String, String> body = new LinkedHashMap<>();
-        body.put("jsv", JSV);
-        body.put("appKey", APP_KEY);
-        body.put("t", String.valueOf(t));
-        body.put("sign", sign);
-        body.put("api", api);
-        body.put("v", version);
-        body.put("type", TYPE);
-        body.put("dataType", DATA_TYPE);
-        body.put("timeout", TIMEOUT);
-        body.put("data", dataJson);
-        // 保留兼容：业务参数也带上（部分接口允许）
-        for (Map.Entry<String, String> e : params.entrySet()) {
-            if (!body.containsKey(e.getKey())) {
-                body.put(e.getKey(), e.getValue());
-            }
+    /** 一次请求的 URL + POST body 组合 */
+    public static class MtopRequest {
+        public final String url;
+        public final String postBody;
+        public MtopRequest(String url, String postBody) {
+            this.url = url;
+            this.postBody = postBody;
         }
-        return buildFormBody(body);
     }
 
     /**
