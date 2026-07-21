@@ -372,7 +372,9 @@ public class XianyuCaptchaSolver {
     }
 
     /**
-     * 检查验证是否已经通过（页面已离开 punish 或 cookie 中有 x5sec）
+     * 检查验证是否已经通过。
+     * 消息页连接中断时 location 仍是 /im 且页面无滑块，但 pc.login.token 仍会被 punish；
+     * 因此不能再用“已离开 punish 且无滑块”判定通过，必须看到 x5sec。
      */
     private boolean checkAlreadyPassed(String cdpEndpoint) {
         Socket socket = null;
@@ -395,9 +397,7 @@ public class XianyuCaptchaSolver {
             if (value != null) {
                 JsonNode state = MAPPER.readTree(String.valueOf(value));
                 boolean passedByCookie = state.path("passedByCookie").asBoolean(false);
-                boolean hasSlider = state.path("hasSlider").asBoolean(true);
-                boolean stillPunish = state.path("stillPunish").asBoolean(true);
-                return passedByCookie || (!hasSlider && !stillPunish);
+                return passedByCookie;
             }
         } catch (Exception e) {
             log.debug("[CDP-AUTH] checkAlreadyPassed 异常: {}", e.getMessage());
