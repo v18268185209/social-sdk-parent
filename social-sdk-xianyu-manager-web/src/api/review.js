@@ -1,4 +1,4 @@
-import request from '@/utils/request'
+import request from '@/api/request'
 
 // 评价与信用 API — 对齐后台 ReviewController (/api/reviews)
 export function reviewOrder(accountId, orderId, rating, content) {

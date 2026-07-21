@@ -81,6 +81,9 @@ public class DatabaseInitializer {
             logger.warn("Database initialization skipped (may already exist): {}", e.getMessage());
         }
 
+        // ===== Chrome 容器隔离字段补齐（旧库升级） =====
+        ensureChromeColumns();
+
         try {
             authService.initDefaultAdmin("admin", "admin123");
             logger.info("Default admin account initialized (username: admin, password: admin123)");
@@ -222,6 +225,20 @@ public class DatabaseInitializer {
         ensureColumn("xianyu_account", "im_device_id", "VARCHAR(128)");
         ensureColumn("xianyu_account", "im_access_token", "TEXT");
         ensureColumn("xianyu_account", "im_token_expires_at", "DATETIME");
+    }
+
+    /**
+     * 补齐 xianyu_account 的 Chrome 容器隔离字段（旧库升级场景）。
+     * schema-sqlite.sql 新建库已含这些列；此处用 ALTER 兜底已有库。
+     */
+    private void ensureChromeColumns() {
+        ensureColumn("xianyu_account", "chrome_profile_path", "VARCHAR(512)");
+        ensureColumn("xianyu_account", "cdp_port", "INTEGER");
+        ensureColumn("xianyu_account", "proxy_url", "VARCHAR(256)");
+        ensureColumn("xianyu_account", "chrome_status", "VARCHAR(32)");
+        ensureColumn("xianyu_account", "chrome_crash_count", "INTEGER DEFAULT 0");
+        ensureColumn("xianyu_account", "chrome_seed", "BIGINT");
+        ensureColumn("xianyu_account", "chrome_launched_at", "DATETIME");
     }
 
     private void ensureOpenAppTable() {
