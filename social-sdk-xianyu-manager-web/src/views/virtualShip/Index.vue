@@ -171,7 +171,7 @@ import { Plus, Upload, UploadFilled } from '@element-plus/icons-vue'
 import api from '@/api/request'
 import {
   listVirtualShipTasks, getVirtualShipConfig, saveVirtualShipConfig,
-  listVirtualCards, addVirtualCards, deleteVirtualCard,
+  listVirtualCards, importVirtualCards, deleteVirtualCard,
   listStorageAccounts, listStorageFiles, shareStorageFile, uploadStorageFile
 } from '@/api/virtualShip'
 
@@ -212,7 +212,7 @@ const loadCards = async () => {
 const addCards = async () => {
   const list = cardText.value.split('\n').map(s => s.trim()).filter(Boolean)
   if (!list.length) return ElMessage.warning('请输入至少一个卡密')
-  await addVirtualCards({ cards: list, deliverType: 'VIRTUAL_CARD' })
+  await importVirtualCards({ productId: null, cards: list })
   ElMessage.success(`已添加 ${list.length} 个卡密`)
   showAddCardDialog.value = false
   cardText.value = ''

@@ -5,9 +5,6 @@ import { listStorageAccounts, listStorageFiles, shareStorageFile, uploadStorageF
 export function listVirtualShipTasks(params) {
   return api.get('/virtual-ship/tasks', { params })
 }
-export function getVirtualShipTask(id) {
-  return api.get(`/virtual-ship/tasks/${id}`)
-}
 export function triggerVirtualShip(id) {
   return api.post(`/virtual-ship/tasks/${id}/trigger`)
 }
@@ -24,9 +21,17 @@ export function saveVirtualShipConfig(data) {
 export function listVirtualCards(params) {
   return api.get('/virtual-ship/cards', { params })
 }
-export function addVirtualCards(data) {
-  return api.post('/virtual-ship/cards/batch', data)
+
+/** 批量导入卡密 — POST /api/virtual-ship/cards/import  { productId, cards:[] } */
+export function importVirtualCards(data) {
+  return api.post('/virtual-ship/cards/import', data)
 }
+
+/** 批量删除卡密 — POST /api/virtual-ship/cards/batch  { cardIds:[] } */
+export function batchDeleteVirtualCards(cardIds) {
+  return api.post('/virtual-ship/cards/batch', { cardIds })
+}
+
 export function deleteVirtualCard(id) {
   return api.delete(`/virtual-ship/cards/${id}`)
 }

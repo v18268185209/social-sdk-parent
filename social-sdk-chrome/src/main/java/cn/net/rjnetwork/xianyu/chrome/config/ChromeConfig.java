@@ -48,6 +48,12 @@ public class ChromeConfig {
     /** 默认窗口高度 */
     private int windowHeight = 768;
 
+    /** 是否启用无头模式；默认关闭，避免强风控页面因 headless 指纹增加失败率。 */
+    private boolean headless = false;
+
+    /** 无头模式参数：new 使用新版 headless，legacy 使用旧版 --headless。 */
+    private String headlessMode = "new";
+
     /** 传递给 Chrome 的反检测启动参数（覆盖默认值时使用） */
     private String[] customLaunchArgs;
 

@@ -104,7 +104,7 @@ async function syncProducts() {
   if (!selectedAccountId.value) return
   syncing.value = true
   try {
-    const res = await api.post(`/products/accounts/${selectedAccountId.value}/sync`)
+    const res = await api.post('/products/sync', null, { params: { accountId: selectedAccountId.value } })
     if (res.success) {
       ElMessage.success(`同步完成，共 ${res.data.count} 件商品`)
       loadProducts()

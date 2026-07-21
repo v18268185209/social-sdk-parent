@@ -28,13 +28,12 @@ export const uploadOpenListFile = (path, file) => {
     headers: { 'Content-Type': 'multipart/form-data' }
   })
 }
-export const downloadOpenListFile = (path, filename) => {
-  // 直接返回下载链接
-  return api.get('/cloud-storage/openlist/files/download', { params: { path, filename } })
-}
 export const deleteOpenListFile = (path, filename) => {
   return api.post('/cloud-storage/openlist/files/delete', { path, filename })
 }
+
+// 文件下载：后端 OpenListController 暂无 download 端点，
+// 文件通过 OpenList 自身 HTTP 服务（如 http://localhost:5244/d/{path}）直接访问。
 
 // ============== 账号管理 API ==============
 export const listStorageAccounts = (accountId) => api.get('/cloud-storage/accounts', { params: accountId ? { accountId } : {} })

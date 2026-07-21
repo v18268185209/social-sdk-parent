@@ -515,6 +515,16 @@ public class ChromeSession {
             cmd.add("--proxy-server=" + profile.getProxyUrl());
         }
 
+        if (config.isHeadless()) {
+            if ("legacy".equalsIgnoreCase(config.getHeadlessMode())) {
+                cmd.add("--headless");
+            } else {
+                cmd.add("--headless=new");
+            }
+            cmd.add("--disable-gpu");
+            cmd.add("--window-position=-32000,-32000");
+        }
+
         // 反检测启动参数
         String[] args = config.getCustomLaunchArgs();
         if (args != null && args.length > 0) {
