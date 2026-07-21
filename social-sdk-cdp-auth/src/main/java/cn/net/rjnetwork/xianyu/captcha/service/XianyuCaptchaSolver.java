@@ -403,10 +403,17 @@ public class XianyuCaptchaSolver {
                         long cooldown = 1500L + attempt * 1000L;
                         log.info("[CDP-AUTH] 等待 {}ms 后刷新 punish 重试", cooldown);
                         Thread.sleep(cooldown);
-                        clickRefreshButton(cdpEndpoint);
-                        // 点击刷新后滑块需要重新渲染，必须等滑块重新出现再进下一次拖动，
+                        // 失败后直接 Page.reload 刷新整个页面重新触发滑块渲染，
+                        // 不要点「刷新按钮」——实测那个按钮点的是失败文案框本身，点完不会重新渲染滑块。
+                        try {
+                            reloadImPage(cdpEndpoint);
+                            log.info("[CDP-AUTH] 已 Page.reload 刷新页面，等待滑块重新渲染");
+                        } catch (Exception e) {
+                            log.warn("[CDP-AUTH] Page.reload 失败: {}", e.getMessage());
+                        }
+                        // 刷新后滑块需要重新渲染，必须等滑块重新出现再进下一次拖动，
                         // 否则 performAutoSliderDrag 进来时滑块还没渲染就报「未找到滑块元素」。
-                        boolean reRendered = waitForSlider(cdpEndpoint, 8000);
+                        boolean reRendered = waitForSlider(cdpEndpoint, 12000);
                         if (!reRendered) {
                             log.warn("[CDP-AUTH] 刷新后滑块未重新渲染，放弃本次重试");
                         }
@@ -519,56 +526,103 @@ public class XianyuCaptchaSolver {
      * 检查验证是否已经通过，但必须是“本次新生成/更新”的 x5sec。
      */
     private boolean checkAlreadyPassed(String cdpEndpoint, String baselineX5) {
-        // 真实 goofish 验证通过后，baxia iframe 可能仍保留一段时间，
-        // 但 x5sec 会先写入浏览器全局 CookieJar。这里必须优先用 CDP Network.getAllCookies 判定，
-        // 不能只依赖 iframe 是否消失或当前 document.cookie。
-        // 判定顺序：1) 正向通过证据（新 x5sec） → 2) 失败文案（只在没通过证据时才判失败）
-        String globalCookie = extractCookie(cdpEndpoint, IM_PAGE_URL);
-        String currentX5 = extractX5CookieValue(globalCookie);
-        if (currentX5 != null && !currentX5.isBlank() && !currentX5.equals(baselineX5)) {
-            log.info("[CDP-AUTH] 检测到新的 x5sec 已写入 CookieJar，判定本次滑块已通过");
+        // 真实 goofish 滑块通过后的页面状态（CDP 实测）：
+        //   1) 主页面 bodyText 显示正常消息列表（订单/消息/交易记录）
+        //   2) baxia iframe 仍存在但缩成 w=0,h=0（不可见）
+        //   3) iframe 内 slider DOM 仍在但 sliderPos 也是 0
+        //   4) iframe 无失败文案，也无通过文案
+        //   5) 全局 CookieJar 写入新的 x5sec（域 h5api.m.goofish.com）
+        // 判定优先级：a) 主页面消息列表可见 → 通过  b) 新 x5sec + iframe 缩成 0 → 通过  c) 失败文案 → 失败
+
+        // a) 最强证据：主页面消息列表已正常渲染
+        if (isMainPageUsable(cdpEndpoint)) {
+            log.info("[CDP-AUTH] 主页面消息列表已正常渲染，判定滑块已通过");
             return true;
         }
 
+        // b) 新 x5sec + iframe 缩成 0 尺寸
+        String globalCookie = extractCookie(cdpEndpoint, IM_PAGE_URL);
+        String currentX5 = extractX5CookieValue(globalCookie);
+        boolean hasNewX5 = currentX5 != null && !currentX5.isBlank() && !currentX5.equals(baselineX5);
+        boolean iframeCollapsed = isBaxiaIframeCollapsed(cdpEndpoint);
+        if (hasNewX5 && iframeCollapsed) {
+            log.info("[CDP-AUTH] 检测到新 x5sec 且 baxia iframe 已缩成 0 尺寸，判定本次滑块已通过");
+            return true;
+        }
+
+        // c) 失败文案 → 失败
+        if (isCaptchaFailureVisible(cdpEndpoint)) {
+            log.warn("[CDP-AUTH] 检测到滑块失败文案，判定本次未通过");
+            return false;
+        }
+        return false;
+    }
+
+    /**
+     * 主页面消息列表是否已正常渲染（真实通过的最强证据）。
+     * 通过态主页面 bodyText 会显示订单/消息/交易记录等内容。
+     */
+    private boolean isMainPageUsable(String cdpEndpoint) {
+        Socket socket = null;
+        try {
+            socket = openWebSocket(cdpEndpoint);
+            Map<String, Object> script = new LinkedHashMap<>();
+            // 真实通过后主页面 bodyText 包含「订单/消息/交易/评价/通知」等消息列表关键词，
+            // 且至少 50 字符（避免空白页误判）。
+            script.put("expression", """
+                (() => {
+                    const text = (document.body && document.body.innerText || '').trim();
+                    if (text.length < 50) return JSON.stringify({usable:false, len:text.length});
+                    // 消息列表关键词：订单/消息/交易/评价/通知/确认收货/交易成功/交易关闭
+                    const keywords = ['订单','消息','交易','评价','通知','确认收货','交易成功','交易关闭','售后','退款'];
+                    const hits = keywords.filter(k => text.includes(k)).length;
+                    return JSON.stringify({usable: hits >= 2, len:text.length, hits});
+                })()
+            """);
+            script.put("returnByValue", true);
+            Object value = extractRuntimeValue(sendCommand(socket, "Runtime.evaluate", script));
+            if (value != null) {
+                JsonNode state = MAPPER.readTree(String.valueOf(value));
+                return state.path("usable").asBoolean(false);
+            }
+        } catch (Exception e) {
+            log.debug("[CDP-AUTH] isMainPageUsable 异常: {}", e.getMessage());
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+        return false;
+    }
+
+    /**
+     * baxia iframe 是否已缩成 0 尺寸（通过态 iframe 不可见）。
+     */
+    private boolean isBaxiaIframeCollapsed(String cdpEndpoint) {
         Socket socket = null;
         try {
             socket = openWebSocket(cdpEndpoint);
             Map<String, Object> script = new LinkedHashMap<>();
             script.put("expression", """
                 (() => {
-                    const href = location.href || '';
-                    const cookie = document.cookie || '';
-                    const hasSlider = !!document.querySelector('#nc_1_n1z, .btn_slide, .nc_iconfont, #nocaptcha');
-                    const passedByCookie = /(?:^|;\\s*)x5sec=/.test(cookie);
-                    const stillPunish = /punish|captcha/.test(href);
-                    return JSON.stringify({passedByCookie, hasSlider, stillPunish});
+                    const f = document.querySelector('iframe#baxia-dialog-content, iframe[name="baxia-dialog-content"]');
+                    if (!f) return JSON.stringify({collapsed:false, reason:'no-iframe'});
+                    const r = f.getBoundingClientRect();
+                    return JSON.stringify({collapsed: r.width === 0 && r.height === 0, w:r.width, h:r.height});
                 })()
             """);
-            script.put("awaitPromise", true);
             script.put("returnByValue", true);
             Object value = extractRuntimeValue(sendCommand(socket, "Runtime.evaluate", script));
             if (value != null) {
                 JsonNode state = MAPPER.readTree(String.valueOf(value));
-                boolean passedByCookie = state.path("passedByCookie").asBoolean(false);
-                if (passedByCookie && (baselineX5 == null || baselineX5.isBlank())) {
-                    log.info("[CDP-AUTH] 当前页面 document.cookie 已包含 x5sec，判定滑块已通过");
-                    return true;
-                }
-                // 注意：滑块消失不等于通过。页面刚刷新/导航后 iframe 可能还没渲染完，hasSlider 也会为 false。
-                // 所以这里不用"滑块消失"作为通过证据。
+                return state.path("collapsed").asBoolean(false);
             }
         } catch (Exception e) {
-            log.debug("[CDP-AUTH] checkAlreadyPassed 异常: {}", e.getMessage());
+            log.debug("[CDP-AUTH] isBaxiaIframeCollapsed 异常: {}", e.getMessage());
         } finally {
             if (socket != null) {
                 try { socket.close(); } catch (IOException ignored) {}
             }
-        }
-
-        // 最后才检查失败文案：只在没有正向通过证据时才判失败
-        if (isCaptchaFailureVisible(cdpEndpoint)) {
-            log.warn("[CDP-AUTH] 检测到滑块失败文案，不能把当前 x5sec 判定为通过");
-            return false;
         }
         return false;
     }
@@ -773,6 +827,13 @@ public class XianyuCaptchaSolver {
             double startY = node.path("startY").asDouble(100) + frameOffsetY;
             double btnWidth = node.path("btnWidth").asDouble(40);
             double trackWidth = node.path("trackWidth").asDouble(300);
+
+            // 滑块未渲染/不可见时坐标会全是 0，此时根本不该拖。
+            // 真实通过态 iframe 会缩成 w=0,h=0，slider DOM 也在但 pos 全 0；
+            // 失败态刷新中 iframe 也可能暂时 0。两种情况都不是有效拖动目标。
+            if (startX <= 0 || startY <= 0 || btnWidth <= 0 || trackWidth <= 0) {
+                throw new IllegalStateException("滑块未渲染或不可见（坐标/尺寸为 0），跳过本次拖动");
+            }
 
             // 不同版本 NoCaptcha 对“到达终点”的判定不完全一致：
             // 1) 按钮中心到轨道终点内侧：trackWidth - btnWidth
