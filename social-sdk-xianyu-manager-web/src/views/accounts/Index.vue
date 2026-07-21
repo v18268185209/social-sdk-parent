@@ -26,9 +26,16 @@
             <span>{{ formatTime(row.lastLoginAt) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="400" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" @click="viewDetail(row)">详情</el-button>
+            <el-button size="small" type="warning" @click="editAccount(row)">编辑</el-button>
+            <el-button
+              v-if="row.status === 'COOKIE_EXPIRED' || row.status === 'OFFLINE'"
+              size="small"
+              type="danger"
+              @click="reloginAccount(row)"
+            >重新登录</el-button>
             <el-button size="small" @click="editStatus(row)">切换状态</el-button>
             <el-button size="small" type="danger" @click="deleteAccount(row.id)">删除</el-button>
           </template>
@@ -150,6 +157,120 @@
       </template>
     </el-dialog>
 
+    <!-- 编辑账号对话框 -->
+    <el-dialog v-model="showEditDialog" title="编辑账号" width="520px">
+      <el-form :model="editForm" label-width="100px">
+        <el-form-item label="账号名称">
+          <el-input v-model="editForm.accountName" placeholder="账号名称" />
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="editForm.status" style="width: 100%;">
+            <el-option label="活跃" value="ACTIVE" />
+            <el-option label="禁用" value="DISABLED" />
+            <el-option label="冻结" value="FROZEN" />
+            <el-option label="Cookie 过期" value="COOKIE_EXPIRED" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="Cookie">
+          <el-input
+            v-model="editForm.cookieHeader"
+            type="textarea"
+            :rows="6"
+            placeholder="粘贴新的 Cookie 字符串以更换；留空则保持原 Cookie 不变"
+          />
+          <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+            传入新 Cookie 会自动重置登录时间并将状态置为 ACTIVE
+          </div>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="editForm.remark" placeholder="可选" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showEditDialog = false">取消</el-button>
+        <el-button type="primary" :loading="editSubmitting" @click="handleEdit">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 重新登录二维码对话框（COOKIE_EXPIRED / OFFLINE 场景） -->
+    <el-dialog v-model="showReloginDialog" title="重新登录" width="420px">
+      <el-alert
+        v-if="reloginForm.status === 'COOKIE_EXPIRED'"
+        title="该账号 Cookie 已过期，请用闲鱼 APP 扫码重新登录"
+        type="warning"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px;"
+      />
+      <el-alert
+        v-else
+        title="该账号处于离线状态，请扫码重新登录"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px;"
+      />
+
+      <div style="margin-bottom: 12px;">
+        <strong>账号：</strong>{{ reloginForm.accountName }}
+      </div>
+
+      <div v-if="reloginState.loading" style="text-align: center; padding: 20px;">
+        <el-icon class="is-loading" :size="40"><Loading /></el-icon>
+        <p>正在生成二维码...</p>
+      </div>
+
+      <div v-else-if="reloginState.qrCodeDataUrl" class="qr-container">
+        <img :src="reloginState.qrCodeDataUrl" alt="二维码" class="qr-image" />
+        <p class="qr-tip">请使用闲鱼 APP 扫码登录</p>
+        <p v-if="reloginState.status === 'SCANNED'" class="qr-scanned">
+          <el-icon :size="16"><SuccessFilled /></el-icon> 已扫码，请在手机上确认
+        </p>
+        <p v-if="reloginState.status === 'EXPIRED'" class="qr-expired">
+          <el-alert title="二维码已过期" type="error" :closable="false" show-icon>
+            <template #default>请重新生成二维码</template>
+          </el-alert>
+        </p>
+      </div>
+
+      <div v-else-if="reloginState.error" class="qr-error">
+        <el-alert :title="reloginState.message || '生成失败'" type="error" :closable="false" show-icon />
+      </div>
+
+      <div
+        v-if="reloginState.qrCodeDataUrl || reloginState.error"
+        style="margin-top: 16px; text-align: center;"
+      >
+        <el-button
+          v-if="reloginState.status === 'EXPIRED'"
+          type="primary"
+          @click="refreshReloginQr"
+        >
+          <el-icon><Refresh /></el-icon> 刷新二维码
+        </el-button>
+        <el-button
+          v-if="['WAITING', 'SCANNED'].includes(reloginState.status)"
+          type="danger"
+          plain
+          @click="cancelRelogin"
+        >
+          <el-icon><Close /></el-icon> 取消登录
+        </el-button>
+      </div>
+
+      <template #footer>
+        <el-button @click="closeReloginDialog">关闭</el-button>
+        <el-button
+          type="primary"
+          :loading="reloginState.submitting"
+          :disabled="!!reloginState.qrCodeDataUrl"
+          @click="handleReloginQr"
+        >
+          生成二维码
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 账号详情抽屉 -->
     <el-drawer v-model="showDetailDrawer" :title="`账号详情 — ${detailForm.accountName || ''}`" size="540px">
       <div v-loading="detailLoading" style="padding: 0 20px 20px;">
@@ -268,6 +389,200 @@ async function deleteAccount(id) {
       await loadAccounts()
     }
   } catch (e) { /* ignore */ }
+}
+
+// ===== 编辑账号（更换 Cookie 等） =====
+const showEditDialog = ref(false)
+const editSubmitting = ref(false)
+const editForm = ref({
+  id: null,
+  accountName: '',
+  status: 'ACTIVE',
+  cookieHeader: '',
+  remark: ''
+})
+
+function editAccount(row) {
+  editForm.value = {
+    id: row.id,
+    accountName: row.accountName || '',
+    status: row.status || 'ACTIVE',
+    // 编辑时默认不回填 Cookie，避免误展示/覆盖；用户主动粘贴才视为更换
+    cookieHeader: '',
+    remark: row.remark || ''
+  }
+  showEditDialog.value = true
+}
+
+async function handleEdit() {
+  if (!editForm.value.id) return
+  if (!editForm.value.accountName) {
+    ElMessage.warning('请填写账号名称')
+    return
+  }
+  editSubmitting.value = true
+  try {
+    const payload = {
+      accountName: editForm.value.accountName,
+      status: editForm.value.status,
+      remark: editForm.value.remark
+    }
+    // 仅当用户输入了新 Cookie 时才传入，留空表示保持原 Cookie
+    if (editForm.value.cookieHeader && editForm.value.cookieHeader.trim()) {
+      payload.cookieHeader = editForm.value.cookieHeader.trim()
+    }
+    const res = await api.put(`/accounts/${editForm.value.id}`, payload)
+    if (res.success) {
+      ElMessage.success('账号已更新')
+      showEditDialog.value = false
+      await loadAccounts()
+    }
+  } catch (e) { /* handled by interceptor */ }
+  finally { editSubmitting.value = false }
+}
+
+// ===== 重新登录（COOKIE_EXPIRED / OFFLINE 场景） =====
+const showReloginDialog = ref(false)
+const reloginForm = ref({ id: null, accountName: '', status: '' })
+const reloginState = ref({
+  loading: false,
+  sessionId: null,
+  status: null,
+  qrCodeDataUrl: null,
+  message: null,
+  error: false,
+  submitting: false
+})
+let reloginPollTimer = null
+
+function reloginAccount(row) {
+  reloginForm.value = {
+    id: row.id,
+    accountName: row.accountName || row.displayName || ('账号#' + row.id),
+    status: row.status || ''
+  }
+  resetReloginState()
+  showReloginDialog.value = true
+  // 自动生成二维码
+  handleReloginQr()
+}
+
+function resetReloginState() {
+  reloginState.value = {
+    loading: false,
+    sessionId: null,
+    status: null,
+    qrCodeDataUrl: null,
+    message: null,
+    error: false,
+    submitting: false
+  }
+}
+
+function stopReloginPolling() {
+  if (reloginPollTimer) {
+    clearInterval(reloginPollTimer)
+    reloginPollTimer = null
+  }
+}
+
+function closeReloginDialog() {
+  showReloginDialog.value = false
+  stopReloginPolling()
+  resetReloginState()
+}
+
+async function handleReloginQr() {
+  if (!reloginForm.value.id) return
+  reloginState.value.submitting = true
+  reloginState.value.loading = true
+  reloginState.value.error = false
+
+  try {
+    // 传入 accountId，后端扫码成功后更新该账号 Cookie
+    const payload = {
+      accountName: reloginForm.value.accountName,
+      accountId: reloginForm.value.id
+    }
+    const res = await api.post('/accounts/qr-login', payload)
+    if (res.success && res.data) {
+      const data = res.data
+      reloginState.value.sessionId = data.sessionId
+      reloginState.value.qrCodeDataUrl = data.qrCodeDataUrl
+      reloginState.value.status = data.status
+      reloginState.value.message = data.message
+      reloginState.value.loading = false
+
+      if (data.status === 'SUCCESS') {
+        ElMessage.success('重新登录成功，Cookie 已更新')
+        closeReloginDialog()
+        await loadAccounts()
+      } else {
+        startReloginPolling()
+      }
+    } else {
+      reloginState.value.error = true
+      reloginState.value.message = res.message || '生成二维码失败'
+      reloginState.value.loading = false
+    }
+  } catch (e) {
+    reloginState.value.error = true
+    reloginState.value.message = '生成二维码失败: ' + (e.message || '未知错误')
+    reloginState.value.loading = false
+  } finally {
+    reloginState.value.submitting = false
+  }
+}
+
+function startReloginPolling() {
+  stopReloginPolling()
+  reloginPollTimer = setInterval(async () => {
+    if (!reloginState.value.sessionId) return
+
+    try {
+      const res = await api.get('/accounts/qr-login/status', {
+        params: { sessionId: reloginState.value.sessionId }
+      })
+      if (res.success && res.data) {
+        const data = res.data
+        reloginState.value.status = data.status
+        reloginState.value.message = data.message
+
+        if (data.status === 'SUCCESS') {
+          stopReloginPolling()
+          ElMessage.success('重新登录成功，Cookie 已更新')
+          closeReloginDialog()
+          await loadAccounts()
+        } else if (data.status === 'SCANNED') {
+          reloginState.value.message = '已扫码，请在手机上确认'
+        } else if (data.status === 'EXPIRED' || data.status === 'CANCELLED' || data.status === 'ERROR') {
+          stopReloginPolling()
+          if (data.status === 'CANCELLED') {
+            ElMessage.info('已取消登录')
+            closeReloginDialog()
+          } else {
+            reloginState.value.error = true
+            reloginState.value.message = data.message || '登录失败或已过期'
+          }
+        }
+      }
+    } catch (e) {
+      // polling error, continue
+    }
+  }, 3000)
+}
+
+async function refreshReloginQr() {
+  resetReloginState()
+  reloginState.value.loading = true
+  await handleReloginQr()
+}
+
+async function cancelRelogin() {
+  stopReloginPolling()
+  reloginState.value.status = 'CANCELLED'
+  ElMessage.info('已取消登录')
+  closeReloginDialog()
 }
 
 // ===== Cookie 登录 =====

@@ -1,6 +1,7 @@
 package cn.net.rjnetwork.xianyu.manager.account.controller;
 
 import cn.net.rjnetwork.xianyu.chrome.model.ChromeProfile;
+import cn.net.rjnetwork.xianyu.manager.account.dto.AccountEditRequest;
 import cn.net.rjnetwork.xianyu.manager.account.dto.AccountLoginRequest;
 import cn.net.rjnetwork.xianyu.manager.account.dto.AccountStatusUpdateRequest;
 import cn.net.rjnetwork.xianyu.manager.account.dto.QrLoginRequest;
@@ -128,6 +129,15 @@ public class AccountController {
     @Audit("更新账号状态")
     public ApiResponse<XianyuAccount> updateStatus(@PathVariable Long id, @RequestBody AccountStatusUpdateRequest request) {
         return ApiResponse.ok(accountService.updateStatus(id, request));
+    }
+
+    /**
+     * 编辑账号（更换 Cookie、备注、账号名称等）。
+     */
+    @PutMapping("/{id}")
+    @Audit("编辑账号")
+    public ApiResponse<XianyuAccount> edit(@PathVariable Long id, @RequestBody AccountEditRequest request) {
+        return ApiResponse.ok(accountService.updateAccount(id, request));
     }
 
     @DeleteMapping("/{id}")

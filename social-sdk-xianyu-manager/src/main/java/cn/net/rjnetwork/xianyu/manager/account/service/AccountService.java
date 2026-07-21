@@ -13,6 +13,8 @@ import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +28,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class AccountService {
+
+    private static final Logger logger = LoggerFactory.getLogger(AccountService.class);
 
     private final AccountMapper accountMapper;
     private final Map<String, XianyuLoginApiService> qrLoginServices = new ConcurrentHashMap<>();
@@ -131,7 +135,14 @@ public class AccountService {
         // 登录成功：保存 Cookie 到数据库
         if ("SUCCESS".equals(sdkResult.status) && sdkResult.cookieHeader != null) {
             QrLoginRequest createReq = qrLoginRequests.get(sessionId);
-            XianyuAccount account = saveAccountFromCookie(sdkResult.cookieHeader, sdkResult.unb, createReq);
+            XianyuAccount account;
+            if (createReq != null && createReq.getAccountId() != null) {
+                // 重新登录场景：更新现有账号的 Cookie
+                account = updateAccountCookie(createReq.getAccountId(), sdkResult.cookieHeader, sdkResult.unb);
+            } else {
+                // 新建账号场景
+                account = saveAccountFromCookie(sdkResult.cookieHeader, sdkResult.unb, createReq);
+            }
             if (account != null) {
                 resp.setAccount(convertToAccountInfo(account));
             }
@@ -145,6 +156,50 @@ public class AccountService {
         }
 
         return resp;
+    }
+
+    /**
+     * 重新登录场景：用新 Cookie 更新现有账号。
+     * 重置登录时间、清错误、状态置回 ACTIVE，并尝试刷新 profile。
+     */
+    private XianyuAccount updateAccountCookie(Long accountId, String cookieHeader, String unb) {
+        XianyuAccount account = accountMapper.selectById(accountId);
+        if (account == null) {
+            logger.warn("updateAccountCookie: account not found, id={}", accountId);
+            return null;
+        }
+
+        account.setCookieHeader(cookieHeader);
+        account.setStatus("ACTIVE");
+        account.setLastError(null);
+        account.setLastLoginAt(LocalDateTime.now());
+        account.setUpdatedAt(LocalDateTime.now());
+
+        // 尝试拉取最新 profile（失败不阻断登录）
+        try {
+            XianyuLoginApiService tempService = new XianyuLoginApiService(cookieHeader);
+            XianyuLoginApiService.LoginStatusResult statusResult = tempService.checkLoginStatus(cookieHeader);
+            if (statusResult != null) {
+                if (account.getDisplayName() == null && statusResult.nickname != null) {
+                    account.setDisplayName(statusResult.nickname);
+                }
+                if (statusResult.userId != null) {
+                    account.setUserId(statusResult.userId);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("updateAccountCookie: refresh profile failed for accountId={}, err={}",
+                    accountId, e.getMessage());
+        }
+
+        accountMapper.updateById(account);
+        logger.info("Account cookie updated via QR re-login, accountId={}, accountName={}",
+                accountId, account.getAccountName());
+
+        // 重启 Chrome 容器以加载新 Cookie
+        launchChromeContainer(account);
+
+        return account;
     }
 
     /**
@@ -296,6 +351,40 @@ public class AccountService {
         account.setUpdatedAt(LocalDateTime.now());
         accountMapper.updateById(account);
 
+        return account;
+    }
+
+    /**
+     * 编辑账号（更换 Cookie、备注、账号名称等）。
+     * 更换 Cookie 后重置登录时间与状态，便于触发后续刷新流程。
+     */
+    @Transactional
+    public XianyuAccount updateAccount(Long id, AccountEditRequest request) {
+        XianyuAccount account = accountMapper.selectById(id);
+        if (account == null) {
+            throw new IllegalArgumentException("Account not found: " + id);
+        }
+
+        if (request.getAccountName() != null && !request.getAccountName().isBlank()) {
+            account.setAccountName(request.getAccountName());
+        }
+        if (request.getRemark() != null) {
+            account.setRemark(request.getRemark());
+        }
+        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+            account.setStatus(request.getStatus());
+        }
+        // 更换 Cookie：清空旧登录态，重置 lastLoginAt，状态置回 ACTIVE
+        if (request.getCookieHeader() != null && !request.getCookieHeader().isBlank()) {
+            account.setCookieHeader(request.getCookieHeader());
+            account.setLastLoginAt(LocalDateTime.now());
+            if (account.getStatus() == null || "COOKIE_EXPIRED".equals(account.getStatus())) {
+                account.setStatus("ACTIVE");
+            }
+        }
+
+        account.setUpdatedAt(LocalDateTime.now());
+        accountMapper.updateById(account);
         return account;
     }
 
