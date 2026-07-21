@@ -133,6 +133,7 @@ public class LocalProductService {
         AtomicInteger success = new AtomicInteger(0);
         AtomicInteger fail = new AtomicInteger(0);
         AtomicInteger skip = new AtomicInteger(0);
+        AtomicInteger retried = new AtomicInteger(0);
         List<String> errors = Collections.synchronizedList(new ArrayList<>());
 
         List<CompletableFuture<Void>> futures = new ArrayList<>();
@@ -150,13 +151,14 @@ public class LocalProductService {
                         .runAsync(() -> {
                             try {
                                 if (req.getDelayMs() > 0) Thread.sleep(req.getDelayMs());
-                                doPublish(item);
+                                // 带重试的发布
+                                publishWithRetry(item, req, retried);
                                 success.incrementAndGet();
                             } catch (Exception e) {
                                 fail.incrementAndGet();
-                                String err = "商品#" + item.getId() + " 发布失败: " + e.getMessage();
-                                log.error("[LOCAL-PUBLISH] {}", err, e);
-                                errors.add(err);
+                                String errMsg = "商品#" + item.getId() + " 发布失败: " + e.getMessage();
+                                log.error("[LOCAL-PUBLISH] {} (已重试 {} 次)", errMsg, req.getRetryTimes(), e);
+                                errors.add(errMsg);
                                 // 失败保留本地，写错误原因
                                 LocalProduct persist = localProductMapper.selectById(item.getId());
                                 if (persist != null) {
@@ -168,7 +170,6 @@ public class LocalProductService {
                             }
                         }, pool);
                 if (!req.isPartialSuccess()) {
-                    // 有任一失败即整体失败：全部回滚（把发布中的置回草稿）
                     future = future.handle((v, ex) -> {
                         if (ex != null) rollbackPublishing(items);
                         return v;
@@ -180,7 +181,36 @@ public class LocalProductService {
         } finally {
             pool.shutdown();
         }
-        return new BatchPublishResult(success.get(), fail.get(), skip.get(), errors);
+        return new BatchPublishResult(success.get(), fail.get(), skip.get(), retried.get(), errors);
+    }
+
+    /**
+     * 发布（带重试）
+     * 每次重试走指数退避：第 n 次重试等待 retryBackoffBaseMs * 2^(n-1)
+     */
+    private void publishWithRetry(LocalProduct item, LocalProductBatchPublishRequest req,
+                                  AtomicInteger retriedCounter) {
+        int maxAttempts = 1 + Math.max(0, Math.min(req.getRetryTimes(), 3));
+        Exception lastEx = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                doPublish(item);
+                if (attempt > 1) {
+                    log.info("[LOCAL-PUBLISH] 商品#{} 第 {} 次重试后发布成功", item.getId(), attempt - 1);
+                    retriedCounter.incrementAndGet();
+                }
+                return;
+            } catch (Exception e) {
+                lastEx = e;
+                log.warn("[LOCAL-PUBLISH] 商品#{} 第 {}/{} 次发布失败: {}", item.getId(), attempt, maxAttempts, e.getMessage());
+                if (attempt < maxAttempts) {
+                    long backoff = req.getRetryBackoffBaseMs() * (1L << (attempt - 1));
+                    log.info("[LOCAL-PUBLISH] 商品#{} 等待 {}ms 后重试", item.getId(), backoff);
+                    try { Thread.sleep(backoff); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                }
+            }
+        }
+        throw lastEx != null ? new RuntimeException(lastEx) : new RuntimeException("未知发布错误");
     }
 
     private void rollbackPublishing(List<LocalProduct> items) {
@@ -268,17 +298,19 @@ public class LocalProductService {
         public final int success;
         public final int fail;
         public final int skip;
+        public final int retried;
         public final List<String> errors;
 
-        public BatchPublishResult(int success, int fail, int skip, List<String> errors) {
+        public BatchPublishResult(int success, int fail, int skip, int retried, List<String> errors) {
             this.success = success;
             this.fail = fail;
             this.skip = skip;
+            this.retried = retried;
             this.errors = errors;
         }
 
         static BatchPublishResult empty() {
-            return new BatchPublishResult(0, 0, 0, Collections.emptyList());
+            return new BatchPublishResult(0, 0, 0, 0, Collections.emptyList());
         }
     }
 }

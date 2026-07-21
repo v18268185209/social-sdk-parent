@@ -58,7 +58,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="关键词"><el-input v-model="taskForm.keyword" /></el-form-item>
-        <el-form-item label="最低价"><el-input-number v-model="taskForm.minPosition" :min="0" /></el-form-item>
+        <el-form-item label="最低价"><el-input-number v-model="taskForm.minPrice" :min="0" /></el-form-item>
         <el-form-item label="最高价"><el-input-number v-model="taskForm.maxPrice" :min="0" /></el-form-item>
         <el-form-item label="间隔分钟"><el-input-number v-model="taskForm.intervalMinutes" :min="5" /></el-form-item>
         <el-form-item label="AI 分析">

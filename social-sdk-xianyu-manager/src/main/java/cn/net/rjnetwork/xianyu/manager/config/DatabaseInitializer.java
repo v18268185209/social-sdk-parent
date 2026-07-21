@@ -146,6 +146,7 @@ public class DatabaseInitializer {
      * 启动时 findAllActive 会抛 no such table: proxy_account_binding。这里额外执行一次，保证所有表都建好。
      */
     private void executeProxySchema() throws Exception {
+        executeSchemaFile("db/schema-proxy.sql");
         executeSchemaFile("db/proxy-bindings.sql");
     }
 

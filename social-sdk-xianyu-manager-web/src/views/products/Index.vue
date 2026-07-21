@@ -68,7 +68,7 @@
         </el-form-item>
       </el-form>
 
-      <el-table :data="activeTab === 'xianyu' ? products : localProducts" stripe v-loading="loading">
+      <el-table :data="activeTab === 'xianyu' ? products : localProducts" stripe v-loading="loading" @selection-change="onLocalSelectionChange">
         <!-- 闲鱼商品列 -->
         <template v-if="activeTab === 'xianyu'">
           <el-table-column prop="id" label="ID" width="60" />
@@ -114,6 +114,7 @@
           </el-table-column>
           <el-table-column label="操作" width="280" fixed="right">
             <template #default="{ row }">
+              <el-button size="small" @click="viewDetail(row, 'local')">详情</el-button>
               <el-button size="small" @click="editLocalProduct(row)">编辑</el-button>
               <el-button size="small" type="success" @click="publishLocalProduct(row)" :loading="row._publishing">发布</el-button>
               <el-button size="small" type="danger" @click="deleteLocalProduct(row)">删除</el-button>
@@ -356,7 +357,7 @@
   </div>
 
   <!-- 商品详情抽屉 -->
-  <el-drawer v-model="showDetailDrawer" title="商品详情" size="50%" direction="rtl">
+  <el-drawer v-model="showDetailDrawer" :title="detail && detail._source === 'local' ? '本地商品详情' : '商品详情'" size="50%" direction="rtl">
     <div v-if="detail" style="padding: 0 20px 20px;">
       <!-- 主图 + 视频预览 -->
       <el-carousel v-if="detail.images && detail.images.length" height="260px" style="margin-bottom: 16px; border-radius: 8px; overflow: hidden;">
@@ -368,14 +369,27 @@
       <el-descriptions :column="2" border>
         <el-descriptions-item label="ID">{{ detail.id }}</el-descriptions-item>
         <el-descriptions-item label="状态">
-          <el-tag :type="statusType(detail.status)">{{ statusLabel(detail.status) }}</el-tag>
+          <el-tag :type="detail._source === 'local' ? localStatusType(detail.status) : statusType(detail.status)">
+            {{ detail._source === 'local' ? localStatusLabel(detail.status) : statusLabel(detail.status) }}
+          </el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="标题" :span="2">{{ detail.title }}</el-descriptions-item>
         <el-descriptions-item label="价格">¥{{ detail.price }}</el-descriptions-item>
         <el-descriptions-item label="原价">¥{{ detail.originalPrice || '-' }}</el-descriptions-item>
         <el-descriptions-item label="库存">{{ detail.stock }}</el-descriptions-item>
-        <el-descriptions-item label="浏览">{{ detail.viewCount || 0 }}</el-descriptions-item>
-        <el-descriptions-item label="收藏">{{ detail.favoriteCount || 0 }}</el-descriptions-item>
+        <!-- 闲鱼商品字段 -->
+        <template v-if="detail._source !== 'local'">
+          <el-descriptions-item label="浏览">{{ detail.viewCount || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="收藏">{{ detail.favoriteCount || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="闲鱼 ID">{{ detail.itemId || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="品类">{{ detail.categoryId || '-' }}</el-descriptions-item>
+        </template>
+        <!-- 本地商品字段 -->
+        <template v-else>
+          <el-descriptions-item label="发布账号">{{ accountName(detail.accountId) }}</el-descriptions-item>
+          <el-descriptions-item label="创建时间">{{ detail.createdAt || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="更新时间">{{ detail.updatedAt || '-' }}</el-descriptions-item>
+        </template>
         <el-descriptions-item label="商品类型">
           <el-tag size="small">{{ goodsTypeLabel(detail.goodsType) }}</el-tag>
         </el-descriptions-item>
@@ -383,9 +397,11 @@
           <el-tag size="small" v-if="detail.deliverType">{{ deliverTypeLabel(detail.deliverType) }}</el-tag>
           <span v-else style="color:#909399;">-</span>
         </el-descriptions-item>
-        <el-descriptions-item label="闲鱼 ID">{{ detail.itemId || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="品类">{{ detail.categoryId || '-' }}</el-descriptions-item>
       </el-descriptions>
+
+      <!-- 本地商品：发布失败原因 -->
+      <el-alert v-if="detail._source === 'local' && detail.publishError" type="error" :closable="false"
+        :title="`发布失败：${detail.publishError}`" style="margin-top: 16px;" show-icon />
 
       <!-- 描述 -->
       <el-card style="margin-top: 16px;" v-if="detail.description">
@@ -928,15 +944,17 @@ async function loadAiModels() {
   } catch {}
 }
 
-async function viewDetail(row) {
+async function viewDetail(row, source) {
   detail.value = null
   showDetailDrawer.value = true
   try {
-    const res = await api.get(`/products/${row.id}`)
+    const url = source === 'local' ? `/local-products/${row.id}` : `/products/${row.id}`
+    const res = await api.get(url)
     if (res.success) {
       const p = res.data
       detail.value = {
         ...p,
+        _source: source || 'xianyu',
         images: parseJsonArray(p.images),
         videos: parseJsonArray(p.videos)
       }
