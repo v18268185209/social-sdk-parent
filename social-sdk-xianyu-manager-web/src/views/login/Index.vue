@@ -181,7 +181,7 @@ async function handleLogin() {
     const ok = await authStore.login(form.value.username, form.value.password)
     if (ok) {
       ElMessage.success('登录成功')
-      router.push('/')
+      router.push('/app/dashboard')
     }
   } catch (e) {
     ElMessage.error('登录失败')

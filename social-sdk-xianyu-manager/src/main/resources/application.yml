@@ -48,8 +48,9 @@ spring:
       remove-abandoned: false
       remove-abandoned-timeout: 1800
       log-abandoned: false
-      # ===== 过滤器 =====
-      filters: stat,wall,slf4j
+      # SQLite 本地文件数据库不走网络，无 SQL 注入攻击面，移除 wall filter
+      # wall filter 的 BUG 会拦截 create table 里的 AUTOINCREMENT 语法
+      filters: stat,slf4j
       filter:
         stat:
           enabled: true
