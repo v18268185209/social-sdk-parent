@@ -4,6 +4,9 @@ import cn.net.rjnetwork.xianyu.api.*;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import cn.net.rjnetwork.xianyu.manager.account.service.AccountService;
 import cn.net.rjnetwork.xianyu.manager.product.dto.LocalProductBatchPublishRequest;
+import cn.net.rjnetwork.xianyu.manager.product.dto.LocalProductImportPreview;
+import cn.net.rjnetwork.xianyu.manager.product.dto.LocalProductImportRequest;
+import cn.net.rjnetwork.xianyu.manager.product.dto.LocalProductImportResult;
 import cn.net.rjnetwork.xianyu.manager.product.dto.LocalProductRequest;
 import cn.net.rjnetwork.xianyu.manager.product.mapper.LocalProductMapper;
 import cn.net.rjnetwork.xianyu.manager.product.model.LocalProduct;
@@ -15,6 +18,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
@@ -291,6 +297,309 @@ public class LocalProductService {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toList());
+    }
+
+    // ==================== 批量导入 ====================
+
+    /**
+     * CSV 列常量
+     */
+    private static final String COL_ACCOUNT_NAME = "account_name";
+    private static final String COL_TITLE = "title";
+    private static final String COL_PRICE = "price";
+    private static final String COL_STOCK = "stock";
+    private static final String COL_IMAGES = "images";
+    private static final String COL_GOODS_TYPE = "goods_type";
+    private static final String COL_DELIVER_TYPE = "deliver_type";
+    private static final String COL_DELIVER_CONTENT = "deliver_content_template";
+    private static final String COL_DESCRIPTION = "description";
+
+    /**
+     * 预览导入（解析 CSV，返回前 10 条预览 + 错误明细，不写入 DB）
+     */
+    public LocalProductImportPreview previewImport(LocalProductImportRequest request) throws IOException {
+        List<String[]> rows = parseCsv(request.getFile());
+        if (rows.isEmpty()) throw new IllegalArgumentException("CSV 文件为空");
+
+        String[] header = rows.get(0);
+        Map<String, Integer> colIdx = mapColumns(header);
+
+        List<Map<String, Object>> previewItems = new ArrayList<>();
+        List<LocalProductImportPreview.ImportError> errors = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        Set<String> seenTitles = new HashSet<>();
+
+        int validRows = 0;
+        int duplicateCount = 0;
+
+        for (int i = 1; i < rows.size(); i++) {
+            String[] cols = rows.get(i);
+            int rowNum = i + 1;
+            if (isEmptyRow(cols)) continue;
+
+            Map<String, Object> row = new HashMap<>();
+            List<LocalProductImportPreview.ImportError> rowErrors = new ArrayList<>();
+
+            // 必填校验
+            String title = getCol(cols, colIdx, COL_TITLE);
+            if (title.isEmpty()) rowErrors.add(err(rowNum, COL_TITLE, "标题必填"));
+            String priceStr = getCol(cols, colIdx, COL_PRICE);
+            if (priceStr.isEmpty()) rowErrors.add(err(rowNum, COL_PRICE, "价格必填"));
+            else try { Double.parseDouble(priceStr); }
+            catch (NumberFormatException e) { rowErrors.add(err(rowNum, COL_PRICE, "价格格式无效")); }
+            String accountName = getCol(cols, colIdx, COL_ACCOUNT_NAME);
+            if (accountName.isEmpty()) rowErrors.add(err(rowNum, COL_ACCOUNT_NAME, "发布账号必填"));
+            else {
+                XianyuAccount acc = accountService.findByName(accountName).orElse(null);
+                if (acc == null) rowErrors.add(err(rowNum, COL_ACCOUNT_NAME, "账号不存在: " + accountName));
+                else row.put("accountId", acc.getId());
+            }
+
+            // 可选字段
+            String stockStr = getCol(cols, colIdx, COL_STOCK);
+            row.put("stock", stockStr.isEmpty() ? 1 : parseIntOr(stockStr, 1, rowErrors, rowNum, COL_STOCK));
+            row.put("title", title);
+            row.put("price", priceStr.isEmpty() ? 0 : Double.parseDouble(priceStr));
+            row.put("originalPrice", 0.0);
+            row.put("description", getCol(cols, colIdx, COL_DESCRIPTION));
+            row.put("images", parseImagesFromRaw(getCol(cols, colIdx, COL_IMAGES)));
+            row.put("goodsType", getCol(cols, colIdx, COL_GOODS_TYPE).isEmpty()
+                    ? request.getDefaultGoodsType() : getCol(cols, colIdx, COL_GOODS_TYPE));
+            row.put("deliverType", getCol(cols, colIdx, COL_DELIVER_TYPE));
+            row.put("deliverContentTemplate", getCol(cols, colIdx, COL_DELIVER_CONTENT));
+
+            // 实物/虚拟字段校验
+            String goodsType = (String) row.get("goodsType");
+            if ("VIRTUAL".equals(goodsType) && row.get("deliverType").toString().isEmpty()) {
+                rowErrors.add(err(rowNum, COL_DELIVER_TYPE, "虚拟商品必须指定发货类型"));
+            }
+            if ("VIRTUAL".equals(goodsType) && row.get("deliverContentTemplate").toString().isEmpty()) {
+                rowErrors.add(err(rowNum, COL_DELIVER_CONTENT, "虚拟商品必须指定发货内容"));
+            }
+
+            // 图片 Base64 校验 + 预存
+            List<String> images = (List<String>) row.get("images");
+            List<String> convertedImages = new ArrayList<>();
+            for (String img : images) {
+                if (img.startsWith("data:image")) {
+                    try {
+                        String ext = img.substring(img.indexOf("/") + 1, img.indexOf(";"));
+                        String base64 = img.substring(img.indexOf(",") + 1);
+                        byte[] data = Base64.getDecoder().decode(base64);
+                        Path dir = Paths.get(request.getImageStoragePath());
+                        Files.createDirectories(dir);
+                        String fname = "imp_" + System.nanoTime() + "." + ext;
+                        Files.write(dir.resolve(fname), data);
+                        convertedImages.add("/uploads/local-products/" + fname);
+                    } catch (Exception e) {
+                        rowErrors.add(err(rowNum, COL_IMAGES, "图片 Base64 处理失败: " + e.getMessage()));
+                    }
+                } else {
+                    convertedImages.add(img);
+                }
+            }
+            row.put("images", convertedImages);
+
+            // 虚拟发货内容：分隔符解析
+            if ("VIRTUAL".equals(goodsType)) {
+                String rawContent = row.get("deliverContentTemplate").toString();
+                if (!rawContent.isEmpty()) {
+                    List<String> cards = Arrays.stream(rawContent.split(request.getDeliverContentSeparator()))
+                            .map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toList());
+                    row.put("deliverContentTemplate", toJsonArray(cards));
+                }
+            }
+
+            if (rowErrors.isEmpty()) {
+                // 去重
+                if (request.isDeduplicate() && !seenTitles.add(title)) {
+                    duplicateCount++;
+                    if (!request.isOverwriteDuplicate()) continue;
+                }
+                validRows++;
+                if (previewItems.size() < 10) {
+                    row.put("rowNum", rowNum);
+                    previewItems.add(row);
+                }
+            } else {
+                errors.addAll(rowErrors);
+            }
+        }
+
+        if (validRows == 0 && errors.isEmpty()) {
+            warnings.add("CSV 仅含标题行，无数据行");
+        }
+
+        LocalProductImportPreview preview = new LocalProductImportPreview();
+        preview.setItems(previewItems);
+        preview.setTotalRows(rows.size() - 1);
+        preview.setValidRows(validRows);
+        preview.setErrors(errors);
+        preview.setDuplicateCount(duplicateCount);
+        preview.setWarnings(warnings);
+        return preview;
+    }
+
+    /**
+     * 执行导入（写入 local_product 表，返回统计）
+     */
+    public LocalProductImportResult confirmImport(LocalProductImportRequest request) throws IOException {
+        LocalProductImportPreview preview = previewImport(request);
+        if (preview.getValidRows() == 0) {
+            return new LocalProductImportResult(preview.getTotalRows(), 0, 0, preview.getTotalRows(), List.of("无有效行可导入"));
+        }
+
+        // 重新解析完整 CSV 并写入
+        List<String[]> rows = parseCsv(request.getFile());
+        String[] header = rows.get(0);
+        Map<String, Integer> colIdx = mapColumns(header);
+
+        int imported = 0;
+        int skipped = 0;
+        int failed = 0;
+        List<String> errors = new ArrayList<>();
+
+        for (int i = 1; i < rows.size(); i++) {
+            String[] cols = rows.get(i);
+            if (isEmptyRow(cols)) continue;
+            try {
+                Map<String, Object> item = parseSingleRow(cols, colIdx, request);
+                if (item == null) { skipped++; continue; }
+                LocalProduct p = new LocalProduct();
+                applyRow(p, item);
+                p.setStatus(STATUS_DRAFT);
+                p.setCreatedAt(LocalDateTime.now());
+                p.setUpdatedAt(LocalDateTime.now());
+                localProductMapper.insert(p);
+                imported++;
+            } catch (Exception e) {
+                failed++;
+                errors.add("第 " + (i + 1) + " 行: " + e.getMessage());
+            }
+        }
+        return new LocalProductImportResult(rows.size() - 1, imported, skipped, failed, errors);
+    }
+
+    // ==================== 导入工具方法 ====================
+
+    private List<String[]> parseCsv(org.springframework.web.multipart.MultipartFile file) throws IOException {
+        List<String[]> rows = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                if (!line.isBlank()) rows.add(line.split(",", -1));
+            }
+        }
+        return rows;
+    }
+
+    private Map<String, Integer> mapColumns(String[] header) {
+        Map<String, Integer> map = new HashMap<>();
+        for (int i = 0; i < header.length; i++) map.put(header[i].trim().toLowerCase(), i);
+        return map;
+    }
+
+    private String getCol(String[] cols, Map<String, Integer> idx, String name) {
+        Integer i = idx.get(name.toLowerCase());
+        return (i != null && i < cols.length) ? cols[i].trim() : "";
+    }
+
+    private LocalProductImportPreview.ImportError err(int row, String field, String msg) {
+        LocalProductImportPreview.ImportError e = new LocalProductImportPreview.ImportError();
+        e.setRow(row); e.setField(field); e.setMessage(msg);
+        return e;
+    }
+
+    private boolean isEmptyRow(String[] cols) {
+        for (String c : cols) if (!c.trim().isEmpty()) return false;
+        return true;
+    }
+
+    private int parseIntOr(String s, int defaultVal,
+                           List<LocalProductImportPreview.ImportError> errors, int row, String field) {
+        try { return Integer.parseInt(s); }
+        catch (NumberFormatException e) {
+            errors.add(err(row, field, "整数格式无效: " + s));
+            return defaultVal;
+        }
+    }
+
+    private List<String> parseImagesFromRaw(String raw) {
+        if (raw == null || raw.isBlank()) return new ArrayList<>();
+        return Arrays.stream(raw.split(",")).map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toList());
+    }
+
+    private Map<String, Object> parseSingleRow(String[] cols, Map<String, Integer> colIdx,
+                                                LocalProductImportRequest request) {
+        Map<String, Object> row = new HashMap<>();
+        String title = getCol(cols, colIdx, COL_TITLE);
+        if (title.isEmpty()) return null;
+        String accountName = getCol(cols, colIdx, COL_ACCOUNT_NAME);
+        XianyuAccount acc = accountService.findByName(accountName).orElse(null);
+        if (acc == null) return null;
+
+        row.put("title", title);
+        row.put("accountId", acc.getId());
+        row.put("price", parseDoubleOrDefault(getCol(cols, colIdx, COL_PRICE), 0));
+        row.put("stock", (int) parseDoubleOrDefault(getCol(cols, colIdx, COL_STOCK), 1));
+        row.put("description", getCol(cols, colIdx, COL_DESCRIPTION));
+        row.put("goodsType", getCol(cols, colIdx, COL_GOODS_TYPE).isEmpty()
+                ? request.getDefaultGoodsType() : getCol(cols, colIdx, COL_GOODS_TYPE));
+        row.put("deliverType", getCol(cols, colIdx, COL_DELIVER_TYPE));
+
+        // 图片处理
+        List<String> images = parseImagesFromRaw(getCol(cols, colIdx, COL_IMAGES));
+        List<String> converted = new ArrayList<>();
+        for (String img : images) {
+            if (img.startsWith("data:image")) {
+                try {
+                    String ext = img.substring(img.indexOf("/") + 1, img.indexOf(";"));
+                    String base64 = img.substring(img.indexOf(",") + 1);
+                    byte[] data = Base64.getDecoder().decode(base64);
+                    Path dir = Paths.get(request.getImageStoragePath());
+                    Files.createDirectories(dir);
+                    String fname = "imp_" + System.nanoTime() + "." + ext;
+                    Files.write(dir.resolve(fname), data);
+                    converted.add("/uploads/local-products/" + fname);
+                } catch (Exception e) {
+                    log.warn("[IMPORT] Base64 处理失败: {}", e.getMessage());
+                }
+            } else {
+                converted.add(img);
+            }
+        }
+        row.put("images", converted);
+
+        // 虚拟发货内容
+        String goodsType = (String) row.get("goodsType");
+        if ("VIRTUAL".equals(goodsType)) {
+            String rawContent = getCol(cols, colIdx, COL_DELIVER_CONTENT);
+            List<String> cards = Arrays.stream(rawContent.split(request.getDeliverContentSeparator()))
+                    .map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toList());
+            row.put("deliverContentTemplate", toJsonArray(cards));
+        } else {
+            row.put("deliverContentTemplate", "[]");
+        }
+        return row;
+    }
+
+    private double parseDoubleOrDefault(String s, double def) {
+        if (s == null || s.isBlank()) return def;
+        try { return Double.parseDouble(s); } catch (NumberFormatException e) { return def; }
+    }
+
+    private void applyRow(LocalProduct p, Map<String, Object> row) {
+        p.setAccountId((Long) row.get("accountId"));
+        p.setTitle((String) row.get("title"));
+        p.setPrice(java.math.BigDecimal.valueOf((Double) row.get("price")));
+        p.setStock((Integer) row.get("stock"));
+        p.setDescription((String) row.get("description"));
+        p.setGoodsType((String) row.get("goodsType"));
+        p.setDeliverType((String) row.get("deliverType"));
+        p.setDeliverContentTemplate((String) row.get("deliverContentTemplate"));
+        List<String> images = (List<String>) row.get("images");
+        p.setImages(toJsonArray(images));
+        if (!images.isEmpty()) p.setImageUrl(images.get(0));
     }
 
     /** 批量发布结果。 */

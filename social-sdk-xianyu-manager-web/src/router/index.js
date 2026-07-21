@@ -168,6 +168,18 @@ const routes = [
         name: 'ChromeConfig',
         component: () => import('@/views/chrome/Index.vue'),
         meta: { title: '谷歌浏览器配置' }
+      },
+      {
+        path: 'proxy',
+        name: 'Proxy',
+        component: () => import('@/views/proxy/Index.vue'),
+        meta: { title: '代理管理' }
+      },
+      {
+        path: 'circuit-breaker',
+        name: 'CircuitBreaker',
+        component: () => import('@/views/circuitBreaker/Index.vue'),
+        meta: { title: '熔断器管理' }
       }
     ]
   }

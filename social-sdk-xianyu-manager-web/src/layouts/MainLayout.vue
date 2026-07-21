@@ -121,6 +121,14 @@
           <span class="menu-icon-box"><el-icon><Setting /></el-icon></span>
           <span>谷歌浏览器配置</span>
         </el-menu-item>
+        <el-menu-item index="/proxy">
+          <span class="menu-icon-box"><el-icon><Connection /></el-icon></span>
+          <span>代理管理</span>
+        </el-menu-item>
+        <el-menu-item index="/circuit-breaker">
+          <span class="menu-icon-box"><el-icon><Warning /></el-icon></span>
+          <span>熔断器管理</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
@@ -418,7 +426,7 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { DataAnalysis, User, Goods, ChatDotRound, List, Operation, Money, Star, Cpu, Promotion, Van, UploadFilled, Monitor, Document, Bell, UserFilled, ArrowDown, FullScreen, Shop, Medal, Connection, Service, Sunrise, Switch, Timer, Setting, TrendCharts, Compass, Search, Download, Check, InfoFilled } from '@element-plus/icons-vue'
+import { DataAnalysis, User, Goods, ChatDotRound, List, Operation, Money, Star, Cpu, Promotion, Van, UploadFilled, Monitor, Document, Bell, UserFilled, ArrowDown, FullScreen, Shop, Medal, Connection, Service, Sunrise, Switch, Timer, Setting, TrendCharts, Compass, Search, Download, Check, InfoFilled, Warning } from '@element-plus/icons-vue'
 import * as notify from '@/api/notification'
 import { getChromeConfig, detectChrome, saveChromeConfig, downloadChrome, validateChromePath } from '@/api/chrome'
 
@@ -448,7 +456,8 @@ const breadcrumbMap = {
   '/monitor': ['数据资产', '监控面板'],
   '/market': ['数据资产', '市场情报'],
   '/buyer': ['数据资产', '买家画像'],
-  '/accounts': ['账号管理']
+  '/accounts': ['账号管理'],
+  '/circuit-breaker': ['数据资产', '熔断器管理']
 }
 
 const currentBreadcrumb = computed(() => breadcrumbMap[route.path] || ['管理后台'])
@@ -475,6 +484,7 @@ const pageIconMap = {
   '/monitor': '🖥️',
   '/market': '🧭',
   '/buyer': '👤',
+  '/circuit-breaker': '⚠️',
   '/accounts': '👤'
 }
 

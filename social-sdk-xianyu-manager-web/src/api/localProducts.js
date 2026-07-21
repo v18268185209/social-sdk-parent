@@ -27,3 +27,25 @@ export function publishLocalProduct(id) {
 export function batchPublishLocalProducts(data) {
   return api.post('/local-products/batch-publish', data)
 }
+
+export function previewLocalProductImport(params) {
+  const fd = new FormData()
+  fd.append('file', params.file)
+  if (params.deduplicate != null) fd.append('deduplicate', params.deduplicate)
+  if (params.overwriteDuplicate != null) fd.append('overwriteDuplicate', params.overwriteDuplicate)
+  if (params.defaultGoodsType) fd.append('defaultGoodsType', params.defaultGoodsType)
+  if (params.imageStoragePath) fd.append('imageStoragePath', params.imageStoragePath)
+  if (params.deliverContentSeparator) fd.append('deliverContentSeparator', params.deliverContentSeparator)
+  return api.post('/local-products/import/preview', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+}
+
+export function confirmLocalProductImport(params) {
+  const fd = new FormData()
+  fd.append('file', params.file)
+  if (params.deduplicate != null) fd.append('deduplicate', params.deduplicate)
+  if (params.overwriteDuplicate != null) fd.append('overwriteDuplicate', params.overwriteDuplicate)
+  if (params.defaultGoodsType) fd.append('defaultGoodsType', params.defaultGoodsType)
+  if (params.imageStoragePath) fd.append('imageStoragePath', params.imageStoragePath)
+  if (params.deliverContentSeparator) fd.append('deliverContentSeparator', params.deliverContentSeparator)
+  return api.post('/local-products/import/confirm', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+}
