@@ -76,7 +76,6 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import api from '@/api/request'
 import { listAccounts } from '@/api/account'
 import { listReplyLogs } from '@/api/replyLogs'
 
@@ -102,7 +101,7 @@ function getAccountName(id) {
 
 async function loadAccounts() {
   try {
-    const res = await api.get('/accounts')
+    const res = await listAccounts()
     if (res.success) {
       accounts.value = Array.isArray(res.data) ? res.data : (res.data?.records || [])
     }
@@ -116,7 +115,7 @@ async function loadLogs() {
     if (filterForm.accountId) params.accountId = filterForm.accountId
     if (filterForm.replyType) params.replyType = filterForm.replyType
     if (filterForm.matched !== null && filterForm.matched !== undefined) params.matched = filterForm.matched
-    const res = await api.get('/reply-logs', { params })
+    const res = await listReplyLogs(params)
     if (res.success) {
       logs.value = res.data.records || []
       total.value = res.data.total || 0

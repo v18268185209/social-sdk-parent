@@ -88,6 +88,10 @@
             <span class="menu-icon-box"><el-icon><Document /></el-icon></span>
             <span>审计日志</span>
           </el-menu-item>
+          <el-menu-item index="/reply-logs">
+            <span class="menu-icon-box"><el-icon><ChatLineSquare /></el-icon></span>
+            <span>自动回复日志</span>
+          </el-menu-item>
         </el-menu-item-group>
 
         <el-menu-item-group title="数据资产">

@@ -95,8 +95,8 @@ async function loadData() {
   try {
     const r = await getBuyerList(page.value - 1, size.value, searchKeyword.value)
     if (r.success) {
-      buyers.value = r.data
-      // total 需要后端返回数量，这里简化
+      buyers.value = r.data || []
+      total.value = buyers.value.length
     }
   } catch (e) {}
   loading.value = false

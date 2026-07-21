@@ -27,8 +27,8 @@ export function debugWallet(accountId) {
 
 // ===== MTOP 探测 =====
 // 后端要求 @RequestParam String api（必填），@RequestParam(required=false, defaultValue="1.0") String version
-export function probeWallet(accountId, api, version = '1.0') {
-  return api.post(`/wallet/${accountId}/probe`, null, { params: { api, version } })
+export function probeWallet(accountId, apiName, version = '1.0') {
+  return api.post(`/wallet/${accountId}/probe`, null, { params: { api: apiName, version } })
 }
 
 // ===== 当前生效接口名 =====

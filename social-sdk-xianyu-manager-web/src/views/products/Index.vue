@@ -669,7 +669,6 @@ async function customLocalUpload(options) {
 
 const activeTab = ref('xianyu')
 const createForm = ref({ accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '', categoryId: '', categoryIdPath: null, deliveryChoice: '按距离计费', postPrice: 0, location: '' })
-const createForm = ref({ accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '', categoryId: '', categoryIdPath: null, deliveryChoice: '按距离计费', postPrice: 0, location: '' })
 const categoryTree = ref([])
 const categoryTreeLoading = ref(false)
 const categoryTreeLoadedAccountId = ref(null)
