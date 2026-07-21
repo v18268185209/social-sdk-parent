@@ -24,13 +24,17 @@ let isQuitting = false;
 const isDev = process.env.ELECTRON_DEV === '1';
 
 // ── 路径工具 ───────────────────────────────────────────────────────────────
-const APP_ROOT = isDev ? path.join(__dirname, '../../electron') : path.join(process.resourcesPath, 'app');
+const APP_ROOT = isDev ? path.join(__dirname, '../../electron') : __dirname;
 const JAR_DIR = isDev
     ? path.join(__dirname, '../../social-sdk-xianyu-manager/target')
     : path.join(process.resourcesPath, 'app');
 const DATA_DIR = path.join(app.getPath('userData'));
 const LOG_DIR = path.join(DATA_DIR, 'logs');
 const JAVA_PATH = store.get('javaPath', 'java');
+// launch.sh / launch.bat 脚本路径（与 main.js 同目录）
+const LAUNCH_SCRIPT = process.platform === 'win32'
+    ? path.join(APP_ROOT, 'launch.bat')
+    : path.join(APP_ROOT, 'launch.sh');
 
 // ── 日志工具 ───────────────────────────────────────────────────────────────
 function ensureLogDir() {

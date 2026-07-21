@@ -1,0 +1,17 @@
+# PostgreSQL profile — 三选一实现之一
+# 启动：java -jar xianyu-manager.jar --spring.profiles.active=postgres \
+#   --DB_URL=jdbc:postgresql://localhost:5432/xianyu_manager \
+#   --DB_USERNAME=xianyu --DB_PASSWORD=yourpass
+#
+# Docker 部署 PostgreSQL：
+#   docker run -d --name xianyu-pg \
+#     -e POSTGRES_USER=xianyu \
+#     -e POSTGRES_PASSWORD=yourpass \
+#     -e POSTGRES_DB=xianyu_manager \
+#     -p 5432:5432 postgres:16
+spring:
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/xianyu_manager}
+    username: ${DB_USERNAME:xianyu}
+    password: ${DB_PASSWORD:}

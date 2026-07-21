@@ -1,4 +1,4 @@
-^server:
+server:
   port: 8080
 
 spring:
@@ -16,8 +16,15 @@ spring:
     static-path-pattern: /static/**
   datasource:
     type: com.alibaba.druid.pool.DruidDataSource
-    driver-class-name: org.sqlite.JDBC
-    url: jdbc:sqlite:/Users/vim/Desktop/codes/github/social-sdk-parent/data/xianyu-manager.db
+    # datasource 的 driver/url/username/password 由各 profile 文件提供：
+    #   application-sqlite.yml  (默认)
+    #   application-mysql.yml
+    #   application-postgres.yml
+    # 三选一：--spring.profiles.active=mysql 切换
+    driver-class-name: ${DB_DRIVER:org.sqlite.JDBC}
+    url: ${DB_URL:jdbc:sqlite:./data/xianyu-manager.db}
+    username: ${DB_USERNAME:}
+    password: ${DB_PASSWORD:}
     druid:
       # ===== 连接池核心参数 =====
       initial-size: 5

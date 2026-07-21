@@ -1,6 +1,6 @@
 package cn.net.rjnetwork.xianyu.manager.config.db;
 
-import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
@@ -9,8 +9,10 @@ import java.util.Arrays;
 /**
  * SQLite 方言实现 — 默认 profile。
  * <p>连接池单连接最优（SQLite 文件锁限制），PRAGMA 注入 WAL/synchronous/cache_size/busy_timeout。</p>
+ * <p>激活条件：{@code spring.profiles.active=sqlite} 或缺失（兜底默认）。</p>
  */
 @Component
+@ConditionalOnProperty(prefix = "spring.profiles", name = "active", havingValue = "sqlite", matchIfMissing = true)
 public class SqliteProvider implements DatabaseProvider {
 
     private static final String[] PRAGMA = {

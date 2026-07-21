@@ -1,0 +1,16 @@
+# MySQL8 profile — 三选一实现之一
+# 启动：java -jar xianyu-manager.jar --spring.profiles.active=mysql \
+#   --DB_URL=jdbc:mysql://localhost:3306/xianyu_manager?characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai \
+#   --DB_USERNAME=root --DB_PASSWORD=yourpass
+#
+# Docker 部署 MySQL8：
+#   docker run -d --name xianyu-mysql \
+#     -e MYSQL_ROOT_PASSWORD=yourpass \
+#     -e MYSQL_DATABASE=xianyu_manager \
+#     -p 3306:3306 mysql:8
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${DB_URL:jdbc:mysql://localhost:3306/xianyu_manager?characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}

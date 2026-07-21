@@ -1,6 +1,6 @@
 package cn.net.rjnetwork.xianyu.manager.config.db;
 
-import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
@@ -8,10 +8,10 @@ import java.util.Arrays;
 
 /**
  * PostgreSQL 方言实现 — profile=postgres。
- * <p>连接池可并发（maxActive=20），SET 注入标准_conforming_strings + 时区。</p>
+ * <p>连接池可并发（maxActive=20），SET 注入 standard_conforming_strings + 时区。</p>
  */
 @Component
-@Profile("postgres")
+@ConditionalOnProperty(prefix = "spring.profiles", name = "active", havingValue = "postgres")
 public class PostgresProvider implements DatabaseProvider {
 
     private static final String[] INIT = {

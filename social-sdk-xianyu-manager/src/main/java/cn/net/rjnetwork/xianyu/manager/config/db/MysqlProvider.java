@@ -1,6 +1,6 @@
 package cn.net.rjnetwork.xianyu.manager.config.db;
 
-import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
@@ -11,7 +11,7 @@ import java.util.Arrays;
  * <p>连接池可并发（maxActive=20），SET 注入 utf8mb4 + 严格 SQL 模式 + 时区。</p>
  */
 @Component
-@Profile("mysql")
+@ConditionalOnProperty(prefix = "spring.profiles", name = "active", havingValue = "mysql")
 public class MysqlProvider implements DatabaseProvider {
 
     private static final String[] INIT = {
