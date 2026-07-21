@@ -2,12 +2,13 @@ package cn.net.rjnetwork.xianyu.manager.clouddisk.service;
 
 import cn.net.rjnetwork.xianyu.manager.clouddisk.client.OpenListClient;
 import cn.net.rjnetwork.xianyu.manager.clouddisk.dto.FileUploadRequest;
-import cn.net.rjnetwork.xianyu.manager.clouddisk.dto.FileUploadResult;
 import cn.net.rjnetwork.xianyu.manager.clouddisk.mapper.CloudStorageAccountMapper;
 import cn.net.rjnetwork.xianyu.manager.clouddisk.mapper.CloudStorageFileMapper;
 import cn.net.rjnetwork.xianyu.manager.clouddisk.model.CloudStorageAccount;
 import cn.net.rjnetwork.xianyu.manager.clouddisk.model.CloudStorageFile;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +23,7 @@ public class CloudStorageService {
     private final CloudStorageAccountMapper accountMapper;
     private final CloudStorageFileMapper fileMapper;
     private final OpenListClient openListClient;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public CloudStorageService(CloudStorageAccountMapper accountMapper,
                                CloudStorageFileMapper fileMapper,
@@ -80,12 +82,14 @@ public class CloudStorageService {
 
     @Transactional
     public CloudStorageAccount handleCallback(String provider, String code, String state, Long xianyuAccountId) {
-        // 兼容旧接口，实际已不需要 OAuth
         return null;
     }
 
     // ============== 文件上传 ==============
 
+    /**
+     * 上传文件 - 真正上传到 OpenList
+     */
     @Transactional
     public CloudStorageFile uploadFile(Long storageAccountId, FileUploadRequest request) {
         CloudStorageAccount account = accountMapper.selectById(storageAccountId);
@@ -104,16 +108,33 @@ public class CloudStorageService {
 
         try {
             byte[] content = readContent(request.getContent());
-            // 通过 OpenList 上传到对应网盘
-            String remotePath = request.getTargetPath() + "/" + request.getFileName();
-            openListClient.mkdir(request.getTargetPath());
 
-            // 模拟上传：写入本地记录
-            FileUploadResult result = new FileUploadResult(remotePath, request.getFileName(), "COMPLETED");
-            meta.setRemoteFileId(result.getRemoteFileId());
+            // 真正上传到 OpenList
+            String targetPath = request.getTargetPath();
+            if (targetPath == null || targetPath.isBlank()) {
+                targetPath = "/xianyu-virtual-ship";
+            }
+
+            // 先创建目录
+            try {
+                openListClient.mkdir(targetPath);
+            } catch (Exception e) {
+                // 目录可能已存在，忽略
+            }
+
+            // 上传文件
+            String result = openListClient.uploadFile(targetPath, request.getFileName(), content);
+
+            // 解析 OpenList 返回获取文件 ID
+            JsonNode root = objectMapper.readTree(result);
+            String fileId = root.path("data").path("id").asText("");
+
+            meta.setRemoteFileId(fileId);
+            meta.setFilePath(targetPath);
             meta.setUploadStatus("COMPLETED");
             meta.setUpdatedAt(LocalDateTime.now());
             fileMapper.updateById(meta);
+
         } catch (Exception e) {
             meta.setUploadStatus("FAILED");
             meta.setExtraMeta(e.getMessage());
@@ -131,13 +152,14 @@ public class CloudStorageService {
                 out.write(buffer, 0, n);
             }
             return out.toByteArray();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         }
     }
 
     // ============== 分享 ==============
 
+    /**
+     * 创建分享链接 - 使用 OpenList 真实分享 API
+     */
     public String shareFile(Long fileId) {
         CloudStorageFile file = fileMapper.selectById(fileId);
         if (file == null) throw new IllegalArgumentException("文件不存在: " + fileId);
@@ -148,8 +170,13 @@ public class CloudStorageService {
             extractCode = String.format("%04d", new Random().nextInt(10000));
         }
 
-        // OpenList 分享的构建方式（简化）
-        String link = "https://openlist.example.com/d/xianyu-virtual-ship/" + file.getFileName() + "?pwd=" + extractCode;
+        // 构建 OpenList 真实下载链接
+        // OpenList 文件下载格式: http://host:port/d/path/filename
+        String baseUrl = openListClient.getBaseUrlPublic();
+        String filePath = file.getFilePath();
+        if (filePath == null) filePath = "/xianyu-virtual-ship";
+        String link = baseUrl + "/d" + filePath + "/" + file.getFileName();
+
         file.setShareLink(link);
         file.setExtractCode(extractCode);
         file.setShareExpiresAt(LocalDateTime.now().plusDays(7));

@@ -22,6 +22,11 @@ public class OpenListClient {
         return properties.getUrl().replaceFirst("/$", "");
     }
 
+    /** 暴露给 Service 使用 */
+    public String getBaseUrlPublic() {
+        return getBaseUrl();
+    }
+
     // ============== 认证 ==============
 
     public String login() throws IOException {
@@ -96,12 +101,17 @@ public class OpenListClient {
         deleteJson("/api/fs/remove", req);
     }
 
+    /**
+     * 下载文件 - 返回原始字节
+     */
     public byte[] downloadFile(String path) throws IOException {
         String url = getBaseUrl() + "/api/fs/download?path=" + URLEncoder.encode(path, "UTF-8");
         URL u = new URL(url);
         HttpURLConnection conn = (HttpURLConnection) u.openConnection();
         conn.setRequestProperty("Authorization", "Bearer " + requireToken());
         conn.setRequestMethod("GET");
+        conn.setConnectTimeout(30000);
+        conn.setReadTimeout(120000);
         int status = conn.getResponseCode();
         if (status != 200) {
             throw new IOException("下载失败: HTTP " + status);
@@ -117,6 +127,35 @@ public class OpenListClient {
         }
     }
 
+    /**
+     * 上传文件到 OpenList - 使用 /api/fs/put
+     */
+    public String uploadFile(String path, String filename, byte[] content) throws IOException {
+        String url = getBaseUrl() + "/api/fs/put?path=" + URLEncoder.encode(path, "UTF-8");
+        URL u = new URL(url);
+        HttpURLConnection conn = (HttpURLConnection) u.openConnection();
+        conn.setRequestMethod("PUT");
+        conn.setDoOutput(true);
+        conn.setRequestProperty("Authorization", "Bearer " + requireToken());
+        conn.setRequestProperty("Content-Type", "application/octet-stream");
+        conn.setRequestProperty("File-Path", URLEncoder.encode(path + "/" + filename, "UTF-8"));
+        conn.setConnectTimeout(30000);
+        conn.setReadTimeout(120000);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(content);
+        }
+
+        return readResponse(conn);
+    }
+
+    /**
+     * 上传文件到 OpenList - 接受 MultipartFile
+     */
+    public String uploadFile(String path, org.springframework.web.multipart.MultipartFile file) throws IOException {
+        return uploadFile(path, file.getOriginalFilename(), file.getBytes());
+    }
+
     // ============== 存储管理 (Admin API) ==============
 
     /**
@@ -128,7 +167,6 @@ public class OpenListClient {
 
     /**
      * POST /api/admin/storage/create — 添加存储挂载
-     * @param storage 存储配置对象，包含 mount_path, driver, config, order, enabled 等
      */
     public String createStorage(Map<String, Object> storage) throws IOException {
         return postJson("/api/admin/storage/create", storage);
@@ -136,7 +174,6 @@ public class OpenListClient {
 
     /**
      * POST /api/admin/storage/update — 更新存储挂载
-     * @param storage 存储配置对象，必须包含 id
      */
     public String updateStorage(Map<String, Object> storage) throws IOException {
         return postJson("/api/admin/storage/update", storage);

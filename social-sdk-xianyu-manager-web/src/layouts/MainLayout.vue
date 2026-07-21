@@ -117,7 +117,18 @@
     </el-aside>
     <el-container>
       <el-header class="header">
-        <span class="page-title">{{ currentTitle }}</span>
+        <div class="header-left">
+          <span class="page-icon-box">{{ currentIcon }}</span>
+          <div class="page-title-area">
+            <div class="page-title">{{ currentTitle }}</div>
+            <div class="page-breadcrumb">
+              <span v-for="(crumb, idx) in currentBreadcrumb" :key="idx">
+                <span class="crumb">{{ crumb }}</span>
+                <span v-if="idx < currentBreadcrumb.length - 1" class="crumb-sep">/</span>
+              </span>
+            </div>
+          </div>
+        </div>
         <div class="header-right">
           <el-button text circle @click="openDataBoard" title="实时大屏（新窗口）">
             <el-icon :size="18"><FullScreen /></el-icon>
@@ -129,7 +140,7 @@
           </el-badge>
           <el-dropdown @command="handleCommand">
           <span class="user-info">
-            <el-icon><UserFilled /></el-icon>
+            <span class="avatar">{{ (authStore.user?.displayName || '管').charAt(0) }}</span>
             {{ authStore.user?.displayName || '管理员' }}
             <el-icon><ArrowDown /></el-icon>
           </span>
@@ -216,6 +227,60 @@ import * as notify from '@/api/notification'
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+
+// 面包屑映射
+const breadcrumbMap = {
+  '/dashboard': ['仪表盘'],
+  '/products': ['店铺管理', '商品管理'],
+  '/orders': ['店铺管理', '订单管理'],
+  '/messages': ['店铺管理', '消息管理'],
+  '/collect': ['店铺管理', '收藏关注'],
+  '/reviews': ['店铺管理', '评价与信用'],
+  '/ai-ops': ['AI 智能', 'AI 运营'],
+  '/ai': ['AI 智能', 'AI 厂商'],
+  '/ai-cs': ['AI 智能', 'AI 客服'],
+  '/polish': ['AI 智能', '商品擦亮'],
+  '/virtual-ship': ['发货仓储', '虚拟发货'],
+  '/cloud-storage': ['发货仓储', '网盘存储'],
+  '/tasks': ['发货仓储', '监控任务'],
+  '/rules': ['规则合规', '规则管理'],
+  '/notify': ['规则合规', '消息通知'],
+  '/audit': ['规则合规', '审计日志'],
+  '/wallet': ['数据资产', '钱包资产'],
+  '/monitor': ['数据资产', '监控面板'],
+  '/market': ['数据资产', '市场情报'],
+  '/buyer': ['数据资产', '买家画像'],
+  '/accounts': ['账号管理']
+}
+
+const currentBreadcrumb = computed(() => breadcrumbMap[route.path] || ['管理后台'])
+
+// 页面图标映射
+const pageIconMap = {
+  '/dashboard': '📊',
+  '/products': '📦',
+  '/orders': '📋',
+  '/messages': '💬',
+  '/collect': '⭐',
+  '/reviews': '🏅',
+  '/ai-ops': '🚀',
+  '/ai': '🔗',
+  '/ai-cs': '🎧',
+  '/polish': '✨',
+  '/virtual-ship': '🔄',
+  '/cloud-storage': '☁️',
+  '/tasks': '⏱️',
+  '/rules': '⚙️',
+  '/notify': '🔔',
+  '/audit': '📄',
+  '/wallet': '💰',
+  '/monitor': '🖥️',
+  '/market': '🧭',
+  '/buyer': '👤',
+  '/accounts': '👤'
+}
+
+const currentIcon = computed(() => pageIconMap[route.path] || '📄')
 
 const titleMap = {
   '/dashboard': '仪表盘',
@@ -401,17 +466,77 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
   align-items: center;
   justify-content: space-between;
   background: #fff;
-  box-shadow: 0 1px 4px rgba(0,0,0,.1);
+  border-bottom: 1px solid #e4e7ed;
+  padding: 0 24px;
 }
-.page-title { font-size: 16px; font-weight: 600; }
-.user-info {
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.page-icon-box {
+  width: 28px;
+  height: 28px;
+  background: #ecf5ff;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #409EFF;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.page-title-area {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.page-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: #303133;
+}
+.page-breadcrumb {
+  font-size: 11px;
+  color: #909399;
   display: flex;
   align-items: center;
   gap: 4px;
+}
+.crumb-sep {
+  color: #c0c4cc;
+  margin: 0 2px;
+}
+.crumb {
+  color: #909399;
+}
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   cursor: pointer;
   color: #606266;
+  font-size: 13px;
 }
-.main-content { background: #f0f2f5; padding: 0 !important; overflow: hidden; display: flex; flex-direction: column; }
+.avatar {
+  width: 28px;
+  height: 28px;
+  background: #f0f2f5;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #606266;
+  font-size: 12px;
+  font-weight: 500;
+}
+.main-content {
+  background: #f5f7fa;
+  padding: 16px !important;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
 
 /* 侧边栏菜单样式 — 浅色主题 */
 .sidebar-menu {
@@ -470,7 +595,7 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
   flex-wrap: wrap;
   gap: 6px 18px;
   padding: 12px 16px;
-  background: #f0f2f5;
+  background: #f5f7fa;
   border-top: 1px solid #e4e7ed;
   color: #909399;
   font-size: 13px;

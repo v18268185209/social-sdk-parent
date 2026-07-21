@@ -1,7 +1,7 @@
 <template>
   <div class="page-root">
     <!-- OpenList 状态面板 -->
-    <el-card style="margin: 0;">
+    <el-card style="margin-bottom: 20px;">
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span>📦 OpenList</span>
@@ -15,26 +15,23 @@
               :disabled="busy"
             >
               <el-icon><Download /></el-icon>
-              {{ busy && status.phase === 'downloading' ? '下载中...' : busy && status.phase === 'extracting' ? '解压中...' : '下载安装' }}
+              {{ phaseText }}
             </el-button>
             <el-button
               v-if="status.installed && !status.running"
               type="success"
               size="small"
               @click="handleStart"
-              :loading="busy"
-              :disabled="busy"
+              :loading="starting"
             >
               <el-icon><VideoPlay /></el-icon>
-              {{ busy && status.phase === 'starting' ? '启动中...' : '启动' }}
+              {{ starting ? '启动中...' : '启动' }}
             </el-button>
             <el-button
               v-if="status.running"
               type="warning"
               size="small"
               @click="handleStop"
-              :loading="busy"
-              :disabled="busy"
             >
               <el-icon><VideoPause /></el-icon> 停止
             </el-button>
@@ -43,11 +40,10 @@
               type="info"
               size="small"
               @click="handleRestart"
-              :loading="busy"
-              :disabled="busy"
+              :loading="restarting"
             >
               <el-icon><RefreshRight /></el-icon>
-              {{ busy && status.phase === 'starting' ? '重启中...' : '重启' }}
+              {{ restarting ? '重启中...' : '重启' }}
             </el-button>
           </div>
         </div>
@@ -82,15 +78,9 @@
             </el-link>
             <span v-else>-</span>
           </el-descriptions-item>
-          <el-descriptions-item label="默认账号">
-            {{ status.username || 'openlist' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="默认密码">
-            {{ status.password || 'openlist' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="系统架构">
-            {{ status.arch || '检测中...' }}
-          </el-descriptions-item>
+          <el-descriptions-item label="默认账号">{{ status.username || 'openlist' }}</el-descriptions-item>
+          <el-descriptions-item label="默认密码">{{ status.password || 'openlist' }}</el-descriptions-item>
+          <el-descriptions-item label="系统架构">{{ status.arch || '检测中...' }}</el-descriptions-item>
         </el-descriptions>
 
         <el-alert
@@ -131,41 +121,51 @@
       </div>
     </el-card>
 
-    <!-- 网盘挂载管理 -->
+    <!-- 网盘挂载管理（对齐 OpenList 存储管理 API） -->
     <el-card style="margin-bottom: 20px;">
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span>🌐 网盘挂载</span>
-          <el-button type="primary" size="small" @click="showMountDialog = true">
+          <span>🌐 网盘挂载（OpenList 存储管理）</span>
+          <el-button type="primary" size="small" @click="showMountDialog = true" :disabled="!status.running">
             <el-icon><Plus /></el-icon> 添加网盘
           </el-button>
         </div>
       </template>
 
-      <el-table :data="mounts" stripe v-loading="mountLoading">
+      <el-table :data="mounts" stripe v-loading="mountLoading" style="width: 100%;">
         <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column label="类型" width="140">
+        <el-table-column label="驱动" width="140">
           <template #default="{ row }">
-            <el-tag>{{ row.type }}</el-tag>
+            <el-tag>{{ driverLabel(row.driver) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="name" label="名称" width="180" />
-        <el-table-column prop="mount_path" label="挂载路径" width="180" />
+        <el-table-column prop="mountPath" label="挂载路径" width="180" />
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'ok' ? 'success' : 'danger'">
-              {{ row.status === 'ok' ? '正常' : '异常' }}
+            <el-tag :type="row.enabled ? 'success' : 'info'">
+              {{ row.enabled ? '启用' : '禁用' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="健康" width="100">
           <template #default="{ row }">
-            <el-button size="small" type="danger" @click="removeMount(row.id)">移除</el-button>
+            <el-tag :type="row.status === 'work' ? 'success' : 'warning'">
+              {{ row.status === 'work' ? '正常' : row.status || '未知' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="order" label="排序" width="60" />
+        <el-table-column label="操作" width="240" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" @click="toggleMount(row)" :type="row.enabled ? 'warning' : 'success'">
+              {{ row.enabled ? '禁用' : '启用' }}
+            </el-button>
+            <el-button size="small" type="danger" @click="removeMount(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <el-empty v-if="!mountLoading && mounts.length === 0" description="暂无挂载" />
+      <el-empty v-if="!mountLoading && mounts.length === 0" description="暂无挂载，请先启动 OpenList" />
     </el-card>
 
     <!-- 文件管理卡片 -->
@@ -174,56 +174,44 @@
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span>📄 文件管理</span>
           <div style="display: flex; gap: 10px;">
-            <el-select v-model="filterAccountId" placeholder="筛选网盘账号" clearable style="width: 200px;">
+            <el-select v-model="filterMountPath" placeholder="筛选网盘" clearable style="width: 200px;" @change="loadFiles">
               <el-option
-                v-for="acc in accounts"
-                :key="acc.id"
-                :label="`${providerLabel(acc.provider)} (${acc.uid || '-'})`"
-                :value="acc.id"
+                v-for="m in mounts"
+                :key="m.id"
+                :label="m.mountPath"
+                :value="m.mountPath"
               />
             </el-select>
-            <el-button type="primary" size="small" @click="showUploadDialog = true" :disabled="!filterAccountId">
+            <el-button type="primary" size="small" @click="showUploadDialog = true" :disabled="!filterMountPath">
               <el-icon><Upload /></el-icon> 上传文件
+            </el-button>
+            <el-button size="small" @click="loadFiles" :disabled="!filterMountPath">
+              <el-icon><RefreshRight /></el-icon> 刷新
             </el-button>
           </div>
         </div>
       </template>
 
       <el-table :data="files" stripe v-loading="fileLoading">
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="fileName" label="文件名" min-width="200" />
+        <el-table-column prop="name" label="文件名" min-width="200" />
         <el-table-column label="大小" width="100">
-          <template #default="{ row }">{{ formatSize(row.fileSize) }}</template>
+          <template #default="{ row }">{{ formatSize(row.size) }}</template>
         </el-table-column>
-        <el-table-column label="上传状态" width="120">
+        <el-table-column label="类型" width="80">
           <template #default="{ row }">
-            <el-tag :type="fileStatusType(row.uploadStatus)">{{ row.uploadStatus }}</el-tag>
+            <el-tag :type="row.type === 1 ? 'primary' : 'success'" size="small">
+              {{ row.type === 1 ? '目录' : '文件' }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="分享链接" min-width="200">
-          <template #default="{ row }">
-            <span v-if="row.shareLink">
-              <el-link :href="row.shareLink" target="_blank" type="primary">{{ row.shareLink.slice(0, 50) }}...</el-link>
-              <span v-if="row.extractCode" style="margin-left: 8px; color: #e6a23c;">提取码: {{ row.extractCode }}</span>
-            </span>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="分享有效期" width="180">
-          <template #default="{ row }">
-            {{ row.shareExpiresAt ? formatTime(row.shareExpiresAt) : '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column label="上传时间" width="180">
-          <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
-        </el-table-column>
+        <el-table-column prop="modified" label="修改时间" width="180" />
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="success" @click="shareFile(row)" v-if="row.uploadStatus === 'COMPLETED' && !row.shareLink">
-              创建分享
+            <el-button size="small" type="primary" @click="downloadFile(row)" v-if="row.type !== 1">
+              下载
             </el-button>
-            <el-button size="small" type="warning" @click="cancelShare(row)" v-if="row.shareLink">
-              取消分享
+            <el-button size="small" type="danger" @click="deleteFile(row)" v-if="row.type !== 1">
+              删除
             </el-button>
           </template>
         </el-table-column>
@@ -232,24 +220,57 @@
       <el-empty v-if="!fileLoading && files.length === 0" description="暂无文件" />
     </el-card>
 
-    <!-- 添加网盘对话框 -->
-    <el-dialog v-model="showMountDialog" title="添加网盘挂载" width="500px">
+    <!-- 添加网盘存储对话框 -->
+    <el-dialog v-model="showMountDialog" title="添加网盘存储" width="600px">
       <el-form label-width="100px">
-        <el-form-item label="网盘类型">
-          <el-select v-model="mountForm.type" style="width: 100%;">
-            <el-option label="百度网盘" value="baidu" />
-            <el-option label="阿里云盘" value="aliyundrive" />
-            <el-option label="夸克网盘" value="quark" />
-            <el-option label="OneDrive" value="onedrive" />
-            <el-option label="WebDAV" value="webdav" />
-            <el-option label="S3" value="s3" />
+        <el-form-item label="存储驱动">
+          <el-select v-model="mountForm.driver" style="width: 100%;" @change="onDriverChange">
+            <el-option
+              v-for="d in drivers"
+              :key="d.name"
+              :label="d.label"
+              :value="d.name"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="挂载路径">
-          <el-input v-model="mountForm.mountPath" placeholder="/百宝箱" />
+          <el-input v-model="mountForm.mountPath" placeholder="/baidu" />
         </el-form-item>
-        <el-form-item label="根目录 ID">
-          <el-input v-model="mountForm.rootFolderId" placeholder="/" />
+        <el-form-item label="排序">
+          <el-input-number v-model="mountForm.order" :min="0" :max="100" />
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="mountForm.enabled" />
+        </el-form-item>
+
+        <!-- 动态配置字段 -->
+        <el-divider>驱动配置</el-divider>
+        <el-form-item v-for="field in currentDriverFields" :key="field.name" :label="field.label">
+          <el-input
+            v-if="field.type === 'string'"
+            v-model="mountForm.config[field.name]"
+            :placeholder="field.placeholder"
+            style="width: 100%;"
+          />
+          <el-input
+            v-if="field.type === 'password'"
+            v-model="mountForm.config[field.name]"
+            :placeholder="field.placeholder"
+            type="password"
+            show-password
+            style="width: 100%;"
+          />
+          <el-input-number
+            v-if="field.type === 'number'"
+            v-model="mountForm.config[field.name]"
+            :min="0"
+            style="width: 100%;"
+          />
+          <el-switch
+            v-if="field.type === 'boolean'"
+            v-model="mountForm.config[field.name]"
+          />
+          <p v-if="field.description" style="color: #909399; font-size: 12px; margin: 0;">{{ field.description }}</p>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -259,7 +280,7 @@
     </el-dialog>
 
     <!-- 上传文件对话框 -->
-    <el-dialog v-model="showUploadDialog" title="上传文件到网盘" width="500px">
+    <el-dialog v-model="showUploadDialog" title="上传文件" width="500px">
       <el-upload
         drag
         :auto-upload="false"
@@ -286,7 +307,8 @@ import {
 } from '@element-plus/icons-vue'
 import {
   getOpenListStatus, installOpenList, startOpenList, stopOpenList, restartOpenList,
-  listStorageAccounts, deleteStorageAccount, listStorageFiles, uploadStorageFile, shareStorageFile, cancelShareStorageFile
+  listStorages, createStorage, deleteStorage, enableStorage, disableStorage,
+  listDrivers, getDriverInfo, listOpenListFiles, uploadOpenListFile, downloadOpenListFile
 } from '@/api/openList'
 
 // ============== OpenList 状态 ==============
@@ -304,9 +326,19 @@ const status = ref({
   message: '空闲'
 })
 
+const starting = ref(false)
+const restarting = ref(false)
+
 const busy = computed(() => {
   const p = status.value.phase
   return p === 'downloading' || p === 'extracting' || p === 'starting'
+})
+
+const phaseText = computed(() => {
+  const p = status.value.phase
+  if (p === 'downloading') return '下载中...'
+  if (p === 'extracting') return '解压中...'
+  return '下载安装'
 })
 
 const progressPercent = computed(() => (status.value.progress || 0) * 100)
@@ -353,12 +385,15 @@ const handleInstall = async () => {
 }
 
 const handleStart = async () => {
+  starting.value = true
   try {
     await startOpenList()
     ElMessage.info('启动中...')
     startPolling()
   } catch (e) {
     ElMessage.error('启动失败')
+  } finally {
+    starting.value = false
   }
 }
 
@@ -373,12 +408,15 @@ const handleStop = async () => {
 }
 
 const handleRestart = async () => {
+  restarting.value = true
   try {
     await restartOpenList()
     ElMessage.info('重启中...')
     startPolling()
   } catch (e) {
     ElMessage.error('重启失败')
+  } finally {
+    restarting.value = false
   }
 }
 
@@ -400,55 +438,140 @@ const statusText = s => {
   return '空闲'
 }
 
-// ============== 网盘挂载 ==============
+// ============== 存储挂载管理 ==============
 const mounts = ref([])
 const mountLoading = ref(false)
 const addingMount = ref(false)
 const showMountDialog = ref(false)
+const drivers = ref([])
+
 const mountForm = ref({
-  type: 'baidu',
-  mountPath: '/',
-  rootFolderId: '/'
+  driver: 'BaiduNetdisk',
+  mountPath: '/baidu',
+  order: 0,
+  enabled: true,
+  config: {}
 })
 
+const currentDriverFields = ref([])
+
+const driverLabel = name => {
+  const d = drivers.value.find(x => x.name === name)
+  return d ? d.label : name
+}
+
+const loadDrivers = async () => {
+  try {
+    const res = await listDrivers()
+    drivers.value = res.data || []
+  } catch (e) {
+    console.error('加载驱动列表失败:', e)
+  }
+}
+
 const loadMounts = async () => {
+  if (!status.value.running) return
   mountLoading.value = true
   try {
-    mounts.value = []
-  } catch {}
-  mountLoading.value = false
+    const res = await listStorages()
+    mounts.value = res.data || []
+  } catch (e) {
+    console.error('加载存储列表失败:', e)
+  } finally {
+    mountLoading.value = false
+  }
+}
+
+const onDriverChange = async (driverName) => {
+  currentDriverFields.value = []
+  try {
+    const res = await getDriverInfo(driverName)
+    let schema = []
+    try {
+      const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
+      const driverData = data.data || data
+      if (driverData && driverData.config) {
+        const configFields = driverData.config
+        schema = Object.entries(configFields).map(([k, v]) => ({
+          name: k,
+          type: typeof v === 'boolean' ? 'boolean' : typeof v === 'number' ? 'number' : 'string',
+          label: k,
+          description: ''
+        }))
+      }
+    } catch (e) {
+      console.error('解析驱动配置失败:', e)
+    }
+    currentDriverFields.value = schema
+  } catch (e) {
+    console.error('获取驱动信息失败:', e)
+  }
 }
 
 const addMount = async () => {
+  if (!mountForm.value.mountPath || !mountForm.value.mountPath.startsWith('/')) {
+    ElMessage.warning('挂载路径必须以 / 开头')
+    return
+  }
+  if (!mountForm.value.driver) {
+    ElMessage.warning('请选择存储驱动')
+    return
+  }
+
   addingMount.value = true
   try {
-    ElMessage.success('挂载添加成功（需配置 OpenList 服务端）')
+    const payload = {
+      mount_path: mountForm.value.mountPath,
+      driver: mountForm.value.driver,
+      order: mountForm.value.order,
+      enabled: mountForm.value.enabled,
+      config: mountForm.value.config
+    }
+    await createStorage(payload)
+    ElMessage.success('存储挂载添加成功')
     showMountDialog.value = false
     loadMounts()
   } catch (e) {
-    ElMessage.error('添加失败')
+    ElMessage.error('添加失败: ' + (e.message || e))
   } finally {
     addingMount.value = false
   }
 }
 
-const removeMount = async (id) => {
-  await ElMessageBox.confirm('确定移除该挂载吗？', '提示', { type: 'warning' })
-  ElMessage.success('已移除')
-  loadMounts()
+const removeMount = async (row) => {
+  await ElMessageBox.confirm(`确定删除挂载 ${row.mountPath} 吗？`, '提示', { type: 'warning' })
+  try {
+    await deleteStorage(row.id)
+    ElMessage.success('已删除')
+    loadMounts()
+  } catch (e) {
+    ElMessage.error('删除失败')
+  }
 }
 
-// ============== 账号/文件管理 ==============
-const accounts = ref([])
+const toggleMount = async (row) => {
+  try {
+    if (row.enabled) {
+      await disableStorage(row.id)
+      ElMessage.success('已禁用')
+    } else {
+      await enableStorage(row.id)
+      ElMessage.success('已启用')
+    }
+    loadMounts()
+  } catch (e) {
+    ElMessage.error('操作失败')
+  }
+}
+
+// ============== 文件管理 ==============
 const files = ref([])
-const loading = ref(false)
 const fileLoading = ref(false)
-const filterAccountId = ref(null)
+const filterMountPath = ref(null)
 const showUploadDialog = ref(false)
 const uploading = ref(false)
 const selectedFile = ref(null)
 
-const formatTime = t => t ? new Date(t).toLocaleString('zh-CN') : '-'
 const formatSize = bytes => {
   if (!bytes) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -456,39 +579,42 @@ const formatSize = bytes => {
   while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++ }
   return `${bytes.toFixed(1)} ${units[i]}`
 }
-const providerLabel = p => ({ BAIDU_NETDISK: '百度网盘', QUARK_NETDISK: '夸克网盘', ALIYUN_DRIVE: '阿里云盘' }[p] || p)
-const fileStatusType = s => ({ COMPLETED: 'success', UPLOADING: 'warning', FAILED: 'danger', PENDING: 'info' }[s] || 'info')
-
-const loadAccounts = async () => {
-  loading.value = true
-  try {
-    const res = await listStorageAccounts()
-    accounts.value = res.data || []
-  } finally {
-    loading.value = false
-  }
-}
 
 const loadFiles = async () => {
+  if (!filterMountPath.value) {
+    files.value = []
+    return
+  }
   fileLoading.value = true
   try {
-    const res = await listStorageFiles(filterAccountId.value)
-    files.value = res.data || []
+    const res = await listOpenListFiles(filterMountPath.value)
+    // 解析 OpenList 返回的文件列表
+    if (res.data) {
+      let fileList = []
+      try {
+        const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
+        if (data && data.data && data.data.content) {
+          fileList = data.data.content.map(item => ({
+            name: item.name,
+            size: item.size || 0,
+            type: item.type, // 1=目录, 0=文件
+            modified: item.modified || '',
+            raw: item
+          }))
+        }
+      } catch (e) {
+        console.error('解析文件列表失败:', e)
+      }
+      files.value = fileList
+    } else {
+      files.value = []
+    }
+  } catch (e) {
+    console.error('加载文件列表失败:', e)
+    files.value = []
   } finally {
     fileLoading.value = false
   }
-}
-
-const shareFile = async (row) => {
-  const res = await shareStorageFile(row.id)
-  ElMessage.success(`分享链接: ${res.data}`)
-  loadFiles()
-}
-
-const cancelShare = async (row) => {
-  await cancelShareStorageFile(row.id)
-  ElMessage.success('已取消分享')
-  loadFiles()
 }
 
 const handleFileChange = (uploadFile) => {
@@ -497,9 +623,10 @@ const handleFileChange = (uploadFile) => {
 
 const uploadFile = async () => {
   if (!selectedFile.value) return ElMessage.warning('请先选择文件')
+  if (!filterMountPath.value) return ElMessage.warning('请先选择网盘')
   uploading.value = true
   try {
-    await uploadStorageFile(filterAccountId.value, selectedFile.value)
+    await uploadOpenListFile(filterMountPath.value, selectedFile.value)
     ElMessage.success('上传成功')
     showUploadDialog.value = false
     loadFiles()
@@ -510,11 +637,36 @@ const uploadFile = async () => {
   }
 }
 
-watch(filterAccountId, () => loadFiles())
+const downloadFile = async (row) => {
+  if (!filterMountPath.value) return
+  try {
+    // 直接构建 OpenList 下载链接
+    const url = `${status.value.url}/d${filterMountPath.value}/${row.name}`
+    window.open(url, '_blank')
+  } catch (e) {
+    ElMessage.error('下载失败')
+  }
+}
+
+const deleteFile = async (row) => {
+  if (!filterMountPath.value) return
+  await ElMessageBox.confirm(`确定删除 ${row.name} 吗？`, '提示', { type: 'warning' })
+  try {
+    // 通过 OpenList API 删除文件
+    const { deleteOpenListFile } = await import('@/api/openList')
+    await deleteOpenListFile(filterMountPath.value, row.name)
+    ElMessage.success('已删除')
+    loadFiles()
+  } catch (e) {
+    ElMessage.error('删除失败')
+  }
+}
+
+watch(filterMountPath, () => loadFiles())
 
 onMounted(() => {
+  loadDrivers()
   loadStatus()
-  loadAccounts()
   loadMounts()
   startPolling()
 })
