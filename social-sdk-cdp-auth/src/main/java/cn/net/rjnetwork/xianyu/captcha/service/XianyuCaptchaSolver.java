@@ -266,13 +266,22 @@ public class XianyuCaptchaSolver {
             return CaptchaResult.fail("获取 CDP 目标列表失败：" + e.getMessage());
         }
 
-        // 3. 查找或创建闲鱼标签页
+        // 3. 查找或复用/创建闲鱼标签页。启动时 Chrome 命令行带 about:blank 会建一个空白标签，
+        // 优先复用这个空白标签去导航，避免新建后出现 2 个窗口。
         String targetId = findGoofishTargetId(targets);
+        boolean reusedBlank = false;
         if (targetId == null) {
-            try {
-                targetId = createNewTarget(browserEndpoint, "about:blank");
-            } catch (Exception e) {
-                return CaptchaResult.fail("创建 CDP 标签页失败：" + e.getMessage());
+            String blankId = findBlankTargetId(targets);
+            if (blankId != null) {
+                targetId = blankId;
+                reusedBlank = true;
+                log.info("[CDP-AUTH] 复用已有空白标签页 id={}", targetId);
+            } else {
+                try {
+                    targetId = createNewTarget(browserEndpoint, "about:blank");
+                } catch (Exception e) {
+                    return CaptchaResult.fail("创建 CDP 标签页失败：" + e.getMessage());
+                }
             }
         }
         if (targetId == null || targetId.isBlank()) {
@@ -285,6 +294,13 @@ public class XianyuCaptchaSolver {
             cdpEndpoint = getPageWebSocketEndpoint(targetId);
         } catch (Exception e) {
             return CaptchaResult.fail("获取页面 CDP 端点失败：" + e.getMessage());
+        }
+
+        // 4a. 关闭多余空白标签页，避免出现「闲鱼窗口 + 空白窗口」两个窗口
+        try {
+            closeExtraBlankTargets(browserEndpoint, targetId, targets);
+        } catch (Exception e) {
+            log.warn("[CDP-AUTH] 关闭多余空白标签页异常: {}", e.getMessage());
         }
 
         // 5. 消息风控不要直接打开 data.url 里的 punish 链接。
@@ -315,6 +331,18 @@ public class XianyuCaptchaSolver {
             return CaptchaResult.fail("导航到闲鱼消息页失败：" + e.getMessage());
         }
 
+        // 5a. 空白页处理：第一次打开 goofish 时页面可能是空白的（无 body 内容、无 iframe），
+        // 必须刷新才能让页面正常渲染，触发 pc.login.token / 滑块。
+        try {
+            if (isBlankImPage(cdpEndpoint)) {
+                log.warn("[CDP-AUTH] 第一次打开闲鱼消息页为空白页，刷新以触发渲染");
+                reloadImPage(cdpEndpoint);
+                Thread.sleep(5000);
+            }
+        } catch (Exception e) {
+            log.warn("[CDP-AUTH] 空白页检测/刷新异常: {}", e.getMessage());
+        }
+
         // 5b. 登录态失效检测：注入 cookie 后若 IM 页仍跳到登录页，说明账号登录 cookie 已过期。
         // 此时不应该再走滑块（滑块过了也进不了消息页），直接返回 LOGIN_EXPIRED 让上层推送通知。
         if (isLoginPage(cdpEndpoint)) {
@@ -342,50 +370,46 @@ public class XianyuCaptchaSolver {
             }
         }
 
-        // 6. 自动拖动滑块，最多重试 3 次。若页面上有滑块，不能把旧 x5sec 当成本次通过；
-        // 必须看到 x5sec 相对 baseline 发生变化，或者 iframe 消失且页面可用。
+        // 6. 自动拖动滑块，最多重试 3 次。第一次迭代必须先 drag、后 check，
+        // 否则刷新后 iframe 还没渲染时 checkAlreadyPassed 会误判"滑块已通过"。
         boolean success = false;
         for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
             log.info("[CDP-AUTH] 滑块验证第 {}/{} 次尝试", attempt, MAX_RETRY_ATTEMPTS);
 
-            // 检查是否已经通过（人工已完成）。真实 goofish 验证通过后 iframe 可能仍短暂保留，
-            // 但 x5sec 已经写入浏览器全局 CookieJar，所以优先按 cookie 判定。
-            try {
-                if (checkAlreadyPassed(cdpEndpoint, baselineX5)) {
-                    log.info("[CDP-AUTH] 检测到本次验证已通过（可能人工已完成）");
-                    success = true;
-                    break;
-                }
-            } catch (Exception e) {
-                // 忽略，继续自动拖动
-            }
-
-            // 执行自动拖动
+            // 执行自动拖动（每次都先拖，拖完再检查）
             try {
                 performAutoSliderDrag(cdpEndpoint, attempt);
             } catch (Exception e) {
                 log.warn("[CDP-AUTH] 第 {} 次拖动执行异常: {}", attempt, e.getMessage());
             }
 
-            // 等待验证结果
+            // 等待验证结果渲染
             try {
-                Thread.sleep(2000);
+                Thread.sleep(1500 + attempt * 500L);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
             }
 
-            // 检查是否通过
+            // 检查是否通过（必须相对 baseline 新生成 x5sec 才算）
             try {
-                if (checkAlreadyPassed(cdpEndpoint)) {
+                if (checkAlreadyPassed(cdpEndpoint, baselineX5)) {
                     log.info("[CDP-AUTH] 第 {} 次拖动后验证通过", attempt);
                     success = true;
                     break;
                 } else {
                     log.warn("[CDP-AUTH] 第 {} 次拖动后验证未通过", attempt);
-                    // 点击刷新按钮准备重试
                     if (attempt < MAX_RETRY_ATTEMPTS) {
+                        // 递增延迟，给风控服务器冷却（参考项目 base 1.5s + 1.0s/次）
+                        long cooldown = 1500L + attempt * 1000L;
+                        log.info("[CDP-AUTH] 等待 {}ms 后刷新 punish 重试", cooldown);
+                        Thread.sleep(cooldown);
                         clickRefreshButton(cdpEndpoint);
-                        Thread.sleep(1500);
+                        // 点击刷新后滑块需要重新渲染，必须等滑块重新出现再进下一次拖动，
+                        // 否则 performAutoSliderDrag 进来时滑块还没渲染就报「未找到滑块元素」。
+                        boolean reRendered = waitForSlider(cdpEndpoint, 8000);
+                        if (!reRendered) {
+                            log.warn("[CDP-AUTH] 刷新后滑块未重新渲染，放弃本次重试");
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -498,11 +522,7 @@ public class XianyuCaptchaSolver {
         // 真实 goofish 验证通过后，baxia iframe 可能仍保留一段时间，
         // 但 x5sec 会先写入浏览器全局 CookieJar。这里必须优先用 CDP Network.getAllCookies 判定，
         // 不能只依赖 iframe 是否消失或当前 document.cookie。
-        if (isCaptchaFailureVisible(cdpEndpoint)) {
-            log.warn("[CDP-AUTH] 检测到滑块失败文案，不能把当前 x5sec 判定为通过");
-            return false;
-        }
-
+        // 判定顺序：1) 正向通过证据（新 x5sec） → 2) 失败文案（只在没通过证据时才判失败）
         String globalCookie = extractCookie(cdpEndpoint, IM_PAGE_URL);
         String currentX5 = extractX5CookieValue(globalCookie);
         if (currentX5 != null && !currentX5.isBlank() && !currentX5.equals(baselineX5)) {
@@ -534,6 +554,8 @@ public class XianyuCaptchaSolver {
                     log.info("[CDP-AUTH] 当前页面 document.cookie 已包含 x5sec，判定滑块已通过");
                     return true;
                 }
+                // 注意：滑块消失不等于通过。页面刚刷新/导航后 iframe 可能还没渲染完，hasSlider 也会为 false。
+                // 所以这里不用"滑块消失"作为通过证据。
             }
         } catch (Exception e) {
             log.debug("[CDP-AUTH] checkAlreadyPassed 异常: {}", e.getMessage());
@@ -541,6 +563,12 @@ public class XianyuCaptchaSolver {
             if (socket != null) {
                 try { socket.close(); } catch (IOException ignored) {}
             }
+        }
+
+        // 最后才检查失败文案：只在没有正向通过证据时才判失败
+        if (isCaptchaFailureVisible(cdpEndpoint)) {
+            log.warn("[CDP-AUTH] 检测到滑块失败文案，不能把当前 x5sec 判定为通过");
+            return false;
         }
         return false;
     }
@@ -594,6 +622,50 @@ public class XianyuCaptchaSolver {
         } catch (Exception e) {
             log.debug("[CDP-AUTH] hasSlider 异常: {}", e.getMessage());
             return false;
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+    }
+
+    private boolean isBlankImPage(String cdpEndpoint) {
+        Socket socket = null;
+        try {
+            socket = openWebSocket(cdpEndpoint);
+            Map<String, Object> script = new LinkedHashMap<>();
+            script.put("expression", """
+                (() => {
+                    const bodyText = (document.body && document.body.innerText || '').trim();
+                    const hasIframe = !!document.querySelector('iframe#baxia-dialog-content, iframe[name="baxia-dialog-content"]');
+                    const hasSlider = !!document.querySelector('#nc_1_n1z, .btn_slide');
+                    // 空白页判定：body 文本极少 + 无 iframe + 无滑块
+                    return JSON.stringify({blank: bodyText.length < 20 && !hasIframe && !hasSlider, bodyLen: bodyText.length, hasIframe, hasSlider});
+                })()
+            """);
+            script.put("returnByValue", true);
+            Object value = extractRuntimeValue(sendCommand(socket, "Runtime.evaluate", script));
+            if (value != null) {
+                JsonNode node = MAPPER.readTree(String.valueOf(value));
+                return node.path("blank").asBoolean(false);
+            }
+        } catch (Exception e) {
+            log.debug("[CDP-AUTH] isBlankImPage 异常: {}", e.getMessage());
+        } finally {
+            if (socket != null) {
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+        }
+        return false;
+    }
+
+    private void reloadImPage(String cdpEndpoint) throws Exception {
+        Socket socket = null;
+        try {
+            socket = openWebSocket(cdpEndpoint);
+            Map<String, Object> params = new LinkedHashMap<>();
+            params.put("url", IM_PAGE_URL);
+            sendCommand(socket, "Page.navigate", params);
         } finally {
             if (socket != null) {
                 try { socket.close(); } catch (IOException ignored) {}
@@ -719,18 +791,28 @@ public class XianyuCaptchaSolver {
             log.info("[CDP-AUTH] 滑块位置: ({}, {}), trackWidth={}px, btnWidth={}px, 本次距离={}px",
                     startX, startY, String.format("%.1f", trackWidth), String.format("%.1f", btnWidth), String.format("%.1f", slideDistance));
 
-            // 2. 生成人类化轨迹：先小幅过冲，再回退到本次目标距离释放
-            List<double[]> trajectory = generateHumanTrajectory(slideDistance, attemptIndex);
+            // 2. 接近阶段：带偏移地移动到滑块上方，模拟真人移动
+            int approachSteps = 6 + RANDOM.nextInt(7); // 6-12
+            double approachOffsetX = -30 + RANDOM.nextDouble() * 15; // -30 到 -15
+            double approachOffsetY = 8 + RANDOM.nextDouble() * 14;   // 8-22
+            double approachStartX = startX + approachOffsetX;
+            double approachStartY = startY + approachOffsetY;
+            dispatchMouse(socket, "mouseMoved", approachStartX, approachStartY, "none", 0);
+            Thread.sleep(30 + RANDOM.nextInt(270)); // page_wait 50-300ms
+            for (int s = 1; s <= approachSteps; s++) {
+                double ax = approachOffsetX + (0 - approachOffsetX) * s / approachSteps + (RANDOM.nextDouble() - 0.5) * 4;
+                double ay = approachOffsetY + (0 - approachOffsetY) * s / approachSteps + (RANDOM.nextDouble() - 0.5) * 3;
+                dispatchMouse(socket, "mouseMoved", startX + ax, startY + ay, "none", 0);
+                Thread.sleep(8 + RANDOM.nextInt(20));
+            }
 
-            // 3. 移动到滑块位置（带随机偏移，模拟真人移动）
-            double approachX = startX + (RANDOM.nextDouble() * 20 - 10);
-            double approachY = startY + (RANDOM.nextDouble() * 10 - 5);
-            dispatchMouse(socket, "mouseMoved", approachX, approachY, "none", 0);
-            Thread.sleep(100 + RANDOM.nextInt(200));
-
-            // 4. 按下鼠标
+            // 3. 按下鼠标
             dispatchMouse(socket, "mousePressed", startX, startY, "left", 1);
-            Thread.sleep(50 + RANDOM.nextInt(100));
+            Thread.sleep(80 + RANDOM.nextInt(120)); // pre_down_pause 80-200ms
+            Thread.sleep(80 + RANDOM.nextInt(120)); // post_down_pause 80-200ms
+
+            // 4. 生成人类化轨迹：先小幅过冲，再回退到本次目标距离释放
+            List<double[]> trajectory = generateHumanTrajectory(slideDistance, attemptIndex);
 
             // 5. 按轨迹逐点移动
             // point[0] = 累计 X 位移（从起点算），point[1] = Y 抖动（相对起点），point[2] = 时间间隔
@@ -743,13 +825,24 @@ public class XianyuCaptchaSolver {
                 Thread.sleep((long) (point[2] * 1000)); // point[2] 是时间间隔（秒）
             }
 
-            // 6. 释放前短暂停顿（真人特征）
-            Thread.sleep(200 + RANDOM.nextInt(150));
+            // 6. 到达终点前的精微拖动（真人特征：最后在终点附近小幅度摆动）
+            int precisionSteps = 6 + RANDOM.nextInt(7); // 6-12
+            for (int s = 0; s < precisionSteps; s++) {
+                double px = currentX + (RANDOM.nextDouble() - 0.5) * 2;
+                double py = currentY + (RANDOM.nextDouble() - 0.5) * 2;
+                dispatchMouse(socket, "mouseMoved", px, py, "left", 1);
+                Thread.sleep(30 + RANDOM.nextInt(80));
+            }
 
-            // 7. 释放鼠标
+            // 7. 释放前短暂停顿（真人特征）
+            Thread.sleep(20 + RANDOM.nextInt(60)); // pre_up_pause 20-80ms
+
+            // 8. 释放鼠标
             dispatchMouse(socket, "mouseReleased", currentX, currentY, "left", 0);
+            Thread.sleep(10 + RANDOM.nextInt(50)); // post_up_pause 10-60ms
 
-            log.info("[CDP-AUTH] 滑块拖动完成，轨迹点数: {}", trajectory.size());
+            log.info("[CDP-AUTH] 滑块拖动完成，轨迹点数: {}, approachSteps: {}, precisionSteps: {}",
+                    trajectory.size(), approachSteps, precisionSteps);
 
         } catch (Exception e) {
             log.error("[CDP-AUTH] 滑块拖动失败: {}", e.getMessage(), e);
@@ -782,90 +875,84 @@ public class XianyuCaptchaSolver {
      */
     private List<double[]> generateHumanTrajectory(double distance, int attemptIndex) {
         List<double[]> trajectory = new ArrayList<>();
-        int points = TRAJECTORY_BASE_POINTS + RANDOM.nextInt(20);
 
-        // 根据尝试次数微调参数（模拟真人每次尝试的差异）
-        double speedFactor = 0.8 + RANDOM.nextDouble() * 0.4; // 0.8-1.2
-        double overshoot = 2 + RANDOM.nextDouble() * 3; // 过冲 2-5px
+        // ===== 参考 xianyu-auto-reply-fix 黄金参数（基于成功案例分析） =====
+        // 超调比例 2-15%、步数 18-35、基础延迟 4-15ms、Y 抖动 1-3.5
+        double overshootRatio = 0.02 + RANDOM.nextDouble() * 0.13;
+        int points = 18 + RANDOM.nextInt(18);                       // 18-35
+        double baseDelay = 0.004 + RANDOM.nextDouble() * 0.011;     // 4-15ms
+        double yJitter = 1.0 + RANDOM.nextDouble() * 2.5;           // 1-3.5
+        double accelCurve = 1.3 + RANDOM.nextDouble() * 0.9;        // 1.3-2.2
 
-        // 总时间放宽到 0.6-1.2s（原 0.4-0.7s 太短，真人一般 0.6-1.2s）
-        double totalTime = 0.6 + RANDOM.nextDouble() * 0.6;
+        // 每次重试递增扰动幅度，避免 3 次轨迹高度相似
+        double perturbation = 0.08 + attemptIndex * 0.12;
+        baseDelay *= (1.0 + RANDOM.nextDouble() * 0.2 * perturbation);
 
-        // 预先选定 1-2 个「停顿点」（真人中途会稍微停顿）
+        // 总耗时 0.8-2.0s
+        double totalTime = 0.8 + RANDOM.nextDouble() * 1.2;
+
+        // 停顿/猛窜点
         Set<Integer> pausePoints = new HashSet<>();
-        int pause1 = 20 + RANDOM.nextInt(points / 3);
-        pausePoints.add(pause1);
+        pausePoints.add(8 + RANDOM.nextInt(Math.max(1, points / 4)));
         if (RANDOM.nextBoolean()) {
-            pausePoints.add(pause1 + points / 3 + RANDOM.nextInt(10));
+            pausePoints.add(points / 2 + RANDOM.nextInt(10));
         }
-        // 预先选定 1-2 个「猛窜点」（真人会突然发力）
         Set<Integer> burstPoints = new HashSet<>();
-        burstPoints.add(5 + RANDOM.nextInt(15));
+        burstPoints.add(4 + RANDOM.nextInt(12));
         if (RANDOM.nextBoolean()) {
-            burstPoints.add(points / 2 + RANDOM.nextInt(15));
+            burstPoints.add(points * 2 / 3 + RANDOM.nextInt(10));
         }
 
         double prevX = 0;
-        for (int i = 1; i <= points; i++) {
-            double t = (double) i / points; // 归一化进度 0-1
+        double overshootPx = distance * overshootRatio;
 
-            // 位移曲线：S 型曲线（加速-匀速-减速）作为宏观骨架
-            double progress;
-            if (t < 0.4) {
-                progress = t * t * 1.25;
-            } else if (t < 0.7) {
-                progress = 0.2 + (t - 0.4) * 1.333;
-            } else {
-                double decelT = (t - 0.7) / 0.3;
-                progress = 0.6 + 0.4 * (1 - Math.pow(1 - decelT, 2));
-            }
+        for (int i = 1; i <= points; i++) {
+            double t = (double) i / points;
+
+            // 位移曲线：带加速参数的 ease-out 曲线
+            double progress = Math.pow(t, accelCurve);
             double rawX = distance * Math.min(progress, 1.0);
 
-            // 末端过冲（真人会拖过一点再回退）
-            if (t > 0.95) {
-                rawX = distance + overshoot * (t - 0.95) / 0.05;
+            // 末端过冲后回退
+            if (t > 0.92) {
+                double overT = (t - 0.92) / 0.08;
+                rawX = distance + overshootPx * Math.sin(overT * Math.PI / 2);
             }
             if (t > 0.98) {
-                rawX = distance + overshoot * (1 - (t - 0.98) / 0.02);
+                rawX = distance + overshootPx * 0.3; // 回冲后保留少许过冲
             }
 
-            // 局部位移扰动：在平滑进度上叠加 ±15% 的步级扰动（制造速度起伏）
-            // 不直接乘 rawX，而是给「本步位移」加扰动，让相邻点速度差异变大
+            // 步级扰动 ±15-30%，让相邻速度差异更大
             double stepX = rawX - prevX;
-            double stepJitter = (RANDOM.nextDouble() - 0.5) * 0.3 * stepX; // ±15% 的步级扰动
-            double jitteredStep = Math.max(0, stepX + stepJitter); // 不允许倒退（除非末端过冲后）
+            double stepJitter = (RANDOM.nextDouble() - 0.5) * 0.3 * stepX * (1 + perturbation);
+            double jitteredStep = Math.max(0, stepX + stepJitter);
             double jitteredX = prevX + jitteredStep;
-            if (t > 0.95) {
-                // 末端过冲阶段保留原始 rawX（倒退逻辑不能被打乱）
+            if (t > 0.92) {
                 jitteredX = rawX;
             }
             prevX = jitteredX;
 
-            // Y 轴抖动：幅度提升到 ±3px（原 ±1.5px 太小，实测 Y 抖动 38px 是累计值，单点幅度仍偏小）
-            double dy = (RANDOM.nextDouble() - 0.5) * 3.0;
+            // Y 轴抖动 + 偶尔明显偏移
+            double dy = (RANDOM.nextDouble() - 0.5) * 2 * yJitter;
             if (t < 0.1) {
-                dy = (RANDOM.nextDouble() - 0.5) * 1.0; // 起始阶段抖动小
+                dy = (RANDOM.nextDouble() - 0.5) * 0.8;
             }
-            // 偶尔一次明显偏移（真人手会偶尔偏离 5-8px）
             if (RANDOM.nextInt(points) < 2) {
-                dy += (RANDOM.nextBoolean() ? 1 : -1) * (5 + RANDOM.nextDouble() * 3);
+                dy += (RANDOM.nextBoolean() ? 1 : -1) * (4 + RANDOM.nextDouble() * 4);
             }
 
-            // 时间间隔：大随机化，制造速度方差
-            double baseDt = totalTime / points / speedFactor;
+            // 时间间隔：正常 / 停顿 / 猛窜三档
+            double baseDt = totalTime / points;
             double dt;
             if (pausePoints.contains(i)) {
-                // 停顿点：dt 放大 3 倍（真人中途停顿 50-150ms）
-                dt = baseDt * (2.5 + RANDOM.nextDouble() * 1.0);
+                dt = baseDt * (2.5 + RANDOM.nextDouble() * 1.5); // 停顿
             } else if (burstPoints.contains(i)) {
-                // 猛窜点：dt 缩小到 0.3 倍（真人突然发力，间隔极短）
-                dt = baseDt * (0.2 + RANDOM.nextDouble() * 0.2);
+                dt = baseDt * (0.15 + RANDOM.nextDouble() * 0.25); // 猛窜
             } else {
-                // 正常点：保留原随机化，但范围放大
-                dt = baseDt * (0.4 + RANDOM.nextDouble() * 0.8);
+                dt = baseDelay + RANDOM.nextDouble() * baseDelay * 0.8;
             }
-            if (t > 0.7 && t < 0.95 && !pausePoints.contains(i) && !burstPoints.contains(i)) {
-                dt *= 1.3; // 减速阶段更慢
+            if (t > 0.7 && t < 0.92 && !pausePoints.contains(i) && !burstPoints.contains(i)) {
+                dt *= 1.3;
             }
 
             trajectory.add(new double[]{jitteredX, dy, dt});
@@ -881,32 +968,45 @@ public class XianyuCaptchaSolver {
         Socket socket = null;
         try {
             socket = openWebSocket(cdpEndpoint);
+            CdpFrameContext ctx = findCaptchaFrameContext(socket);
             Map<String, Object> script = new LinkedHashMap<>();
+            // 真实 goofish NoCaptcha：失败后的刷新图标是 #nc_1_refresh1 / .nc_iconfont.btn_refresh，
+            // 不是失败文案本身。优先按 NoCaptcha 标准选择器定位刷新图标，再回退到文案模糊匹配。
             script.put("expression", """
                 (() => {
+                    const selectors = [
+                        '#nc_1_refresh1', '.nc_iconfont.btn_refresh', '.btn_refresh',
+                        '#nc_1_refresh', '.nc_1_refresh', '[id*=refresh]', '[class*=refresh]'
+                    ];
+                    for (const sel of selectors) {
+                        const el = document.querySelector(sel);
+                        if (el) {
+                            el.click();
+                            return {clicked: true, selector: sel, text: (el.innerText || el.textContent || '').trim().slice(0, 80)};
+                        }
+                    }
+                    // 回退：含「刷新 / 重试」文案的可点击元素
                     const candidates = Array.from(document.querySelectorAll('i, a, span, div, button'));
                     const el = candidates.find(e => {
-                        const id = e.id || '';
-                        const cls = e.className || '';
-                        const text = e.innerText || e.textContent || '';
-                        return id.includes('refresh')
-                            || id.includes('nc_1_refresh')
-                            || String(cls).includes('refresh')
-                            || String(cls).includes('icon_warn')
-                            || text.includes('刷新')
-                            || text.includes('重试');
+                        const cls = String(e.className || '');
+                        const text = (e.innerText || e.textContent || '').trim();
+                        return cls.includes('icon_warn') || cls.includes('nc_iconfont')
+                            || text.includes('刷新') || text.includes('重试');
                     });
                     if (el) {
                         el.click();
+                        return {clicked: true, selector: 'fallback', text: (el.innerText || '').trim().slice(0, 80)};
                     }
-                    // 点击失败框有时只触发一次短暂状态切换，直接重载 punish 页最稳定。
-                    location.reload();
-                    return !!el;
+                    return {clicked: false};
                 })()
             """);
+            if (ctx != null && ctx.contextId > 0) {
+                script.put("contextId", ctx.contextId);
+            }
             script.put("awaitPromise", true);
             script.put("returnByValue", true);
-            sendCommand(socket, "Runtime.evaluate", script);
+            Object value = extractRuntimeValue(sendCommand(socket, "Runtime.evaluate", script));
+            log.info("[CDP-AUTH] 点击刷新按钮结果: {}", value);
         } catch (Exception e) {
             log.debug("[CDP-AUTH] 点击刷新按钮异常: {}", e.getMessage());
         } finally {
@@ -1055,6 +1155,50 @@ public class XianyuCaptchaSolver {
             }
         }
         return null;
+    }
+
+    /**
+     * 查找任意一个空白页标签（url 为 about:blank 且不是闲鱼页）
+     */
+    private String findBlankTargetId(Map<String, Object> targets) {
+        for (Map.Entry<String, Object> entry : targets.entrySet()) {
+            Map<String, String> info = (Map<String, String>) entry.getValue();
+            String url = info.getOrDefault("url", "");
+            String type = info.getOrDefault("type", "");
+            if ("page".equalsIgnoreCase(type) && "about:blank".equalsIgnoreCase(url)) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 关闭多余的空白标签页（Chrome 启动时命令行带 about:blank 会建一个空白标签，
+     * 导航到闲鱼页后要把这个空白标签关掉，否则会出现 2 个窗口）
+     */
+    private void closeExtraBlankTargets(String cdpEndpoint, String keepTargetId, Map<String, Object> targets) throws Exception {
+        for (Map.Entry<String, Object> entry : targets.entrySet()) {
+            String id = entry.getKey();
+            if (id.equals(keepTargetId)) continue;
+            Map<String, String> info = (Map<String, String>) entry.getValue();
+            String type = info.getOrDefault("type", "");
+            if (!"page".equalsIgnoreCase(type)) continue;
+            String url = info.getOrDefault("url", "");
+            // 只关 about:blank 空白页，避免误关其他业务标签
+            if (!"about:blank".equalsIgnoreCase(url)) continue;
+            try {
+                HttpClient client = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(getCdpHttpEndpoint() + "/json/close/" + id))
+                        .timeout(java.time.Duration.ofSeconds(5))
+                        .PUT(HttpRequest.BodyPublishers.noBody())
+                        .build();
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                log.info("[CDP-AUTH] 已关闭多余空白标签页 id={}, status={}", id, response.statusCode());
+            } catch (Exception e) {
+                log.warn("[CDP-AUTH] 关闭空白标签页失败 id={}, 原因: {}", id, e.getMessage());
+            }
+        }
     }
 
     /**
