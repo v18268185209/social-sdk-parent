@@ -68,12 +68,24 @@ public class XianyuProfileApiService {
         return apiClient.callMtop("mtop.idle.web.user.page.head", toJson(data));
     }
 
-    /** 获取用户信用分 — mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get (带 credit 参数) */
+    /**
+     * 获取用户信用画像 — 真实接口 mtop.idle.web.user.page.head
+     * <p>真实抓包验证（TempE2EVerifyTest 第10项验证通过）：
+     * 返回 data.module.shop.{level, score, reviewNum, businessQuality, nextLevelNeedScore}
+     * 和 data.module.tabs.rate.number(信用及评价数)。
+     * 之前用的 mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get 是首页数据预热接口，
+     * scene:"credit" 参数不被闲鱼识别，返回空数据。</p>
+     *
+     * @param userId 用户 ID（null 或空时查自己，self=true）
+     */
     public JsonNode getUserCredit(String userId) {
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("userId", userId != null ? userId : "");
-        data.put("scene", "credit");
-        return apiClient.callMtop("mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get", toJson(data));
+        boolean isSelf = userId == null || userId.isBlank();
+        data.put("self", isSelf);
+        if (!isSelf) {
+            data.put("userId", userId);
+        }
+        return apiClient.callMtop("mtop.idle.web.user.page.head", toJson(data));
     }
 
     private static String toJson(Map<String, ?> map) {

@@ -170,6 +170,8 @@ public class OpenListInstallerService {
 
     public boolean install() throws IOException {
         if (Files.exists(executablePath)) {
+            // 已存在：mac/linux 下补一次可执行权限，避免历史解压但无 +x 导致启动 Permission denied
+            ensureExecutablePermission();
             return true;
         }
 
@@ -180,12 +182,42 @@ public class OpenListInstallerService {
         if (localBinaryName.endsWith(".exe") || downloadUrl.endsWith(".zip")) {
             extractZip(tempFile, dataDir, localBinaryName);
         } else {
-            extractTarGz(tempFile, dataDir, localBinaryName);
+            try {
+                extractTarGz(tempFile, dataDir, localBinaryName);
+            } catch (IOException extractErr) {
+                // tar.gz 解压失败：按系统判断下载对应 zip 包重试（mac/linux 也有 zip release asset）
+                System.out.println("tar.gz extract failed (" + extractErr.getMessage() + "), fallback to zip");
+                String fallbackUrl = downloadUrl.replace(".tar.gz", ".zip");
+                Path zipTemp = dataDir.resolve(localBinaryName + ".zip.download");
+                try {
+                    downloadFile(fallbackUrl, zipTemp);
+                    extractZip(zipTemp, dataDir, localBinaryName);
+                } finally {
+                    Files.deleteIfExists(zipTemp);
+                }
+            }
         }
 
         Files.deleteIfExists(tempFile);
         executablePath = dataDir.resolve(localBinaryName);
+        // mac/linux 下解压后默认无执行权限，必须 chmod +x，否则 ProcessBuilder.start 抛 Permission denied
+        ensureExecutablePermission();
         return true;
+    }
+
+    /**
+     * mac/linux 下给可执行文件加执行权限（chmod +x）。Windows 下 no-op。
+     */
+    private void ensureExecutablePermission() throws IOException {
+        if (osName.contains("win")) return;
+        if (!Files.exists(executablePath)) return;
+        try {
+            java.util.Set<java.nio.file.attribute.PosixFilePermission> perms =
+                java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x");
+            Files.setPosixFilePermissions(executablePath, perms);
+        } catch (UnsupportedOperationException ignored) {
+            // 非 POSIX 文件系统（理论上 mac/linux 都是 POSIX，兜底）
+        }
     }
 
     private void downloadFile(String urlString, Path target) throws IOException {
@@ -229,15 +261,28 @@ public class OpenListInstallerService {
     }
 
     private void extractTarGz(Path tarGzPath, Path targetDir, String outputPath) throws IOException {
+        ProcessBuilder pb = new ProcessBuilder("tar", "xzf", tarGzPath.toString(), "-C", targetDir.toString());
+        Process proc;
         try {
-            ProcessBuilder pb = new ProcessBuilder("tar", "xzf", tarGzPath.toString(), "-C", targetDir.toString());
-            pb.start().waitFor();
-        } catch (Exception e) {
-            // fallback to zip download
-            String fallbackUrl = downloadUrl.replace(".tar.gz", ".zip");
-            Path zipPath = tarGzPath;
-            downloadFile(fallbackUrl, zipPath);
-            extractZip(zipPath, targetDir, outputPath);
+            proc = pb.start();
+        } catch (IOException startErr) {
+            // tar 命令不存在（极少见，mac/linux 默认都有）→ 抛 IOException 触发 install() 里的 zip fallback
+            throw new IOException("tar command not available: " + startErr.getMessage());
+        }
+        try {
+            int exitCode = proc.waitFor();
+            if (exitCode != 0) {
+                // tar 解压失败（压缩包损坏、格式不对、磁盘满等）→ 抛 IOException 触发 zip fallback
+                String errText = "";
+                try (BufferedReader er = new BufferedReader(new InputStreamReader(proc.getErrorStream()))) {
+                    String line;
+                    while ((line = er.readLine()) != null) errText += line + "\n";
+                }
+                throw new IOException("tar exited " + exitCode + ": " + errText.trim());
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IOException("tar extract interrupted", ie);
         }
     }
 }

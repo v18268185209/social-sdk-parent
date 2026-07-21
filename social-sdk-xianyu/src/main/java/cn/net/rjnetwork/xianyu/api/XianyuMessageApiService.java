@@ -118,7 +118,7 @@ public class XianyuMessageApiService {
             log.warn("[MESSAGE] conversation list object body returned code=400, retry with max timestamp array");
             resp = accsClient.sendFrame("/r/Conversation/listNewestPagination", new Object[]{9007199254740991L, pageSize});
         }
-        log.info("[MESSAGE] conversation list response: {}", resp != null ? resp.toString() : "null");
+        log.debug("[MESSAGE] conversation list response: {}", resp != null ? resp.toString() : "null");
         return resp;
     }
 

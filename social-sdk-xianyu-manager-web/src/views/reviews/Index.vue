@@ -12,10 +12,16 @@
         </div>
         <el-table :data="reviews" border style="margin-top: 16px" v-loading="loading">
           <el-table-column prop="orderId" label="订单号" width="180" />
-          <el-table-column prop="rating" label="评分" width="80" />
-          <el-table-column prop="content" label="评价内容" />
-          <el-table-column prop="buyerNick" label="买家" width="120" />
-          <el-table-column prop="createdAt" label="评价时间" width="180" />
+          <el-table-column prop="rate" label="评分" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.rate === 1 ? 'success' : row.rate === 3 ? 'danger' : 'info'" size="small">
+                {{ row.rate === 1 ? '好评' : row.rate === 2 ? '中评' : row.rate === 3 ? '差评' : row.rate || '-' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="feedback" label="评价内容" />
+          <el-table-column prop="raterNick" label="评价人" width="120" />
+          <el-table-column prop="createTime" label="评价时间" width="180" />
         </el-table>
 
         <el-divider content-position="left">发表评价</el-divider>
@@ -31,7 +37,7 @@
             </el-select>
           </el-form-item>
           <el-form-item label="内容">
-            <el-input v-model="reviewForm.content" style="width: 320px" />
+            <el-input v-model="reviewForm.content" style="width: 320px" placeholder="不错的买家" />
           </el-form-item>
           <el-form-item>
             <el-button type="primary" @click="submitReview">提交评价</el-button>
@@ -48,7 +54,16 @@
           <el-input v-model="creditUserId" placeholder="用户 ID（留空取自己）" style="width: 220px; margin-left: 12px" clearable />
           <el-button type="primary" @click="loadCredit" style="margin-left: 12px">拉信用画像</el-button>
         </div>
-        <pre v-if="creditData" style="margin-top: 16px; background: #f5f7fa; padding: 16px; border-radius: 4px">{{ JSON.stringify(creditData, null, 2) }}</pre>
+        <!-- 信用分卡片 -->
+        <div v-if="creditCards.length" style="display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap">
+          <el-card v-for="c in creditCards" :key="c.label" shadow="hover" style="min-width: 140px">
+            <div style="text-align: center">
+              <div style="font-size: 24px; font-weight: 700; color: #409eff">{{ c.value }}</div>
+              <div style="font-size: 12px; color: #999; margin-top: 4px">{{ c.label }}</div>
+            </div>
+          </el-card>
+        </div>
+        <pre v-if="creditData" style="margin-top: 16px; background: #f5f7fa; padding: 16px; border-radius: 4px; max-height: 500px; overflow: auto">{{ JSON.stringify(creditData, null, 2) }}</pre>
         <el-empty v-else description="暂无信用数据" />
       </el-tab-pane>
 
@@ -58,18 +73,36 @@
           <el-select v-model="accountId" placeholder="选择账号" style="width: 220px" @change="loadRefunds">
             <el-option v-for="a in accounts" :key="a.id" :label="a.accountName || a.id" :value="a.id" />
           </el-select>
-          <el-input v-model="refundStatus" placeholder="退款状态" style="width: 160px; margin-left: 12px" clearable />
+          <el-select v-model="refundStatus" placeholder="退款状态" style="width: 160px; margin-left: 12px" clearable>
+            <el-option label="全部" value="" />
+            <el-option label="退款中" value="1" />
+            <el-option label="退款审核中" value="2" />
+            <el-option label="退款处理中" value="3" />
+            <el-option label="退款成功" value="5" />
+          </el-select>
           <el-button type="primary" @click="loadRefunds" style="margin-left: 12px">拉退款列表</el-button>
         </div>
         <el-table :data="refunds" border style="margin-top: 16px" v-loading="loading">
-          <el-table-column prop="refundId" label="退款单号" width="180" />
-          <el-table-column prop="orderId" label="订单号" width="180" />
+          <el-table-column prop="orderId" label="订单号" width="180">
+            <template #default="{ row }">{{ row.orderId || row.commonData?.orderId || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="buyerNick" label="买家" width="120">
+            <template #default="{ row }">{{ row.buyerInfoVO?.userNick || row.buyerNick || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="amount" label="金额" width="100">
+            <template #default="{ row }">{{ row.priceVO?.auctionPrice || row.amount || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="disputeStatus" label="状态" width="120">
+            <template #default="{ row }">
+              <el-tag :type="refundStatusType(row.disputeStatus || row.commonData?.disputeStatus)" size="small">
+                {{ refundStatusLabel(row.disputeStatus || row.commonData?.disputeStatus) }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="reason" label="退款原因" />
-          <el-table-column prop="amount" label="金额" width="100" />
-          <el-table-column prop="disputeStatus" label="状态" width="120" />
           <el-table-column label="操作" width="100">
             <template #default="{ row }">
-              <el-button size="small" @click="viewRefundDetail(row.refundId)">详情</el-button>
+              <el-button size="small" @click="viewRefundDetail(row.refundId || row.commonData?.orderId)">详情</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -99,7 +132,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { reviewOrder, listReviews, getCredit, applyRefund, listRefunds, getRefundDetail } from '@/api/review'
 import { listAccounts } from '@/api/account'
@@ -125,6 +158,21 @@ const refundForm = ref({ orderId: '', reason: '', amount: '' })
 const refundDetailVisible = ref(false)
 const refundDetail = ref(null)
 
+// 信用画像卡片（从 data.module.shop / data.module.tabs 提取）
+const creditCards = computed(() => {
+  if (!creditData.value) return []
+  const shop = creditData.value?.data?.module?.shop || {}
+  const tabs = creditData.value?.data?.module?.tabs || {}
+  const base = creditData.value?.data?.module?.base || {}
+  return [
+    { label: '信用分', value: shop.score ?? '-' },
+    { label: '评价数', value: shop.reviewNum ?? tabs?.rate?.number ?? '-' },
+    { label: '店铺等级', value: shop.level ?? '-' },
+    { label: '在售宝贝', value: tabs?.item?.number ?? '-' },
+    { label: '业务质量', value: shop.businessQuality ?? '-' },
+  ].filter(c => c.value !== '-' && c.value != null)
+})
+
 onMounted(async () => {
   try {
     const res = await listAccounts()
@@ -139,9 +187,9 @@ async function loadReviews() {
   loading.value = true
   try {
     const res = await listReviews(accountId.value, buyerId.value)
-    // 后台返回 JsonNode，可能是数组或 {data:{items:[...]}}
     const d = res.data
-    reviews.value = Array.isArray(d) ? d : (d?.data?.items || d?.items || [])
+    // mtop.idle.web.trade.rate.list 返回 {data:{totalCount, items/list:[...]}}
+    reviews.value = Array.isArray(d) ? d : (d?.data?.items || d?.data?.list || d?.items || d?.list || [])
   } catch (e) {
     ElMessage.error('拉评价失败: ' + e.message)
     reviews.value = []
@@ -176,7 +224,8 @@ async function loadRefunds() {
   try {
     const res = await listRefunds(accountId.value, refundStatus.value)
     const d = res.data
-    refunds.value = Array.isArray(d) ? d : (d?.data?.items || d?.items || [])
+    // mtop.taobao.idle.merchant.refund.list 返回 {data:{data:{items:[...]}}}
+    refunds.value = Array.isArray(d) ? d : (d?.data?.data?.items || d?.data?.items || d?.items || [])
   } catch (e) {
     ElMessage.error('拉退款列表失败: ' + e.message)
     refunds.value = []
@@ -196,6 +245,7 @@ async function submitRefund() {
 }
 
 async function viewRefundDetail(refundId) {
+  if (!refundId) return ElMessage.warning('无退款单号')
   try {
     const res = await getRefundDetail(accountId.value, refundId)
     refundDetail.value = res.data
@@ -203,6 +253,16 @@ async function viewRefundDetail(refundId) {
   } catch (e) {
     ElMessage.error('拉退款详情失败: ' + e.message)
   }
+}
+
+// 退款状态标签
+function refundStatusLabel(status) {
+  const map = { '1': '退款中', '2': '退款审核中', '3': '退款处理中', '5': '退款成功' }
+  return map[String(status)] || status || '-'
+}
+function refundStatusType(status) {
+  const map = { '1': 'warning', '2': 'warning', '3': 'warning', '5': 'success' }
+  return map[String(status)] || 'info'
 }
 </script>
 

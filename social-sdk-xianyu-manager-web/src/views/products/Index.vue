@@ -521,7 +521,7 @@ async function optimizeTitle() {
       aiForm.value.condition
     )
     if (res.success) {
-      aiResult.value.title = res.data?.title || res.data || ''
+      aiResult.value.title = res.data?.generatedTitle || res.data?.title || res.data || ''
       ElMessage.success('标题已生成')
     }
   } finally { aiLoading.value = false }
@@ -538,7 +538,7 @@ async function optimizeDesc() {
       aiForm.value.condition
     )
     if (res.success) {
-      aiResult.value.description = res.data?.description || res.data || ''
+      aiResult.value.description = res.data?.optimizedDescription || res.data?.description || res.data || ''
       ElMessage.success('描述已生成')
     }
   } finally { aiLoading.value = false }

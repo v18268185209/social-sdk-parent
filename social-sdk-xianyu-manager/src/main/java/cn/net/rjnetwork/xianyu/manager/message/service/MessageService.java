@@ -828,15 +828,36 @@ public class MessageService {
         entity.setAccountId(accountId);
         entity.setSessionId(sessionId);
         entity.setMsgId(msgId);
-        entity.setSenderId(msg.path("senderId").asText(""));
-        entity.setSenderName(msg.path("senderNick").asText(""));
+        // MTOP 结构：sender 信息在嵌套 sender 对象里（sender.uid / sender.nick / sender.avatar），
+        // 不是顶层 senderId/senderNick。旧实现取顶层导致 senderId 永远为空，direction 判错。
+        JsonNode senderNode = msg.path("sender");
+        entity.setSenderId(firstText(senderNode, "uid", "userId", "senderId", "senderUserId", "id"));
+        if (entity.getSenderId().isEmpty()) {
+            entity.setSenderId(msg.path("senderId").asText(""));
+        }
+        if (entity.getSenderId().isEmpty()) {
+            entity.setSenderId(msg.path("senderUserId").asText(""));
+        }
+        if (entity.getSenderId().isEmpty() && !senderNode.isMissingNode()) {
+            entity.setSenderId(senderNode.path("id").asText(""));
+        }
+        entity.setSenderName(firstText(senderNode, "nick", "name", "displayName", "senderNickName", "senderNick"));
+        if (entity.getSenderName().isEmpty()) {
+            entity.setSenderName(msg.path("senderNick").asText(""));
+        }
         entity.setSenderAvatar(firstTextDeep(msg,
                 "avatar", "avatarUrl", "headUrl", "headImg", "headPic", "userAvatar", "userAvatarUrl",
                 "senderAvatar", "senderAvatarUrl", "senderHeadUrl", "logo", "portrait", "displayPic"));
-        entity.setDirection(msg.path("senderRole").asText("INCOMING").equals("SENDER") ? "OUTGOING" : "INCOMING");
+        // direction: 不能用 senderRole（闲鱼 MTOP 里对方发的消息 senderRole=SENDER，自己发的=RECEIVER，
+        // 直接判会把对方发的当成 OUTGOING，方向全反）。必须用 selfUserId 比对：senderId == selfId → OUTGOING。
+        String selfUserId = extractSelfUserId(accountId);
+        String senderId = entity.getSenderId();
+        boolean isOutgoing = !selfUserId.isEmpty() && selfUserId.equals(senderId);
+        entity.setDirection(isOutgoing ? "OUTGOING" : "INCOMING");
         entity.setMsgType(msg.path("msgType").asText("TEXT"));
         entity.setAutoReply(Boolean.TRUE.equals(msg.path("isAutoReply").asBoolean()));
-        entity.setMessageTime(LocalDateTime.now());
+        // 用闲鱼返回的真实时间，不要写死 now()，否则历史消息时间全是当下
+        entity.setMessageTime(parseMessageTime(msg));
 
         JsonNode content = msg.path("content");
         if (content.has("text")) {

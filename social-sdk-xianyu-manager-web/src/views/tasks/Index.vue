@@ -163,12 +163,13 @@ async function viewResults(row) {
 onMounted(async () => {
   await loadData()
   try {
+    // 真实端点：GET /api/accounts（返回数组）、GET /api/ai/models（返回分页 Page）
     const [ar, mr] = await Promise.all([
-      api.get('/account/list?page=0&size=100'),
-      api.get('/ai/model/list?enabled=true')
+      api.get('/accounts'),
+      api.get('/ai/models', { params: { size: 200 } })
     ])
     if (ar.success) accounts.value = ar.data
-    if (mr.success) aiModels.value = mr.data
+    if (mr.success) aiModels.value = (mr.data?.records || []).filter(m => m.enabled !== false)
   } catch (e) {}
 })
 </script>

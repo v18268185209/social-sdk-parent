@@ -78,11 +78,11 @@ const knowledgeList = ref([])
 async function loadData() {
   try {
     const [sr, kr] = await Promise.all([
-      api.get('/cs/sessions?page=0&size=50'),
-      api.get('/cs/knowledge')
+      api.get('/ai/cs/sessions?page=1&size=50'),
+      api.get('/ai/cs/knowledge')
     ])
-    if (sr.success) sessions.value = sr.data
-    if (kr.success) knowledgeList.value = kr.data
+    if (sr.success) sessions.value = sr.data?.records || []
+    if (kr.success) knowledgeList.value = kr.data?.records || []
   } catch (e) {}
 }
 

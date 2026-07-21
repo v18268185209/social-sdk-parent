@@ -120,19 +120,6 @@
 
           <!-- 输入框 -->
           <div class="chat-input">
-            <div class="input-toolbar">
-              <el-upload
-                :show-file-list="false"
-                :before-upload="handleImageUpload"
-                accept="image/*"
-                class="img-upload-btn"
-              >
-                <el-button text size="small" title="发送图片">
-                  <el-icon :size="18"><Picture /></el-icon>
-                  图片
-                </el-button>
-              </el-upload>
-            </div>
             <el-input
               v-model="newMessage"
               type="textarea"
@@ -156,7 +143,7 @@
 <script setup>
 import { ref, onMounted, nextTick, watch, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Loading, Search, Picture } from '@element-plus/icons-vue'
+import { Loading, Search } from '@element-plus/icons-vue'
 import api from '@/api/request'
 
 const accounts = ref([])
@@ -179,22 +166,6 @@ const filteredSessions = computed(() => {
     (s.lastContent || '').toLowerCase().includes(kw)
   )
 })
-
-function handleImageUpload(file) {
-  if (!selectedAccount.value || !selectedSession.value) {
-    ElMessage.warning('请先选择账号和会话')
-    return false
-  }
-  const formData = new FormData()
-  formData.append('file', file)
-  formData.append('accountId', selectedAccount.value)
-  formData.append('sessionId', selectedSession.value)
-  api.post('/messages/send-image', formData).then(res => {
-    if (res.success) { newMessage.value = ''; loadHistory() }
-    else ElMessage.error(res.message || '图片发送失败')
-  }).catch(() => ElMessage.error('图片发送失败'))
-  return false
-}
 
 function openMedia(url) {
   if (url) window.open(url, '_blank')

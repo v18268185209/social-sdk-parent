@@ -23,47 +23,85 @@ public class XianyuTradeAuxApiService {
 
     /**
      * 给订单评价 — 真实接口 mtop.taobao.idle.rate.create v4.0
-     * <p>真实抓包验证（参考项目 xianyu-auto-reply websocket.rate_service 已真验通）：
-     * 闲鱼订单评价走 mtop.taobao.idle.rate.create 域 v4.0，data 含 orderId/rating/content。</p>
+     * <p>真实抓包验证（参考项目 xianyu-auto-reply rate_service.RateService.rate_buyer 已真验通）：
+     * data={tradeId, rate(1=好评), feedback, createOrAppend(0=新建)}。
+     * 注意：字段名是 tradeId 不是 orderId，是 rate(int) 不是 rating(String)，是 feedback 不是 content。</p>
+     *
+     * @param orderId  订单/交易 ID（对应闲鱼字段 tradeId）
+     * @param rating   评分：GOOD→1(好评) / NORMAL→2(中评) / BAD→3(差评)
+     * @param content  评价内容（对应闲鱼字段 feedback）
      */
     public JsonNode reviewOrder(String orderId, String rating, String content) {
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("orderId", orderId != null ? orderId : "");
-        data.put("rating", rating != null ? rating : "5");
-        data.put("content", content != null ? content : "");
+        data.put("tradeId", orderId != null ? orderId : "");
+        data.put("rate", mapRating(rating));
+        data.put("feedback", content != null ? content : "");
+        data.put("createOrAppend", 0);
         return apiClient.callMtop("mtop.taobao.idle.rate.create", "4.0", toJson(data));
+    }
+
+    /** 前端 GOOD/NORMAL/BAD 映射为闲鱼 rate 整数值 */
+    private static int mapRating(String rating) {
+        if (rating == null) return 1;
+        switch (rating.toUpperCase()) {
+            case "GOOD": return 1;      // 好评
+            case "NORMAL": return 2;    // 中评
+            case "BAD": return 3;       // 差评
+            default:
+                // 兼容直接传数字的情况
+                try { return Integer.parseInt(rating); } catch (NumberFormatException e) { return 1; }
+        }
     }
 
     /**
      * 获取评价列表 — 真实接口 mtop.idle.web.trade.rate.list v1.0
-     * <p>真实抓包验证（参考项目 xianyu-auto-reply delivery_rules.buyer_credit_rule 已真验通）：
-     * 闲鱼评价列表走 mtop.idle.web.trade.rate.list，data={buyerId/page/pageSize}，
-     * spm_cnt=a21ybx.personal.0.0。返回 data.total/data.list[]。</p>
+     * <p>真实抓包验证（参考项目 xianyu-auto-reply buyer_credit_rule._check_buyer_rate_count 已真验通）：
+     * data={rateType:0, ratedUid, raterType:0, rowsPerPage, pageNumber, foldFlag:0, fishAdCode:"330110", extraTag:""}。
+     * 注意：字段名是 ratedUid 不是 buyerId，是 pageNumber 不是 page，是 rowsPerPage 不是 pageSize。
+     * spm_cnt 应为 a21ybx.personal.0.0（在 RequestBuilder 中全局设置，此处无法单独覆盖）。</p>
      *
-     * @param buyerId 买家 id（从订单 commonData.peerUserId 解析），可选传 null 拉全量
+     * @param buyerId 买家 id（对应闲鱼字段 ratedUid），可选传 null 拉全量
      */
     public JsonNode getReviewList(String buyerId, String page, String pageSize) {
         Map<String, Object> data = new LinkedHashMap<>();
-        if (buyerId != null && !buyerId.isBlank()) data.put("buyerId", buyerId);
-        data.put("page", page != null ? page : "1");
-        data.put("pageSize", pageSize != null ? pageSize : "20");
+        data.put("rateType", 0);
+        if (buyerId != null && !buyerId.isBlank()) data.put("ratedUid", buyerId);
+        data.put("raterType", 0);
+        data.put("rowsPerPage", parseInt(page, 20));
+        data.put("pageNumber", parseInt(page, 1));
+        data.put("foldFlag", 0);
+        data.put("fishAdCode", "330110");
+        data.put("extraTag", "");
         return apiClient.callMtop("mtop.idle.web.trade.rate.list", "1.0", toJson(data));
+    }
+
+    /** 安全解析 int，失败返回 defaultValue */
+    private static int parseInt(String s, int defaultValue) {
+        if (s == null || s.isBlank()) return defaultValue;
+        try { return Integer.parseInt(s.trim()); } catch (NumberFormatException e) { return defaultValue; }
     }
 
     // ==================== 退款/售后 ====================
 
     /**
      * 获取退款/售后列表 — 真实接口 mtop.taobao.idle.merchant.refund.list v1.0
-     * <p>真实抓包验证（参考项目 xianyu-auto-reply order_service 已真验通）：
-     * 闲鱼卖家退款列表走 mtop.taobao.idle.merchant.refund.list，
-     * data 含 disputeStatus（"REFUND_BY_SELLER" 等）/page/pageSize/valueType=string。</p>
+     * <p>真实抓包验证（参考项目 xianyu-auto-reply order_service._fetch_refund_orders_page 已真验通）：
+     * data={pageNumber, rowsPerPage, queryType:"refund", refundSearchParam:{disputeStatus, queryCode:"ALL"}}。
+     * 注意：disputeStatus 嵌套在 refundSearchParam 中，值是数字字符串 "1"/"2"/"3"=退款中, "5"=退款成功。
+     * valueType:"string" 在参考项目中是放在 URL params 而非 data 中。</p>
+     *
+     * @param disputeStatus 退款状态：1/2/3=退款中, 5=退款成功, 空=全部
      */
     public JsonNode getRefundList(String disputeStatus, String page, String pageSize) {
+        Map<String, Object> refundSearchParam = new LinkedHashMap<>();
+        refundSearchParam.put("disputeStatus", disputeStatus != null ? disputeStatus : "");
+        refundSearchParam.put("queryCode", "ALL");
+
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("disputeStatus", disputeStatus != null ? disputeStatus : "");
-        data.put("page", page != null ? page : "1");
-        data.put("pageSize", pageSize != null ? pageSize : "20");
-        data.put("valueType", "string");
+        data.put("pageNumber", parseInt(page, 1));
+        data.put("rowsPerPage", parseInt(pageSize, 20));
+        data.put("queryType", "refund");
+        data.put("refundSearchParam", refundSearchParam);
         return apiClient.callMtop("mtop.taobao.idle.merchant.refund.list", "1.0", toJson(data));
     }
 

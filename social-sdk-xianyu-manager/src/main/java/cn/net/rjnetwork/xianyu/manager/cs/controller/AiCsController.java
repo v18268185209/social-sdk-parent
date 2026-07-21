@@ -75,13 +75,13 @@ public class AiCsController {
 
     @GetMapping("/sessions")
     public ApiResponse<Page<AiCsSession>> listSessions(
-            @RequestParam Long accountId,
+            @RequestParam(required = false) Long accountId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String status) {
         Page<AiCsSession> p = new Page<>(page, size);
         LambdaQueryWrapper<AiCsSession> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(AiCsSession::getAccountId, accountId);
+        if (accountId != null) wrapper.eq(AiCsSession::getAccountId, accountId);
         if (status != null && !status.isBlank()) wrapper.eq(AiCsSession::getStatus, status);
         wrapper.orderByDesc(AiCsSession::getLastMessageAt);
         return ApiResponse.ok(sessionMapper.selectPage(p, wrapper));
@@ -142,13 +142,15 @@ public class AiCsController {
 
     @GetMapping("/knowledge")
     public ApiResponse<Page<AiCsKnowledge>> listKnowledge(
-            @RequestParam Long accountId,
+            @RequestParam(required = false) Long accountId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "50") int size,
             @RequestParam(required = false) String category) {
         Page<AiCsKnowledge> p = new Page<>(page, size);
         LambdaQueryWrapper<AiCsKnowledge> wrapper = new LambdaQueryWrapper<>();
-        wrapper.and(w -> w.isNull(AiCsKnowledge::getAccountId).or().eq(AiCsKnowledge::getAccountId, accountId));
+        if (accountId != null) {
+            wrapper.and(w -> w.isNull(AiCsKnowledge::getAccountId).or().eq(AiCsKnowledge::getAccountId, accountId));
+        }
         if (category != null && !category.isBlank()) wrapper.eq(AiCsKnowledge::getCategory, category);
         wrapper.orderByAsc(AiCsKnowledge::getPriority);
         return ApiResponse.ok(knowledgeMapper.selectPage(p, wrapper));
