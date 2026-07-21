@@ -57,6 +57,18 @@ public class XianyuCaptchaSolver {
 
     private volatile String effectiveCdpEndpoint;
 
+    private static class CdpFrameContext {
+        final int contextId;
+        final double offsetX;
+        final double offsetY;
+
+        CdpFrameContext(int contextId, double offsetX, double offsetY) {
+            this.contextId = contextId;
+            this.offsetX = offsetX;
+            this.offsetY = offsetY;
+        }
+    }
+
     public String getCdpHttpEndpoint() {
         String cached = effectiveCdpEndpoint;
         if (cached != null && !cached.isBlank()) return cached;
@@ -413,8 +425,12 @@ public class XianyuCaptchaSolver {
         Socket socket = null;
         try {
             socket = openWebSocket(cdpEndpoint);
+            CdpFrameContext ctx = findCaptchaFrameContext(socket);
             Map<String, Object> script = new LinkedHashMap<>();
-            script.put("expression", "!!document.querySelector('#nc_1_n1z, .btn_slide, .nc_iconfont, #nocaptcha, #nc_1_wrapper, .nc-container')");
+            script.put("expression", "!!document.querySelector('#nc_1_n1z, .btn_slide, .nc_iconfont, #nocaptcha, #nc_1_wrapper, .nc-container, .baxia-dialog')");
+            if (ctx != null && ctx.contextId > 0) {
+                script.put("contextId", ctx.contextId);
+            }
             script.put("returnByValue", true);
             Object value = extractRuntimeValue(sendCommand(socket, "Runtime.evaluate", script));
             return Boolean.parseBoolean(String.valueOf(value));
@@ -487,6 +503,7 @@ public class XianyuCaptchaSolver {
         Socket socket = null;
         try {
             socket = openWebSocket(cdpEndpoint);
+            CdpFrameContext ctx = findCaptchaFrameContext(socket);
 
             // 1. 获取滑块和轨道位置
             // 使用参考项目验证过的选择器：按钮 #nc_1_n1z；轨道 #nc_1_n1t 或 .nc_scale（容器比轨道宽，不能用外层容器）
@@ -508,6 +525,9 @@ public class XianyuCaptchaSolver {
                     });
                 })()
             """);
+            if (ctx != null && ctx.contextId > 0) {
+                positionScript.put("contextId", ctx.contextId);
+            }
             positionScript.put("awaitPromise", true);
             positionScript.put("returnByValue", true);
 
@@ -518,8 +538,10 @@ public class XianyuCaptchaSolver {
             }
 
             JsonNode node = MAPPER.readTree(String.valueOf(runtimeValue));
-            double startX = node.path("startX").asDouble(100);
-            double startY = node.path("startY").asDouble(100);
+            double frameOffsetX = ctx != null ? ctx.offsetX : 0;
+            double frameOffsetY = ctx != null ? ctx.offsetY : 0;
+            double startX = node.path("startX").asDouble(100) + frameOffsetX;
+            double startY = node.path("startY").asDouble(100) + frameOffsetY;
             double btnWidth = node.path("btnWidth").asDouble(40);
             double trackWidth = node.path("trackWidth").asDouble(300);
 
@@ -852,6 +874,68 @@ public class XianyuCaptchaSolver {
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         JsonNode json = MAPPER.readTree(response.body());
         return json.path("id").asText("");
+    }
+
+    private CdpFrameContext findCaptchaFrameContext(Socket socket) {
+        try {
+            Map<String, Object> frameTreeResult = sendCommand(socket, "Page.getFrameTree", new LinkedHashMap<>());
+            JsonNode frameTree = MAPPER.valueToTree(frameTreeResult.get("result")).path("frameTree");
+            String frameId = findCaptchaFrameId(frameTree);
+            if (frameId == null || frameId.isBlank()) {
+                return null;
+            }
+
+            Map<String, Object> offsetScript = new LinkedHashMap<>();
+            offsetScript.put("expression", """
+                (() => {
+                    const iframe = document.querySelector('iframe#baxia-dialog-content, iframe[name="baxia-dialog-content"]');
+                    if (!iframe) return JSON.stringify({x:0,y:0});
+                    const rect = iframe.getBoundingClientRect();
+                    return JSON.stringify({x: rect.left, y: rect.top});
+                })()
+            """);
+            offsetScript.put("returnByValue", true);
+            Object offsetValue = extractRuntimeValue(sendCommand(socket, "Runtime.evaluate", offsetScript));
+            double offsetX = 0;
+            double offsetY = 0;
+            if (offsetValue != null) {
+                JsonNode offset = MAPPER.readTree(String.valueOf(offsetValue));
+                offsetX = offset.path("x").asDouble(0);
+                offsetY = offset.path("y").asDouble(0);
+            }
+
+            Map<String, Object> worldParams = new LinkedHashMap<>();
+            worldParams.put("frameId", frameId);
+            worldParams.put("worldName", "xianyu-captcha");
+            worldParams.put("grantUniversalAccess", true);
+            Map<String, Object> worldResult = sendCommand(socket, "Page.createIsolatedWorld", worldParams);
+            int contextId = MAPPER.valueToTree(worldResult.get("result")).path("executionContextId").asInt(0);
+            if (contextId <= 0) {
+                return null;
+            }
+            return new CdpFrameContext(contextId, offsetX, offsetY);
+        } catch (Exception e) {
+            log.debug("[CDP-AUTH] 查找验证码 iframe 上下文失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private String findCaptchaFrameId(JsonNode frameTree) {
+        if (frameTree == null || frameTree.isMissingNode() || frameTree.isNull()) return null;
+        JsonNode frame = frameTree.path("frame");
+        String url = frame.path("url").asText("");
+        String name = frame.path("name").asText("");
+        if (url.contains("_____tmd_____/punish") || name.contains("baxia-dialog-content")) {
+            return frame.path("id").asText("");
+        }
+        JsonNode children = frameTree.path("childFrames");
+        if (children.isArray()) {
+            for (JsonNode child : children) {
+                String id = findCaptchaFrameId(child);
+                if (id != null && !id.isBlank()) return id;
+            }
+        }
+        return null;
     }
 
     /**
