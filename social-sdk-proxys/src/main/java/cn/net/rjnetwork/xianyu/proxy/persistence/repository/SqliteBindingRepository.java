@@ -40,6 +40,7 @@ public class SqliteBindingRepository implements BindingRepository {
 
     public SqliteBindingRepository(DataSource dataSource) {
         this.dataSource = dataSource;
+        ensureSchema();
     }
 
     @Override
@@ -141,6 +142,49 @@ public class SqliteBindingRepository implements BindingRepository {
             log.error("[BINDING-DB] countActive failed", e);
         }
         return 0;
+    }
+
+    private void ensureSchema() {
+        try (Connection conn = dataSource.getConnection();
+             Statement st = conn.createStatement()) {
+            st.execute("CREATE TABLE IF NOT EXISTS " + TABLE + " ("
+                    + "id INTEGER PRIMARY KEY, "
+                    + "account_id INTEGER NOT NULL UNIQUE, "
+                    + "provider_type VARCHAR(32) NOT NULL, "
+                    + "host VARCHAR(256) NOT NULL, "
+                    + "port INTEGER NOT NULL, "
+                    + "username VARCHAR(256), "
+                    + "password VARCHAR(512), "
+                    + "exit_ip VARCHAR(64), "
+                    + "city VARCHAR(64), "
+                    + "bound_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    + "last_used_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    + "use_count INTEGER DEFAULT 0, "
+                    + "captcha_passed BOOLEAN DEFAULT FALSE, "
+                    + "deleted INTEGER DEFAULT 0"
+                    + ")");
+            createIndexIfMissing(conn, "idx_proxy_binding_account", "CREATE INDEX idx_proxy_binding_account ON " + TABLE + "(account_id)");
+            createIndexIfMissing(conn, "idx_proxy_binding_exit_ip", "CREATE INDEX idx_proxy_binding_exit_ip ON " + TABLE + "(exit_ip)");
+            createIndexIfMissing(conn, "idx_proxy_binding_deleted", "CREATE INDEX idx_proxy_binding_deleted ON " + TABLE + "(deleted)");
+        } catch (SQLException e) {
+            log.error("[BINDING-DB] ensureSchema failed", e);
+            throw new RuntimeException("初始化代理绑定表失败", e);
+        }
+    }
+
+    private void createIndexIfMissing(Connection conn, String indexName, String createSql) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name=?")) {
+            ps.setString(1, indexName);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return;
+                }
+            }
+        }
+        try (Statement st = conn.createStatement()) {
+            st.execute(createSql);
+        }
     }
 
     private void upsert(Connection conn, ProxyAccountBinding b) throws SQLException {

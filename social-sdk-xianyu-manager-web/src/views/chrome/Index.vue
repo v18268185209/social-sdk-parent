@@ -345,7 +345,8 @@ function formatSize(bytes) {
 <style scoped>
 .page-container {
   padding: 20px;
-  max-width: 900px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .page-header {

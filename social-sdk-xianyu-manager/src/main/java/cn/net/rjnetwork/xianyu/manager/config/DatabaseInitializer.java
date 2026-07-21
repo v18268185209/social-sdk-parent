@@ -77,6 +77,7 @@ public class DatabaseInitializer {
             ensureBuyerProfileColumns();
             ensureCircuitBreakerColumns();
             ensureAiCsSessionStateColumns();
+            ensureAutoReplyLogTable();
 
             // ===== proxy 模块表初始化（proxy_account_binding / proxy_cool_down / proxy_audit_log）=====
             // proxy 模块的 schema 文件在 social-sdk-proxys/db/proxy-bindings.sql，
@@ -271,6 +272,48 @@ public class DatabaseInitializer {
         ensureColumn("xianyu_account", "chrome_crash_count", "INTEGER DEFAULT 0");
         ensureColumn("xianyu_account", "chrome_seed", "BIGINT");
         ensureColumn("xianyu_account", "chrome_launched_at", "DATETIME");
+    }
+
+    private void ensureAutoReplyLogTable() {
+        try (java.sql.Connection conn = dataSource.getConnection()) {
+            if (tableExists(conn, "xianyu_auto_reply_log")) {
+                return;
+            }
+            String dialect = databaseProvider != null ? databaseProvider.dialect() : "sqlite";
+            String idDdl;
+            String timeDdl;
+            String boolDdl;
+            if ("mysql".equalsIgnoreCase(dialect)) {
+                idDdl = "BIGINT AUTO_INCREMENT PRIMARY KEY";
+                timeDdl = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP";
+                boolDdl = "TINYINT(1) DEFAULT 0";
+            } else if ("postgres".equalsIgnoreCase(dialect)) {
+                idDdl = "BIGSERIAL PRIMARY KEY";
+                timeDdl = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP";
+                boolDdl = "BOOLEAN DEFAULT FALSE";
+            } else {
+                idDdl = "INTEGER PRIMARY KEY";
+                timeDdl = "DATETIME DEFAULT CURRENT_TIMESTAMP";
+                boolDdl = "BOOLEAN DEFAULT FALSE";
+            }
+            try (java.sql.Statement st = conn.createStatement()) {
+                st.execute("CREATE TABLE IF NOT EXISTS xianyu_auto_reply_log ("
+                        + "id " + idDdl + ", "
+                        + "account_id INTEGER, "
+                        + "rule_id INTEGER, "
+                        + "rule_name VARCHAR(128), "
+                        + "reply_type VARCHAR(16), "
+                        + "keyword VARCHAR(256), "
+                        + "buyer_message TEXT, "
+                        + "reply_text TEXT, "
+                        + "matched " + boolDdl + ", "
+                        + "created_at " + timeDdl
+                        + ")");
+                logger.info("Created missing table xianyu_auto_reply_log");
+            }
+        } catch (Exception e) {
+            logger.warn("ensureAutoReplyLogTable skipped: {}", e.getMessage());
+        }
     }
 
     private void ensureOpenAppTable() {

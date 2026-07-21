@@ -85,13 +85,15 @@ public class ProxyController {
         List<Map<String, Object>> result = new ArrayList<>();
         for (ProxyConfig cfg : configService.listAll()) {
             try {
-                Map<String, Object> m = ProxyProviderFactory.parseConfigMap(cfg.getConfigJson());
-                m.put("id", cfg.getId());
-                m.put("providerType", cfg.getProviderType());
-                m.put("enabled", cfg.getEnabled() != null && cfg.getEnabled() == 1);
-                m.put("sortOrder", cfg.getSortOrder());
-                m.remove("password");
-                result.add(m);
+                Map<String, Object> configMap = ProxyProviderFactory.parseConfigMap(cfg.getConfigJson());
+                configMap.remove("password");
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", cfg.getId());
+                row.put("providerType", cfg.getProviderType());
+                row.put("enabled", cfg.getEnabled() != null && cfg.getEnabled() == 1);
+                row.put("sortOrder", cfg.getSortOrder());
+                row.put("config", configMap);
+                result.add(row);
             } catch (Exception e) {
                 log.warn("[PROXY] 解析 {} 配置失败: {}", cfg.getProviderType(), e.getMessage());
             }

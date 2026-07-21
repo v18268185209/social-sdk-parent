@@ -5,6 +5,7 @@
         <div class="logo-icon">AI</div>
         <div class="logo-text">
           <div class="logo-title">AI鱼多宝</div>
+          <div class="logo-tag">Xianyu Manager</div>
           <div class="logo-subtitle">智能运营平台</div>
         </div>
       </div>
@@ -172,7 +173,11 @@
         </div>
       </el-header>
       <el-main class="main-content">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <transition name="fade-slide" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </router-view>
       </el-main>
       <el-footer class="app-footer" height="auto">
         <span class="coop-label">商务合作</span>
@@ -189,12 +194,6 @@
           </svg>
           18268185209
         </a>
-        <a class="coop-item" href="https://aius.autos" target="_blank" rel="noopener noreferrer">
-          <svg class="coop-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" />
-            <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
-          </svg>
-          aius.autos
         </a>
         <span class="footer-divider">·</span>
         <span class="copyright">© 2026 AI鱼多宝</span>
@@ -815,7 +814,7 @@ async function handleBrowserReset() {
 .logo-icon {
   width: 32px;
   height: 32px;
-  background: linear-gradient(135deg, #409EFF 0%, #1D9E75 100%);
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -834,6 +833,11 @@ async function handleBrowserReset() {
   font-size: 15px;
   font-weight: 600;
   color: #303133;
+}
+.logo-tag {
+  font-size: 10px;
+  color: #999;
+  letter-spacing: 0.5px;
 }
 .logo-subtitle {
   font-size: 11px;
@@ -856,12 +860,12 @@ async function handleBrowserReset() {
 .page-icon-box {
   width: 28px;
   height: 28px;
-  background: #ecf5ff;
+  background: #eef2ff;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #409EFF;
+  color: #4f46e5;
   font-size: 14px;
   flex-shrink: 0;
 }
@@ -915,9 +919,29 @@ async function handleBrowserReset() {
   overflow: auto;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
 }
 
-/* 侧边栏菜单样式 — 浅色主题 */
+/* 页面切换淡入滑动过渡 */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+.fade-slide-enter-to,
+.fade-slide-leave-from {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 侧边栏菜单样式 — 紫色主题 */
 .sidebar-menu {
   border-right: none !important;
   padding: 8px 0;
@@ -936,8 +960,8 @@ async function handleBrowserReset() {
   color: #303133;
 }
 .sidebar-menu :deep(.el-menu-item.is-active) {
-  background: #ecf5ff !important;
-  color: #409EFF !important;
+  background: #eef2ff !important;
+  color: #4f46e5 !important;
   font-weight: 500;
 }
 .sidebar-menu :deep(.el-menu-item-group__title) {
@@ -962,7 +986,7 @@ async function handleBrowserReset() {
   flex-shrink: 0;
 }
 .sidebar-menu :deep(.el-menu-item.is-active) .menu-icon-box {
-  background: #409EFF;
+  background: #4f46e5;
   color: #fff;
 }
 
@@ -999,8 +1023,8 @@ async function handleBrowserReset() {
   transition: color 0.2s, background 0.2s;
 }
 .coop-item:hover {
-  color: #409eff;
-  background: rgba(64, 158, 255, 0.08);
+  color: #4f46e5;
+  background: rgba(79, 70, 229, 0.08);
 }
 .coop-ico { width: 15px; height: 15px; }
 .coop-ico.wechat { color: #07c160; }
@@ -1059,7 +1083,7 @@ async function handleBrowserReset() {
   transition: background 0.2s, border-color 0.2s;
 }
 .inbox-item:hover { background: #f5f7fa; }
-.inbox-item.unread { border-color: #b3d8ff; background: #ecf5ff; }
+.inbox-item.unread { border-color: #c4b5fd; background: #eef2ff; }
 .inbox-title {
   font-weight: 600;
   font-size: 14px;
@@ -1072,7 +1096,7 @@ async function handleBrowserReset() {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #409eff;
+  background: #4f46e5;
   flex: 0 0 auto;
 }
 .inbox-content {

@@ -61,7 +61,7 @@
         <el-col :span="6"><el-card><div class="stat-box"><div class="stat-num">{{ distribution.median | '-' }}</div><div class="stat-lbl">中位数</div></div></el-card></el-col>
       </el-row>
 
-      <p style="color:#909399;margin-top:12px;">P25: {{ distribution.p25 | '-' }} / P75: {{ distribution.p75 | '-' }} / 样本数: {{ distribution.sampleCount }}</p>
+      <p v-if="distribution" style="color:#909399;margin-top:12px;">P25: {{ distribution.p25 | '-' }} / P75: {{ distribution.p75 | '-' }} / 样本数: {{ distribution.sampleCount }}</p>
     </div>
 
     <!-- ====== 卖家画像 ====== -->

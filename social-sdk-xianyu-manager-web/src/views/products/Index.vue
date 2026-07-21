@@ -113,7 +113,23 @@
           <el-table-column label="价格" width="100">
             <template #default="{ row }">¥{{ row.price }}</template>
           </el-table-column>
-          <el-table-column prop="stock" label="库存" width="80" />
+          <el-table-column label="库存" width="80">
+            <template #default="{ row }">
+              <span>{{ row.stock }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="发货池" width="90">
+            <template #default="{ row }">
+              <template v-if="row.goodsType === 'VIRTUAL' && (row.deliverType === 'CARD' || row.deliverType === 'ACCOUNT')">
+                <el-tooltip :content="`${poolCount(row)} 个已录入`" placement="top">
+                  <el-tag size="small" :type="poolCount(row) >= row.stock ? 'success' : 'warning'">
+                    {{ poolCount(row) }}/{{ row.stock }}
+                  </el-tag>
+                </el-tooltip>
+              </template>
+              <span v-else style="color: #909399;">-</span>
+            </template>
+          </el-table-column>
           <el-table-column label="发布账号" width="140">
             <template #default="{ row }">{{ accountName(row.accountId) }}</template>
           </el-table-column>
@@ -703,10 +719,26 @@ function handleDownloadTemplate() {
 
 // ===== 状态 =====
 import * as localProductApi from '@/api/localProducts'
+const activeTab = ref('xianyu')
+const createForm = ref({ accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '', categoryId: '', categoryIdPath: null, deliveryChoice: '按距离计费', postPrice: 0, location: '' })
+const categoryTree = ref([])
+const categoryTreeLoading = ref(false)
+const categoryTreeLoadedAccountId = ref(null)
+const aiForm = ref({ modelId: null, productTitle: '', keywordsRaw: '', condition: '九成新' })
+const aiResult = ref({ title: '', description: '', keywords: [] })
 
 const localStatusType = (s) => ({ DRAFT: 'info', PENDING: 'primary', PUBLISHING: 'warning', FAILED: 'danger' }[s] || 'info')
 const localStatusLabel = (s) => ({ DRAFT: '草稿', PENDING: '待发布', PUBLISHING: '发布中', FAILED: '失败' }[s] || s)
 const accountName = (id) => accounts.value.find(a => a.id === id)?.accountName || (id ? `#${id}` : '-')
+const poolCount = (row) => {
+  if (!row.deliverContentTemplate) return 0
+  try {
+    const arr = JSON.parse(row.deliverContentTemplate)
+    return Array.isArray(arr) ? arr.length : 0
+  } catch {
+    return row.deliverContentTemplate.split('|||').filter(s => s.trim()).length
+  }
+}
 
 watch(activeTab, (tab) => {
   pagination.value.page = 1
@@ -916,14 +948,6 @@ async function customLocalUpload(options) {
     options.onError(err)
   }
 }
-
-const activeTab = ref('xianyu')
-const createForm = ref({ accountId: null, title: '', price: 0, originalPrice: 0, stock: 0, description: '', categoryId: '', categoryIdPath: null, deliveryChoice: '按距离计费', postPrice: 0, location: '' })
-const categoryTree = ref([])
-const categoryTreeLoading = ref(false)
-const categoryTreeLoadedAccountId = ref(null)
-const aiForm = ref({ modelId: null, productTitle: '', keywordsRaw: '', condition: '九成新' })
-const aiResult = ref({ title: '', description: '', keywords: [] })
 
 const statusType = (s) => ({ ON_SALE: 'success', OFF_SALE: 'warning', DRAFT: 'info' }[s] || 'info')
 const statusLabel = (s) => ({ ON_SALE: '在售', OFF_SALE: '下架', DRAFT: '草稿' }[s] || s)

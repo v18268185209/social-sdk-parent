@@ -152,6 +152,20 @@ CREATE TABLE IF NOT EXISTS xianyu_keyword_rule (
     deleted INTEGER DEFAULT 0
 );
 
+-- 自动回复日志表
+CREATE TABLE IF NOT EXISTS xianyu_auto_reply_log (
+    id BIGSERIAL PRIMARY KEY,
+    account_id INTEGER,
+    rule_id INTEGER,
+    rule_name VARCHAR(128),
+    reply_type VARCHAR(16),
+    keyword VARCHAR(256),
+    buyer_message TEXT,
+    reply_text TEXT,
+    matched BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 自动回复全局配置表（按账号）
 CREATE TABLE IF NOT EXISTS xianyu_auto_reply_config (
     id BIGSERIAL PRIMARY KEY,
