@@ -409,6 +409,10 @@ public class XianyuApiFacade {
     public JsonNode getMyCollectList(String page, String pageSize) {
         return collectApiService.getMyCollectList(page, pageSize);
     }
+    /** 直接调用 MTOP（用于暴力枚举验证接口名） */
+    public JsonNode callMtop(String path, String version, String data) {
+        return apiClient.callMtop(path, version, data);
+    }
     public JsonNode collectItem(String itemId) {
         return collectApiService.collectItem(itemId);
     }

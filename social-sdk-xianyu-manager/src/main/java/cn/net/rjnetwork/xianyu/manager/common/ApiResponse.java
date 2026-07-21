@@ -49,6 +49,10 @@ public class ApiResponse<T> {
         return response;
     }
 
+    public static <T> ApiResponse<T> badRequest(String message) {
+        return fail("BAD_REQUEST", message);
+    }
+
     public static <T> ApiResponse<T> fail(String message) {
         return fail("ERROR", message);
     }

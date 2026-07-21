@@ -14,3 +14,8 @@ export function addCollect(data) {
 export function removeCollect(id) {
   return api.delete(`/collect/${id}`)
 }
+
+// ===== 同步闲鱼收藏列表 =====
+export function syncCollects(accountId) {
+  return api.post('/collect/sync', null, { params: { accountId } })
+}

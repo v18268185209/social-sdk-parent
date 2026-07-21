@@ -192,6 +192,7 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
+                    <finalName>social-sdk-xianyu-manager-fix8</finalName>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>

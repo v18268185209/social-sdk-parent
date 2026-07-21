@@ -13,6 +13,7 @@ import cn.net.rjnetwork.xianyu.manager.order.service.OrderSyncService;
 import cn.net.rjnetwork.xianyu.manager.monitor.service.MonitorTaskService;
 import cn.net.rjnetwork.xianyu.manager.monitor.service.MonitorTaskRunner;
 import cn.net.rjnetwork.xianyu.manager.monitor.model.MonitorTask;
+import cn.net.rjnetwork.xianyu.manager.collect.service.CollectService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -35,6 +36,7 @@ public class ScheduledTasks {
     private final OrderSyncService orderSyncService;
     private final MonitorTaskService monitorTaskService;
     private final MonitorTaskRunner monitorTaskRunner;
+    private final CollectService collectService;
 
     public ScheduledTasks(AccountMapper accountMapper, ProductSyncService productSyncService,
                           MonitorService monitorService, AccountHealthTask healthTask,
@@ -42,7 +44,8 @@ public class ScheduledTasks {
                           VirtualShipService virtualShipService,
                           OrderSyncService orderSyncService,
                           MonitorTaskService monitorTaskService,
-                          MonitorTaskRunner monitorTaskRunner) {
+                          MonitorTaskRunner monitorTaskRunner,
+                          CollectService collectService) {
         this.accountMapper = accountMapper;
         this.productSyncService = productSyncService;
         this.monitorService = monitorService;
@@ -52,6 +55,7 @@ public class ScheduledTasks {
         this.orderSyncService = orderSyncService;
         this.monitorTaskService = monitorTaskService;
         this.monitorTaskRunner = monitorTaskRunner;
+        this.collectService = collectService;
     }
 
     @Scheduled(cron = "0 0/30 * * * *")
@@ -134,6 +138,19 @@ public class ScheduledTasks {
             } catch (Exception e) {
                 log.warn("[Schedule] sync orders account {} error: {}", acc.getId(), e.getMessage());
             }
+        }
+    }
+
+    // ======================== 收藏同步定时链路 ========================
+
+    /** 每 30 分钟同步所有账号的收藏列表 */
+    @Scheduled(cron = "0 0/30 * * * *")
+    public void autoSyncCollects() {
+        try {
+            int count = collectService.syncAllAccounts();
+            log.info("[Schedule] auto-sync collects done, synced={}", count);
+        } catch (Exception e) {
+            log.warn("[Schedule] auto-sync collects failed: {}", e.getMessage());
         }
     }
 

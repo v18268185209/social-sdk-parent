@@ -158,7 +158,8 @@ public class CloudStorageService {
     // ============== 分享 ==============
 
     /**
-     * 创建分享链接 - 使用 OpenList 真实分享 API
+     * 创建分享链接 - 使用 OpenList 真实下载链接
+     * OpenList 文件下载格式: http://host:port/d/path/filename
      */
     public String shareFile(Long fileId) {
         CloudStorageFile file = fileMapper.selectById(fileId);
@@ -170,8 +171,6 @@ public class CloudStorageService {
             extractCode = String.format("%04d", new Random().nextInt(10000));
         }
 
-        // 构建 OpenList 真实下载链接
-        // OpenList 文件下载格式: http://host:port/d/path/filename
         String baseUrl = openListClient.getBaseUrlPublic();
         String filePath = file.getFilePath();
         if (filePath == null) filePath = "/xianyu-virtual-ship";

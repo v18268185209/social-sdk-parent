@@ -929,26 +929,7 @@ public class ProductService {
                 if (orig != null) p.setOriginalPrice(orig);
                 Integer stock = pickInt(item, "stock", "quantity", "remainQuantity");
                 if (stock != null) p.setStock(stock);
-                String status = mapStatus(pickString(item, "itemStatus", "status", "soldStatus"));
-                if (status != null) p.setStatus(status);
-                String images = pickImages(item);
-                if (images != null) p.setImages(images);
-                // 同步主图 URL（闲鱼 API 多为 picUrl / mainPic / imageUrl 字段）
-                if (p.getImageUrl() == null) {
-                    String imageUrl = pickString(item, "picUrl", "mainPic", "imageUrl", "cover");
-                    if (imageUrl != null) p.setImageUrl(imageUrl);
-                }
-                String desc = pickString(item, "desc", "description", "detail");
-                if (desc != null) p.setDescription(desc);
-                String detailUrl = pickString(item, "detailUrl", "url", "itemUrl");
-                if (detailUrl != null) p.setDetailUrl(detailUrl);
-                Integer view = pickInt(item, "viewCount", "pv", "views");
-                if (view != null) p.setViewCount(view);
-                Integer fav = pickInt(item, "favoriteCount", "wishCount", "collectCount");
-                if (fav != null) p.setFavoriteCount(fav);
-                // 分类 id 真实结构在 categoryId 顶层
-                String cid = pickString(item, "categoryId", "cid");
-                if (cid != null) p.setCategoryId(cid);
+
                 p.setUpdatedAt(LocalDateTime.now());
 
                 if (existing == null) {
@@ -961,6 +942,23 @@ public class ProductService {
             }
         }
         return new SyncResult(inserted + updated, inserted, updated);
+    }
+
+    /**
+     * 从商品详情接口取真库存。真验结论（2026-07-21 dump）：
+     * 真库存字段是 data.itemDO.quantity；商品列表接口不返回库存，故必须拉详情。
+     * 拉失败返回 null（调用方回退到列表字段）。
+     */
+    private Integer resolveStockFromDetail(XianyuProductApiService productApi, String itemId) {
+        try {
+            JsonNode resp = productApi.getProductDetail(itemId);
+            if (resp == null) return null;
+            JsonNode itemDO = resp.path("data").path("itemDO").path("quantity");
+            if (itemDO.isMissingNode() || itemDO.isNull()) return null;
+            return itemDO.asInt();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** 闲鱼返回结构多变，按优先级探若干路径名。真实结构为 data.cardList[] */

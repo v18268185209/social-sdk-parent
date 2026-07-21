@@ -308,7 +308,7 @@ import {
 import {
   getOpenListStatus, installOpenList, startOpenList, stopOpenList, restartOpenList,
   listStorages, createStorage, deleteStorage, enableStorage, disableStorage,
-  listDrivers, getDriverInfo, listOpenListFiles, uploadOpenListFile, downloadOpenListFile
+  listDrivers, getDriverInfo, listOpenListFiles, uploadOpenListFile, deleteOpenListFile
 } from '@/api/openList'
 
 // ============== OpenList 状态 ==============
@@ -652,8 +652,6 @@ const deleteFile = async (row) => {
   if (!filterMountPath.value) return
   await ElMessageBox.confirm(`确定删除 ${row.name} 吗？`, '提示', { type: 'warning' })
   try {
-    // 通过 OpenList API 删除文件
-    const { deleteOpenListFile } = await import('@/api/openList')
     await deleteOpenListFile(filterMountPath.value, row.name)
     ElMessage.success('已删除')
     loadFiles()

@@ -15,6 +15,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -42,6 +43,8 @@ public class MessageService {
     private final AccountMapper accountMapper;
     private final XianyuCaptchaSolver captchaSolver;
     private final Map<Long, ReentrantLock> accountSyncLocks = new ConcurrentHashMap<>();
+    private final Map<Long, XianyuMessageApiService> accountMessageApis = new ConcurrentHashMap<>();
+    private final Map<Long, String> accountCookieFingerprints = new ConcurrentHashMap<>();
 
     public MessageService(MessageMapper messageMapper, RuleService ruleService,
                           ApplicationEventPublisher eventPublisher, AccountMapper accountMapper,
@@ -256,6 +259,44 @@ public class MessageService {
      * @param accountId 当前账号 id
      * @param accsClient IM 长连接客户端
      */
+    private XianyuMessageApiService getMessageApiForAccount(XianyuAccount acc, XianyuMtopApiClient mtopClient) {
+        String fingerprint = cookieFingerprint(acc);
+        String oldFingerprint = accountCookieFingerprints.get(acc.getId());
+        XianyuMessageApiService existing = accountMessageApis.get(acc.getId());
+        if (existing != null && fingerprint.equals(oldFingerprint)) {
+            return existing;
+        }
+        closeMessageApi(acc.getId(), existing);
+        XianyuMessageApiService created = new XianyuMessageApiService(mtopClient);
+        accountMessageApis.put(acc.getId(), created);
+        accountCookieFingerprints.put(acc.getId(), fingerprint);
+        return created;
+    }
+
+    private String cookieFingerprint(XianyuAccount acc) {
+        String loginCookie = acc.getCookieHeader() != null ? acc.getCookieHeader() : "";
+        String imCookie = acc.getImCookieHeader() != null ? acc.getImCookieHeader() : "";
+        return Integer.toHexString((loginCookie + "\n" + imCookie).hashCode());
+    }
+
+    private void closeMessageApi(Long accountId, XianyuMessageApiService msgApi) {
+        if (msgApi == null) return;
+        try {
+            msgApi.closeAccsClient();
+        } catch (Exception e) {
+            log.debug("[MESSAGE] close old IM client failed for account {}: {}", accountId, e.getMessage());
+        }
+    }
+
+    @PreDestroy
+    public void destroy() {
+        for (Map.Entry<Long, XianyuMessageApiService> entry : accountMessageApis.entrySet()) {
+            closeMessageApi(entry.getKey(), entry.getValue());
+        }
+        accountMessageApis.clear();
+        accountCookieFingerprints.clear();
+    }
+
     private void registerPushListener(Long accountId, XianyuImAccsClient accsClient) {
         final String listenerKey = "msg-sync-" + accountId;
         // 先移除旧监听器，避免账号切换时重复挂监听
@@ -294,7 +335,7 @@ public class MessageService {
         if (acc.getImCookieHeader() != null && !acc.getImCookieHeader().isBlank()) {
             mtopClient.setImCookieHeader(acc.getImCookieHeader());
         }
-        XianyuMessageApiService msgApi = new XianyuMessageApiService(mtopClient);
+        XianyuMessageApiService msgApi = getMessageApiForAccount(acc, mtopClient);
 
         try {
             if (targetCid != null && !targetCid.isEmpty()) {

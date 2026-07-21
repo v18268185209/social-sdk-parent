@@ -326,16 +326,11 @@ public class XianyuCaptchaSolver {
 
     /**
      * 判断提取到的 cookie 是否足以支撑 IM 链路（pc.login.token / WSS）。
-     * 旧逻辑只认 x5sec，但消息页可能并不写 x5sec 而是靠一整组 goofish/taobao cookie 通过风控；
-     * 这里放宽到「包含 x5sec」或「包含 _m_h5_tk + 登录态 cookie（unb/cookie2/sgcookie）」。
+     * CDP 实测：消息页即使已有 _m_h5_tk + 登录态 cookie，pc.login.token 仍会跳 punish；
+     * 真正通过后会写入 x5sec，因此这里必须严格要求 x5sec，避免把未验证 cookie 当成成功。
      */
     private boolean isUsableImCookie(String cookie) {
-        if (cookie == null || cookie.isBlank()) return false;
-        String lower = cookie.toLowerCase();
-        if (hasX5Cookie(lower)) return true;
-        boolean hasH5tk = lower.contains("_m_h5_tk") || lower.contains("m_h5_tk");
-        boolean hasLogin = lower.contains("unb") || lower.contains("cookie2") || lower.contains("sgcookie");
-        return hasH5tk && hasLogin;
+        return hasX5Cookie(cookie);
     }
 
     private boolean hasX5Cookie(String cookie) {

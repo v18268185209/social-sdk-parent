@@ -6,6 +6,7 @@ import cn.net.rjnetwork.xianyu.manager.auth.model.AdminUser;
 import cn.net.rjnetwork.xianyu.manager.auth.service.AuthService;
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import jakarta.validation.Valid;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -26,10 +27,16 @@ public class AuthController {
         return ApiResponse.ok(response);
     }
 
+    /**
+     * 从 Spring Security Authentication 安全获取当前用户信息，不再自行解析 Bearer token。
+     */
     @GetMapping("/profile")
-    public ApiResponse<Map<String, Object>> getProfile(@RequestHeader("Authorization") String authHeader) {
-        // 从 JWT 中解析用户信息，这里简化处理
-        String username = authHeader.substring(7); // 去掉 "Bearer " 前缀
+    public ApiResponse<Map<String, Object>> getProfile(Authentication authentication) {
+        if (authentication == null || authentication.getName() == null) {
+            return ApiResponse.fail("AUTH_REQUIRED", "Authentication required");
+        }
+
+        String username = authentication.getName();
         AdminUser user = authService.findByUsername(username).orElse(null);
         if (user == null) {
             return ApiResponse.fail("USER_NOT_FOUND", "User not found");

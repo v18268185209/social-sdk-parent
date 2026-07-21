@@ -70,7 +70,6 @@ public class OpenListClient {
     public void mkdir(String path) throws IOException {
         Map<String, String> req = new LinkedHashMap<>();
         req.put("path", path);
-        req.put("name", new File(path).getName());
         postJson("/api/fs/mkdir", req);
     }
 
@@ -131,14 +130,14 @@ public class OpenListClient {
      * 上传文件到 OpenList - 使用 /api/fs/put
      */
     public String uploadFile(String path, String filename, byte[] content) throws IOException {
-        String url = getBaseUrl() + "/api/fs/put?path=" + URLEncoder.encode(path, "UTF-8");
+        String fullPath = path + "/" + filename;
+        String url = getBaseUrl() + "/api/fs/put?path=" + URLEncoder.encode(fullPath, "UTF-8");
         URL u = new URL(url);
         HttpURLConnection conn = (HttpURLConnection) u.openConnection();
         conn.setRequestMethod("PUT");
         conn.setDoOutput(true);
         conn.setRequestProperty("Authorization", "Bearer " + requireToken());
         conn.setRequestProperty("Content-Type", "application/octet-stream");
-        conn.setRequestProperty("File-Path", URLEncoder.encode(path + "/" + filename, "UTF-8"));
         conn.setConnectTimeout(30000);
         conn.setReadTimeout(120000);
 
@@ -169,6 +168,12 @@ public class OpenListClient {
      * POST /api/admin/storage/create — 添加存储挂载
      */
     public String createStorage(Map<String, Object> storage) throws IOException {
+        // OpenList API expects `config` field to be a JSON string, not nested object
+        Object config = storage.get("config");
+        if (config instanceof Map) {
+            storage = new LinkedHashMap<>(storage);
+            storage.put("config", new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(config));
+        }
         return postJson("/api/admin/storage/create", storage);
     }
 
@@ -176,6 +181,11 @@ public class OpenListClient {
      * POST /api/admin/storage/update — 更新存储挂载
      */
     public String updateStorage(Map<String, Object> storage) throws IOException {
+        Object config = storage.get("config");
+        if (config instanceof Map) {
+            storage = new LinkedHashMap<>(storage);
+            storage.put("config", new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(config));
+        }
         return postJson("/api/admin/storage/update", storage);
     }
 

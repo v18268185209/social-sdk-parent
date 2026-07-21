@@ -41,6 +41,14 @@ public class XianyuMessageApiService {
         return accsClient;
     }
 
+    /** 关闭当前 IM 长连接，供账号 cookie 切换或服务销毁时释放旧监听。 */
+    public void closeAccsClient() {
+        if (accsClient != null) {
+            accsClient.close();
+            accsClient = null;
+        }
+    }
+
     /**
      * 获取当前登录用户 id — mtop.taobao.idlemessage.pc.loginuser.get
      * <p>返回 data.userId（数字形式闲鱼 uid）</p>

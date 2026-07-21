@@ -252,17 +252,12 @@ public class VirtualShipService {
                 uploadReq.setExpireDays(30);
                 try (FileInputStream fis = new FileInputStream(file)) {
                     uploadReq.setContent(fis);
-                    cloudStorageService.uploadFile(account.getId(), uploadReq);
-                }
-
-                // 3. 创建分享链接
-                // 注意：uploadFile 里已写入 DB，需重新查最新的一条 file 记录
-                List<CloudStorageFile> files = cloudStorageService.listFiles(account.getId());
-                CloudStorageFile latest = files.isEmpty() ? null : files.get(files.size() - 1);
-                if (latest != null && "COMPLETED".equals(latest.getUploadStatus())) {
-                    String link = cloudStorageService.shareFile(latest.getId());
-                    return String.format("下载链接：%s\n提取码：%s\n有效期：7天",
-                            link, latest.getExtractCode());
+                    CloudStorageFile uploaded = cloudStorageService.uploadFile(account.getId(), uploadReq);
+                    if (uploaded != null && "COMPLETED".equals(uploaded.getUploadStatus())) {
+                        String link = cloudStorageService.shareFile(uploaded.getId());
+                        return String.format("下载链接：%s\n提取码：%s\n有效期：7天",
+                                link, uploaded.getExtractCode());
+                    }
                 }
                 return "【系统错误】文件上传失败，请稍后重试";
             } catch (Exception e) {

@@ -44,12 +44,18 @@ public class OpenListTaskService {
 
     private void detectSystem() {
         this.osName = System.getProperty("os.name").toLowerCase();
-        this.arch = System.getProperty("os.arch").contains("64") ? "amd64" : "amd64";
+        String rawArch = System.getProperty("os.arch").toLowerCase();
+        this.arch = rawArch.contains("amd64") || rawArch.contains("x86_64") ? "amd64"
+                   : rawArch.contains("arm64") || rawArch.contains("aarch64") ? "arm64"
+                   : "amd64"; // fallback
 
-        this.localBinaryName = osName.contains("win") ? "openlist.exe" : "openlist-linux-amd64";
+        this.localBinaryName = osName.contains("win") ? "openlist.exe"
+                            : osName.contains("mac") ? "openlist-darwin-amd64"
+                            : "openlist-linux-amd64";
+        String osPart = osName.contains("win") ? "windows" : osName.contains("mac") ? "darwin" : "linux";
         this.downloadUrl = String.format(
             "https://github.com/OpenListTeam/OpenList/releases/latest/download/openlist-%s-%s%s",
-            osName.contains("win") ? "windows" : "linux",
+            osPart,
             arch,
             osName.contains("win") ? ".zip" : ".tar.gz"
         );
@@ -176,9 +182,9 @@ public class OpenListTaskService {
 
             ProcessBuilder pb = new ProcessBuilder(
                 executablePath.toString(),
-                "--path", dataDir.toString(),
-                "--port", String.valueOf(properties.getPort()),
-                "--host", "0.0.0.0"
+                "server",
+                "--data", dataDir.toString(),
+                "--port", String.valueOf(properties.getPort())
             );
             pb.directory(dataDir.toFile());
             pb.redirectErrorStream(true);

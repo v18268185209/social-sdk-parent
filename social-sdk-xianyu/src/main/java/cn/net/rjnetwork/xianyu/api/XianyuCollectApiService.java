@@ -35,18 +35,24 @@ public class XianyuCollectApiService {
         return apiClient.callMtop("mtop.taobao.idle.web.favor.item.list", toJson(data));
     }
 
-    /** 收藏商品 — 推测接口 mtop.taobao.idle.web.favor.item.add（命名规律候选） */
+    /**
+     * 收藏商品 — 真实接口 mtop.taobao.idle.collect.item
+     * <p>CDP 抓包验证（2026-07-20）：点击收藏按钮后捕获到此接口</p>
+     */
     public JsonNode collectItem(String itemId) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("itemId", itemId != null ? itemId : "");
-        return apiClient.callMtop("mtop.taobao.idle.web.favor.item.add", toJson(data));
+        return apiClient.callMtop("mtop.taobao.idle.collect.item", toJson(data));
     }
 
-    /** 取消收藏 — 推测接口 mtop.taobao.idle.web.favor.item.delete（命名规律候选） */
+    /**
+     * 取消收藏 — 真实接口 com.taobao.idle.unfavor.item
+     * <p>CDP 抓包验证（2026-07-20）：点击取消收藏按钮后捕获到此接口</p>
+     */
     public JsonNode uncollectItem(String itemId) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("itemId", itemId != null ? itemId : "");
-        return apiClient.callMtop("mtop.taobao.idle.web.favor.item.delete", toJson(data));
+        return apiClient.callMtop("com.taobao.idle.unfavor.item", toJson(data));
     }
 
     /** 获取我的关注列表 — 推测接口 mtop.idle.web.user.follow.list（命名规律候选，未直接抓包验证） */
