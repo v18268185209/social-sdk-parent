@@ -23,6 +23,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.ServerSocket;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -121,9 +122,8 @@ public class ChromeSession {
             // 2. 构造命令行
             List<String> command = buildLaunchCommand(profile);
 
-            // 3. 启动进程
+            // 3. 启动进程。工作目录不要设到 user-data-dir 内，避免相对路径再次嵌套解析。
             ProcessBuilder pb = new ProcessBuilder(command);
-            pb.directory(new File(profile.getProfileDir()));
             pb.redirectErrorStream(false);
 
             if (config.isLogChromeOutput()) {
@@ -140,15 +140,15 @@ public class ChromeSession {
             profile.setCdpEndpoint(String.format("http://127.0.0.1:%d", port));
             profile.setLaunchedAt(LocalDateTime.now());
 
-            log.info("[SESSION] Chrome 已启动, accountId={}, pid={}, port={}, profileDir={}",
-                    accountId, process.pid(), port, profile.getProfileDir());
+            log.info("[SESSION] Chrome 已启动, accountId={}, pid={}, port={}, profileDir={}, command={}",
+                    accountId, process.pid(), port, profile.getProfileDir(), maskCommandForLog(command));
 
             // 4. 等待 CDP 就绪（轮询）
             long deadline = System.currentTimeMillis() + config.getLaunchTimeoutSeconds() * 1000L;
             while (System.currentTimeMillis() < deadline) {
                 if (!process.isAlive()) {
                     throw ChromeException.launchFailed(accountId,
-                            "Chrome 进程已退出，退出码=" + process.exitValue());
+                            "Chrome 进程已退出，退出码=" + process.exitValue() + buildChromeLogHint(profile));
                 }
                 if (isCdpReady(port)) {
                     profile.setStatus(ChromeProfile.ContainerStatus.RUNNING);
@@ -497,18 +497,20 @@ public class ChromeSession {
     // ==================== 内部方法 ====================
 
     private void ensureProfileDir(ChromeProfile profile) throws IOException {
-        Path dir = Paths.get(profile.getProfileDir());
+        Path dir = Paths.get(profile.getProfileDir()).toAbsolutePath().normalize();
         if (!Files.exists(dir)) {
             Files.createDirectories(dir);
             log.debug("[SESSION] 创建 profile 目录: {}", dir);
         }
+        profile.setProfileDir(dir.toString());
     }
 
     private List<String> buildLaunchCommand(ChromeProfile profile) {
         List<String> cmd = new ArrayList<>();
         cmd.add(detectChromeExecutable(profile.getAccountId()));
+        cmd.add("--remote-debugging-address=127.0.0.1");
         cmd.add("--remote-debugging-port=" + profile.getCdpPort());
-        cmd.add("--user-data-dir=" + profile.getProfileDir());
+        cmd.add("--user-data-dir=" + Paths.get(profile.getProfileDir()).toAbsolutePath().normalize());
         cmd.add("--window-size=" + config.getWindowWidth() + "," + config.getWindowHeight());
 
         if (profile.getProxyUrl() != null && !profile.getProxyUrl().isEmpty()) {
@@ -538,7 +540,6 @@ public class ChromeSession {
             cmd.add("--disable-blink-features=AutomationControlled");
             cmd.add("--no-sandbox");
             cmd.add("--disable-dev-shm-usage");
-            cmd.add("--disable-setuid-sandbox");
             cmd.add("--disable-infobars");
             cmd.add("--disable-background-timer-throttling");
             cmd.add("--disable-backgrounding-occluded-windows");
@@ -603,6 +604,44 @@ public class ChromeSession {
     private String resolveExecutableAt(String path) {
         File f = new File(path.trim());
         return f.exists() && f.canExecute() ? f.getAbsolutePath() : null;
+    }
+
+    private String buildChromeLogHint(ChromeProfile profile) {
+        File err = new File(profile.getProfileDir(), ".chrome-err.log");
+        File out = new File(profile.getProfileDir(), ".chrome-out.log");
+        String errTail = tailFile(err, 20);
+        String outTail = tailFile(out, 10);
+        StringBuilder hint = new StringBuilder();
+        hint.append("，profileDir=").append(profile.getProfileDir());
+        if (!errTail.isBlank()) {
+            hint.append("，stderrTail=").append(errTail);
+        }
+        if (!outTail.isBlank()) {
+            hint.append("，stdoutTail=").append(outTail);
+        }
+        if (errTail.isBlank() && outTail.isBlank()) {
+            hint.append("，Chrome 日志为空，请检查该 profile 目录权限、浏览器是否被安全软件拦截、以及是否存在同 profile 残留进程");
+        }
+        return hint.toString();
+    }
+
+    private String tailFile(File file, int maxLines) {
+        if (file == null || !file.exists() || !file.isFile()) {
+            return "";
+        }
+        try {
+            List<String> lines = Files.readAllLines(file.toPath(), StandardCharsets.UTF_8);
+            if (lines.isEmpty()) return "";
+            int from = Math.max(0, lines.size() - maxLines);
+            return String.join(" | ", lines.subList(from, lines.size()));
+        } catch (Exception e) {
+            return "<读取 " + file.getName() + " 失败: " + e.getMessage() + ">";
+        }
+    }
+
+    private String maskCommandForLog(List<String> command) {
+        if (command == null || command.isEmpty()) return "";
+        return String.join(" ", command);
     }
 
     private void destroyProcessSilently(Process process) {

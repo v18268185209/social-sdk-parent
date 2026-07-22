@@ -1175,7 +1175,13 @@ public class ProductService {
             p.setUpdatedAt(LocalDateTime.now());
             list.add(p);
 
+            // 诊断：每 10 条记录一次字段写入情况，定位同步是否拿到数据
             if (current % 10 == 0 || current == total) {
+                logger.info("sync: detail item {} descLen={} imgLen={} imgUrl={}",
+                        itemId,
+                        description == null ? "null" : String.valueOf(description.length()),
+                        images == null ? "null" : String.valueOf(images.length()),
+                        mainImageUrl == null ? "null" : mainImageUrl.substring(0, Math.min(60, mainImageUrl.length())));
                 syncProgressService.update(Progress.detailing(syncId, current, total));
             }
         }

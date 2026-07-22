@@ -625,41 +625,35 @@ public class MessageService {
 
     /**
      * 风控触发时，按账号启动（或复用）独占 Chrome 容器，返回该容器的 CDP HTTP 端点。
-     * <p>如果 AccountService 不可用（非 Chrome 环境）或容器启动失败，返回 null，
-     * captchaSolver 会回落到全局配置的 CDP 端点（127.0.0.1:9222）。</p>
+     * <p>如果 AccountService 不可用或容器启动失败，直接抛出明确异常，不再回落全局 9222；
+     * 否则会出现已打开账号 Chrome 空白页，但 solver 仍连接 127.0.0.1:9222 的错配。</p>
      * <p>这是解决「无法连接 CDP 浏览器：null」的关键：
      * 用户没手动用 {@code --remote-debugging-port=9222} 启动 Chrome 时，
      * 系统按账号自动拉起一个独占 Chrome 容器（独立 profile dir + CDP 端口 + 代理 + 指纹 seed）。</p>
      */
     private String ensureAccountCdpEndpoint(XianyuAccount acc) {
         if (accountService == null) {
-            log.warn("[MESSAGE] AccountService not injected, captchaSolver will fall back to global CDP endpoint");
-            return null;
+            throw new IllegalStateException("AccountService 未注入，无法按账号启动 Chrome 容器");
         }
-        try {
-            long accountId = acc.getId();
-            // 容器已存活 → 直接用账号记录里的 cdpPort
-            if (accountService.isChromeAlive(accountId) && acc.getCdpPort() != null && acc.getCdpPort() > 0) {
-                String endpoint = "http://127.0.0.1:" + acc.getCdpPort();
-                log.info("[MESSAGE] reuse alive Chrome container for account {}, cdpEndpoint={}",
-                        accountId, endpoint);
-                return endpoint;
-            }
-            // 容器未启动或已崩溃 → 启动该账号独占容器
-            boolean launched = accountService.launchChromeContainer(acc);
-            if (!launched || acc.getCdpPort() == null || acc.getCdpPort() <= 0) {
-                String reason = accountService.getLastChromeLaunchError(accountId).orElse("未知原因");
-                throw new IllegalStateException("账号 Chrome 容器启动失败，无法进行自动滑块验证: " + reason);
-            }
-            String endpoint = "http://127.0.0.1:" + acc.getCdpPort();
-            log.info("[MESSAGE] launched Chrome container for account {}, cdpEndpoint={}",
-                    accountId, endpoint);
+
+        long accountId = acc.getId();
+        // 容器已存活 → 必须使用内存中 ChromeProfile 的实时端口，不能使用 acc.cdpPort（可能是旧库里的过期端口）
+        java.util.Optional<cn.net.rjnetwork.xianyu.chrome.model.ChromeProfile> liveProfile = accountService.getChromeProfile(accountId);
+        if (liveProfile.isPresent() && liveProfile.get().isAlive() && liveProfile.get().getCdpPort() > 0) {
+            String endpoint = "http://127.0.0.1:" + liveProfile.get().getCdpPort();
+            log.info("[MESSAGE] reuse alive Chrome container for account {}, cdpEndpoint={}", accountId, endpoint);
             return endpoint;
-        } catch (Exception e) {
-            log.warn("[MESSAGE] ensureAccountCdpEndpoint failed for account {}: {}",
-                    acc.getId(), e.getMessage());
-            return null;
         }
+
+        // 容器未启动或已崩溃 → 启动该账号独占容器
+        boolean launched = accountService.launchChromeContainer(acc);
+        if (!launched || acc.getCdpPort() == null || acc.getCdpPort() <= 0) {
+            String reason = accountService.getLastChromeLaunchError(accountId).orElse("未知原因");
+            throw new IllegalStateException("账号 Chrome 容器启动失败，无法进行自动滑块验证: " + reason);
+        }
+        String endpoint = "http://127.0.0.1:" + acc.getCdpPort();
+        log.info("[MESSAGE] launched Chrome container for account {}, cdpEndpoint={}", accountId, endpoint);
+        return endpoint;
     }
 
     /**

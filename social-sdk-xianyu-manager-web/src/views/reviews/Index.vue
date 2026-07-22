@@ -98,7 +98,7 @@
           <el-descriptions-item label="在售宝贝">{{ creditData.data?.module?.tabs?.item?.number ?? 0 }}</el-descriptions-item>
           <el-descriptions-item label="总评价">{{ creditData.data?.module?.tabs?.rate?.number ?? 0 }}</el-descriptions-item>
           <el-descriptions-item label="业务质量">
-            <a v-if="creditData.data?.module?.shop?.businessQuality?.href" :href="creditData.data.module.shop.businessQuality.href" target="_blank">
+            <a v-if="creditData.data?.module?.shop?.businessQuality?.targetUrl" :href="creditData.data.module.shop.businessQuality.targetUrl" target="_blank">
               {{ creditData.data.module.shop.businessQuality.name }}
             </a>
             <span v-else>{{ creditData.data?.module?.shop?.businessQuality?.name || '—' }}</span>
@@ -221,7 +221,7 @@ const creditCards = computed(() => {
     { label: '评价数', value: shop.reviewNum ?? tabs?.rate?.number ?? '-' },
     { label: '店铺等级', value: shop.level ?? '-' },
     { label: '在售宝贝', value: tabs?.item?.number ?? '-' },
-    { label: '业务质量', value: shop.businessQuality ?? '-' },
+    { label: '业务质量', value: shop.businessQuality?.name ?? '-' },
   ].filter(c => c.value !== '-' && c.value != null)
 })
 
