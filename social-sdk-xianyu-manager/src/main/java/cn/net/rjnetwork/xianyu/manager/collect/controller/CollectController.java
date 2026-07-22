@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/collect")
@@ -26,6 +27,24 @@ public class CollectController {
             @RequestParam Long accountId,
             @RequestParam(required = false) String targetType) {
         return ApiResponse.ok(collectService.list(accountId, targetType));
+    }
+
+    /**
+     * 搜索闲鱼商品 — 用于"添加收藏"弹窗里的关键词搜索
+     */
+    @GetMapping("/search")
+    public ApiResponse<List<Map<String, String>>> search(
+            @RequestParam Long accountId,
+            @RequestParam String keyword) {
+        try {
+            List<Map<String, String>> results = collectService.searchItems(accountId, keyword);
+            return ApiResponse.ok(results);
+        } catch (IllegalArgumentException e) {
+            return ApiResponse.badRequest(e.getMessage());
+        } catch (Exception e) {
+            log.error("[COLLECT] search failed", e);
+            return ApiResponse.error("SEARCH_ERROR", "搜索失败: " + e.getMessage());
+        }
     }
 
     /**

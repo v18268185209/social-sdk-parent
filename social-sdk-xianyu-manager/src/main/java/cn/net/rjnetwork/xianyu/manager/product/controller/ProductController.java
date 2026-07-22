@@ -221,13 +221,13 @@ public class ProductController {
     // ==================== 虚拟发货配置（商品级） ====================
 
     /**
-     * 查询所有虚拟商品（goods_type=VIRTUAL），供虚拟发货页商品列表展示。
-     * GET /api/products/virtual?accountId=1
+     * 查询全部商品，供虚拟发货页商品列表展示。
+     * GET /api/products/for-virtual-ship?accountId=1
      */
-    @GetMapping("/virtual")
-    public ApiResponse<java.util.List<XianyuProduct>> listVirtualProducts(
+    @GetMapping("/for-virtual-ship")
+    public ApiResponse<java.util.List<XianyuProduct>> listForVirtualShip(
             @RequestParam(required = false) Long accountId) {
-        return ApiResponse.ok(productService.listVirtualProducts(accountId));
+        return ApiResponse.ok(productService.listAllProducts(accountId));
     }
 
     /**

@@ -55,9 +55,10 @@
         </el-table-column>
         <el-table-column prop="viewCount" label="浏览" width="80" />
         <el-table-column prop="favoriteCount" label="收藏" width="80" />
-        <el-table-column label="操作" width="150">
+        <el-table-column label="操作" width="260">
           <template #default="{ row }">
             <el-button size="small" @click="editProduct(row)">编辑</el-button>
+            <el-button size="small" type="primary" @click="openVirtualShipConfig(row)">虚拟发货配置</el-button>
             <el-button size="small" type="danger" :disabled="row.status !== 'ON_SALE'" @click="offShelf(row)">下架</el-button>
           </template>
         </el-table-column>
@@ -67,14 +68,57 @@
         <el-pagination v-model:current-page="page" v-model:page-size="size" :total="total" layout="total, prev, pager, next" @current-change="loadProducts" />
       </div>
     </el-card>
+
+    <!-- 虚拟发货配置弹窗 -->
+    <el-dialog v-model="vsConfigVisible" title="商品虚拟发货配置" width="640px">
+      <el-form :model="vsConfigForm" label-width="120px">
+        <el-form-item label="商品">
+          <span>{{ vsConfigForm.title }}</span>
+        </el-form-item>
+        <el-form-item label="商品类型">
+          <el-radio-group v-model="vsConfigForm.goodsType">
+            <el-radio label="VIRTUAL">虚拟商品</el-radio>
+            <el-radio label="PHYSICAL">实物商品</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="发货类型" v-if="vsConfigForm.goodsType === 'VIRTUAL'">
+          <el-radio-group v-model="vsConfigForm.deliverType">
+            <el-radio label="CARD">卡密</el-radio>
+            <el-radio label="ACCOUNT">账号</el-radio>
+            <el-radio label="LINK">链接文本</el-radio>
+            <el-radio label="FILE">网盘文件</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="发货内容模板" v-if="vsConfigForm.goodsType === 'VIRTUAL'">
+          <el-input v-model="vsConfigForm.deliverContentTemplate" type="textarea" :rows="6" :placeholder="vsTemplatePlaceholder" />
+          <div style="color: #909399; font-size: 12px; margin-top: 6px; line-height: 1.6;">
+            <div v-if="vsConfigForm.deliverType === 'CARD' || vsConfigForm.deliverType === 'ACCOUNT'">
+              卡密发货。可用占位符：<b>${cardCode}</b> <b>${cardPassword}</b>。留空走默认格式。
+            </div>
+            <div v-else-if="vsConfigForm.deliverType === 'LINK'">
+              链接发货。模板即发给买家的文本，支持 <b>${itemTitle}</b> <b>${orderId}</b>。
+            </div>
+            <div v-else-if="vsConfigForm.deliverType === 'FILE'">
+              网盘发货。模板填本地文件路径，系统自动上传网盘生成分享链接。可用：<b>${link}</b> <b>${extractCode}</b> <b>${fileName}</b>。
+            </div>
+            <div v-else>请选择发货类型。</div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="vsConfigVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveVirtualShipConfig" :loading="vsConfigSaving">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import api from '@/api/request'
+import { saveProductVirtualShipConfig } from '@/api/virtualShip'
 
 const accounts = ref([])
 const accountsLoading = ref(false)
@@ -173,6 +217,53 @@ async function offShelf(row) {
       ElMessage.error(res.message || '下架失败')
     }
   } catch (e) {}
+}
+
+// ============== 虚拟发货配置弹窗 ==============
+const vsConfigVisible = ref(false)
+const vsConfigSaving = ref(false)
+const vsConfigForm = ref({
+  id: null,
+  title: '',
+  goodsType: 'PHYSICAL',
+  deliverType: 'CARD',
+  deliverContentTemplate: ''
+})
+
+const vsTemplatePlaceholder = computed(() => {
+  const t = vsConfigForm.value.deliverType
+  if (t === 'CARD' || t === 'ACCOUNT') return '卡号：${cardCode}\n密码：${cardPassword}\n（留空走默认格式）'
+  if (t === 'LINK') return '感谢购买【${itemTitle}】，下载链接：xxx\n订单号：${orderId}'
+  if (t === 'FILE') return '/data/files/my-product.zip\n（填本地文件路径，上传网盘后用 ${link} ${extractCode} 渲染）'
+  return ''
+})
+
+const openVirtualShipConfig = (row) => {
+  vsConfigForm.value = {
+    id: row.id,
+    title: row.title,
+    goodsType: row.goodsType || 'PHYSICAL',
+    deliverType: row.deliverType || 'CARD',
+    deliverContentTemplate: row.deliverContentTemplate || ''
+  }
+  vsConfigVisible.value = true
+}
+
+const saveVirtualShipConfig = async () => {
+  vsConfigSaving.value = true
+  try {
+    const isVirtual = vsConfigForm.value.goodsType === 'VIRTUAL'
+    await saveProductVirtualShipConfig(vsConfigForm.value.id, {
+      goodsType: vsConfigForm.value.goodsType,
+      deliverType: isVirtual ? vsConfigForm.value.deliverType : null,
+      deliverContentTemplate: isVirtual ? vsConfigForm.value.deliverContentTemplate : null
+    })
+    ElMessage.success('配置已保存')
+    vsConfigVisible.value = false
+    loadProducts()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '保存配置失败')
+  } finally { vsConfigSaving.value = false }
 }
 
 onMounted(async () => { await loadAccounts(); await loadProducts() })

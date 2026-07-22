@@ -24,5 +24,8 @@ public class VirtualShipTask extends BaseEntity {
 
     private String errorMessage;
 
+    /** 到达该时间后才允许执行，用于延迟发货 */
+    private java.time.LocalDateTime executeAt;
+
     private java.time.LocalDateTime processedAt;
 }

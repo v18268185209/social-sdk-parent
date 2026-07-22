@@ -38,9 +38,9 @@ export function deleteVirtualCard(id) {
 
 // ============== 商品级虚拟发货配置 ==============
 
-/** 查询所有虚拟商品（goods_type=VIRTUAL） */
-export function listVirtualProducts(accountId) {
-  return api.get('/products/virtual', { params: { accountId } })
+/** 查询全部商品（虚拟+实物），供虚拟发货页商品列表展示 */
+export function listForVirtualShip(accountId) {
+  return api.get('/products/for-virtual-ship', { params: { accountId } })
 }
 
 /**

@@ -12,7 +12,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class CollectService {
@@ -154,6 +157,44 @@ public class CollectService {
             }
         }
         return total;
+    }
+
+    /**
+     * 搜索闲鱼商品 — 用于"添加收藏"弹窗里的关键词搜索
+     */
+    public List<Map<String, String>> searchItems(Long accountId, String keyword) {
+        XianyuAccount acc = requireAccount(accountId);
+        XianyuApiFacade api = new XianyuApiFacade(acc.getCookieHeader());
+        try {
+            JsonNode resp = api.searchProducts(keyword, "1", "20");
+            if (isRisk(resp)) {
+                throw new IllegalStateException("搜索失败（可能触发风控）");
+            }
+            List<Map<String, String>> results = new ArrayList<>();
+            // 兼容多种返回格式
+            JsonNode items = resp.path("data").path("items");
+            if (items.isMissingNode() || !items.isArray()) items = resp.path("items");
+            if (items.isMissingNode() || !items.isArray()) items = resp.path("data").path("list");
+            if (items.isArray()) {
+                for (JsonNode it : items) {
+                    String itemId = it.path("itemId").asText(it.path("id").asText(it.path("longItemId").asText("")));
+                    if (itemId.isBlank()) continue;
+                    String title = it.path("title").asText(it.path("itemTitle").asText(""));
+                    String price = it.path("price").asText(it.path("soldPrice").asText(""));
+                    String pic = it.path("picUrl").asText(it.path("picInfo").path("picUrl").asText(""));
+                    Map<String, String> m = new LinkedHashMap<>();
+                    m.put("itemId", itemId);
+                    m.put("title", title);
+                    m.put("price", price);
+                    m.put("pic", pic);
+                    results.add(m);
+                }
+            }
+            return results;
+        } catch (Exception e) {
+            log.warn("[COLLECT] searchItems failed: {}", e.getMessage());
+            throw new RuntimeException("搜索失败: " + e.getMessage());
+        }
     }
 
     // ======================== 内部工具方法 ========================

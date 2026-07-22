@@ -515,11 +515,11 @@ public class ProductService {
     }
 
     /**
-     * 查询所有虚拟商品（goods_type=VIRTUAL），供虚拟发货页商品列表展示。
+     * 查询全部商品，供虚拟发货页商品列表展示。
+     * 列表展示全部商品（虚拟+实物），运营可在配置弹窗里把实物标记为虚拟。
      */
-    public List<XianyuProduct> listVirtualProducts(Long accountId) {
+    public List<XianyuProduct> listAllProducts(Long accountId) {
         LambdaQueryWrapper<XianyuProduct> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(XianyuProduct::getGoodsType, "VIRTUAL");
         if (accountId != null) {
             wrapper.eq(XianyuProduct::getAccountId, accountId);
         }

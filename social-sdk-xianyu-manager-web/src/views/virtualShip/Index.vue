@@ -1,176 +1,193 @@
 <template>
   <div class="page-root">
-    <!-- 发货配置卡片 -->
-    <el-card style="margin: 0;">
-      <template #header>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span>⚙️ 虚拟发货配置</span>
-          <el-button type="primary" size="small" @click="saveConfig" :loading="configLoading">保存配置</el-button>
-        </div>
-      </template>
-
-      <el-form :model="configForm" label-width="140px">
-        <el-form-item label="启用自动发货">
-          <el-switch v-model="configForm.enabled" />
-        </el-form-item>
-        <el-form-item label="发货延迟(秒)">
-          <el-input-number v-model="configForm.delaySeconds" :min="0" />
-          <span style="margin-left: 8px; color: #909399; font-size: 12px;">支付成功后延时发货（防风控）</span>
-        </el-form-item>
-        <el-form-item label="自动确认收货">
-          <span style="color: #909399; font-size: 12px;">
-            订单在 <el-input-number v-model="configForm.autoConfirmDays" :min="1" :max="30" size="small" style="width: 80px; margin: 0 8px;" /> 天后自动确认收货
-          </span>
-        </el-form-item>
-        <el-form-item label="发货后通知">
-          <el-switch v-model="configForm.notifyAfterShip" />
-          <span style="margin-left: 8px; color: #909399; font-size: 12px;">发货后站内通知运营</span>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <!-- 商品虚拟发货配置列表 -->
-    <el-card style="margin: 16px 0;">
-      <template #header>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span>🛒 商品虚拟发货配置</span>
-          <el-button type="primary" size="small" @click="loadProductList" :loading="productLoading">刷新</el-button>
-        </div>
-      </template>
-      <el-alert type="info" :closable="false" style="margin-bottom: 12px;">
-        列出所有 goods_type=VIRTUAL 的商品。点击"配置"设置发货方式（卡密/账号/链接/网盘）和发货内容模板。
-        模板支持占位符：<b>${cardCode}</b> <b>${cardPassword}</b> <b>${link}</b> <b>${extractCode}</b> <b>${fileName}</b> <b>${itemTitle}</b> <b>${orderId}</b>
-      </el-alert>
-      <el-table :data="products" stripe v-loading="productLoading">
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="title" label="商品标题" min-width="200" show-overflow-tooltip />
-        <el-table-column label="发货类型" width="110">
-          <template #default="{ row }">
-            <el-tag :type="deliverTypeTag(row.deliverType)">{{ deliverTypeLabel(row.deliverType) }}</el-tag>
+    <el-tabs v-model="activeTab" type="border-card">
+      <!-- ===== Tab 1：全局配置 ===== -->
+      <el-tab-pane label="全局配置" name="config">
+        <el-card style="margin: 0;">
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>⚙️ 虚拟发货配置</span>
+              <el-button type="primary" size="small" @click="saveConfig" :loading="configLoading">保存配置</el-button>
+            </div>
           </template>
-        </el-table-column>
-        <el-table-column prop="deliverContentTemplate" label="发货模板" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="stock" label="库存" width="80" />
-        <el-table-column prop="status" label="状态" width="90" />
-        <el-table-column label="操作" width="120" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="primary" @click="openProductConfig(row)">配置</el-button>
+
+          <el-form :model="configForm" label-width="140px">
+            <el-form-item label="启用自动发货">
+              <el-switch v-model="configForm.enabled" />
+            </el-form-item>
+            <el-form-item label="发货延迟(秒)">
+              <el-input-number v-model="configForm.delaySeconds" :min="0" />
+              <span style="margin-left: 8px; color: #909399; font-size: 12px;">支付成功后延时发货（防风控）</span>
+            </el-form-item>
+            <el-form-item label="自动确认收货">
+              <span style="color: #909399; font-size: 12px;">
+                订单在 <el-input-number v-model="configForm.autoConfirmDays" :min="1" :max="30" size="small" style="width: 80px; margin: 0 8px;" /> 天后自动确认收货
+              </span>
+            </el-form-item>
+            <el-form-item label="发货后通知">
+              <el-switch v-model="configForm.notifyAfterShip" />
+              <span style="margin-left: 8px; color: #909399; font-size: 12px;">发货后站内通知运营</span>
+            </el-form-item>
+          </el-form>
+        </el-card>
+      </el-tab-pane>
+
+      <!-- ===== Tab 2：商品发货配置 ===== -->
+      <el-tab-pane label="商品发货配置" name="product">
+        <el-card style="margin: 0;">
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>🛒 商品虚拟发货配置</span>
+              <el-button type="primary" size="small" @click="loadProductList" :loading="productLoading">刷新</el-button>
+            </div>
           </template>
-        </el-table-column>
-      </el-table>
-      <el-empty v-if="!productLoading && products.length === 0" description="暂无虚拟商品（goods_type=VIRTUAL）" />
-    </el-card>
+          <el-alert type="info" :closable="false" style="margin-bottom: 12px;">
+            列出全部商品。商品类型为"虚拟"的商品会进入虚拟发货链路。点击"配置"可修改商品类型和发货方式。
+            模板支持占位符：<b>${cardCode}</b> <b>${cardPassword}</b> <b>${link}</b> <b>${extractCode}</b> <b>${fileName}</b> <b>${itemTitle}</b> <b>${orderId}</b>
+          </el-alert>
+          <el-table :data="products" stripe v-loading="productLoading">
+            <el-table-column prop="id" label="ID" width="60" />
+            <el-table-column prop="title" label="商品标题" min-width="200" show-overflow-tooltip />
+            <el-table-column label="商品类型" width="100">
+              <template #default="{ row }">
+                <el-tag :type="row.goodsType === 'VIRTUAL' ? 'warning' : 'info'">{{ row.goodsType === 'VIRTUAL' ? '虚拟' : '实物' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="发货类型" width="110">
+              <template #default="{ row }">
+                <el-tag :type="deliverTypeTag(row.deliverType)">{{ deliverTypeLabel(row.deliverType) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="deliverContentTemplate" label="发货模板" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="stock" label="库存" width="80" />
+            <el-table-column prop="status" label="状态" width="90" />
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" @click="openProductConfig(row)">配置</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="!productLoading && products.length === 0" description="暂无商品" />
+        </el-card>
+      </el-tab-pane>
 
-    <!-- 卡密池卡片 -->
-    <el-card style="margin-bottom: 20px;" v-if="deliverType === 'VIRTUAL_CARD'">
-      <template #header>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span>🔑 卡密池</span>
-          <el-button type="primary" size="small" @click="showAddCardDialog = true">
-            <el-icon><Plus /></el-icon> 批量添加卡密
-          </el-button>
-        </div>
-      </template>
-
-      <el-table :data="cards" stripe v-loading="cardLoading">
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="cardContent" label="卡密内容" min-width="200" show-overflow-tooltip />
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.used ? 'info' : 'success'">{{ row.used ? '已使用' : '可用' }}</el-tag>
+      <!-- ===== Tab 3：卡密池 ===== -->
+      <el-tab-pane label="卡密池" name="card">
+        <el-card style="margin: 0;">
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>🔑 卡密池</span>
+              <el-button type="primary" size="small" @click="showAddCardDialog = true">
+                <el-icon><Plus /></el-icon> 批量添加卡密
+              </el-button>
+            </div>
           </template>
-        </el-table-column>
-        <el-table-column prop="createdAt" label="添加时间" width="180">
-          <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="danger" @click="deleteCard(row.id)" :disabled="row.used">删除</el-button>
+
+          <el-table :data="cards" stripe v-loading="cardLoading">
+            <el-table-column prop="id" label="ID" width="60" />
+            <el-table-column prop="cardContent" label="卡密内容" min-width="200" show-overflow-tooltip />
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag :type="row.used ? 'info' : 'success'">{{ row.used ? '已使用' : '可用' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="createdAt" label="添加时间" width="180">
+              <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="100" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" type="danger" @click="deleteCard(row.id)" :disabled="row.used">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <el-empty v-if="!cardLoading && cards.length === 0" description="暂无卡密" />
+        </el-card>
+      </el-tab-pane>
+
+      <!-- ===== Tab 4：网盘文件 ===== -->
+      <el-tab-pane label="网盘文件" name="file">
+        <el-card style="margin: 0;">
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>📁 网盘文件（发货素材）</span>
+              <el-button type="primary" size="small" @click="showUploadDialog = true">
+                <el-icon><Upload /></el-icon> 上传文件
+              </el-button>
+            </div>
           </template>
-        </el-table-column>
-      </el-table>
 
-      <el-empty v-if="!cardLoading && cards.length === 0" description="暂无卡密" />
-    </el-card>
+          <el-alert type="info" :closable="false" style="margin-bottom: 16px;">
+            提示：买家下单后，系统自动从已上传文件中选择一个，创建网盘分享链接发给买家。
+          </el-alert>
 
-    <!-- 网盘发货卡片 -->
-    <el-card style="margin-bottom: 20px;" v-if="deliverType === 'FILE'">
-      <template #header>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span>📁 网盘文件（发货素材）</span>
-          <el-button type="primary" size="small" @click="showUploadDialog = true">
-            <el-icon><Upload /></el-icon> 上传文件
-          </el-button>
-        </div>
-      </template>
+          <el-select v-model="fileFilterAccountId" placeholder="选择网盘账号" clearable style="width: 200px; margin-bottom: 12px;" @change="loadFiles">
+            <el-option v-for="acc in storageAccounts" :key="acc.id" :label="`${providerLabel(acc.provider)} (${acc.uid || '-'})`" :value="acc.id" />
+          </el-select>
 
-      <el-alert type="info" :closable="false" style="margin-bottom: 16px;">
-        提示：买家下单后，系统自动从已上传文件中选择一个，创建网盘分享链接发给买家。
-      </el-alert>
+          <el-table :data="files" stripe v-loading="fileLoading" style="margin-top: 12px;">
+            <el-table-column prop="id" label="ID" width="60" />
+            <el-table-column prop="fileName" label="文件名" min-width="200" />
+            <el-table-column label="大小" width="100">
+              <template #default="{ row }">{{ formatSize(row.fileSize) }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="120">
+              <template #default="{ row }">
+                <el-tag :type="statusType(row.uploadStatus)">{{ row.uploadStatus }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="createdAt" label="上传时间" width="180">
+              <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="180" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" type="success" @click="testShare(row)" v-if="row.uploadStatus === 'COMPLETED'">测试分享</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
 
-      <el-select v-model="fileFilterAccountId" placeholder="选择网盘账号" clearable style="width: 200px; margin-bottom: 12px;" @change="loadFiles">
-        <el-option v-for="acc in storageAccounts" :key="acc.id" :label="`${providerLabel(acc.provider)} (${acc.uid || '-'})`" :value="acc.id" />
-      </el-select>
+          <el-empty v-if="!fileLoading && files.length === 0" description="暂无文件" />
+        </el-card>
+      </el-tab-pane>
 
-      <el-table :data="files" stripe v-loading="fileLoading" style="margin-top: 12px;">
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="fileName" label="文件名" min-width="200" />
-        <el-table-column label="大小" width="100">
-          <template #default="{ row }">{{ formatSize(row.fileSize) }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="120">
-          <template #default="{ row }">
-            <el-tag :type="statusType(row.uploadStatus)">{{ row.uploadStatus }}</el-tag>
+      <!-- ===== Tab 5：发货任务 ===== -->
+      <el-tab-pane label="发货任务" name="task">
+        <el-card style="margin: 0;">
+          <template #header>
+            <span>📦 虚拟发货任务记录</span>
           </template>
-        </el-table-column>
-        <el-table-column prop="createdAt" label="上传时间" width="180">
-          <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="success" @click="testShare(row)" v-if="row.uploadStatus === 'COMPLETED'">测试分享</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
 
-      <el-empty v-if="!fileLoading && files.length === 0" description="暂无文件" />
-    </el-card>
+          <el-table :data="tasks" stripe v-loading="taskLoading">
+            <el-table-column prop="id" label="ID" width="60" />
+            <el-table-column prop="orderId" label="订单ID" width="120" />
+            <el-table-column prop="accountId" label="账号ID" width="80" />
+            <el-table-column label="发货类型" width="120">
+              <template #default="{ row }">
+                <el-tag :type="row.deliverType === 'FILE' ? 'warning' : 'primary'">
+                  {{ row.deliverType === 'FILE' ? '网盘' : '卡密' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag :type="taskStatusType(row.status)">{{ row.status }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="deliverContent" label="发货内容" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="createdAt" label="创建时间" width="180">
+              <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="150" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" @click="triggerShip(row)" v-if="row.status === 'PENDING'">手动发货</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
 
-    <!-- 发货任务卡片 -->
-    <el-card>
-      <template #header>
-        <span>📦 虚拟发货任务记录</span>
-      </template>
-
-      <el-table :data="tasks" stripe v-loading="taskLoading">
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="orderId" label="订单ID" width="120" />
-        <el-table-column prop="accountId" label="账号ID" width="80" />
-        <el-table-column label="发货类型" width="120">
-          <template #default="{ row }">
-            <el-tag :type="row.deliverType === 'FILE' ? 'warning' : 'primary'">
-              {{ row.deliverType === 'FILE' ? '网盘' : '卡密' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="taskStatusType(row.status)">{{ row.status }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="deliverContent" label="发货内容" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="createdAt" label="创建时间" width="180">
-          <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="primary" @click="triggerShip(row)" v-if="row.status === 'PENDING'">手动发货</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <el-empty v-if="!taskLoading && tasks.length === 0" description="暂无发货任务" />
-    </el-card>
+          <el-empty v-if="!taskLoading && tasks.length === 0" description="暂无发货任务" />
+        </el-card>
+      </el-tab-pane>
+    </el-tabs>
 
     <!-- 商品虚拟发货配置弹窗 -->
     <el-dialog v-model="showProductConfigDialog" title="商品虚拟发货配置" width="640px">
@@ -252,7 +269,7 @@ import {
   listVirtualShipTasks, getVirtualShipConfig, saveVirtualShipConfig,
   listVirtualCards, importVirtualCards, deleteVirtualCard,
   listStorageAccounts, listStorageFiles, shareStorageFile, uploadStorageFile,
-  listVirtualProducts, saveProductVirtualShipConfig
+  listForVirtualShip, saveProductVirtualShipConfig
 } from '@/api/virtualShip'
 
 // 配置（字段与后端 VirtualShipConfig 对齐）
@@ -263,8 +280,8 @@ const configForm = ref({
   autoConfirmDays: 7,
   notifyAfterShip: true
 })
-// 发货类型是前端展示用，后端不存储
-const deliverType = ref('VIRTUAL_CARD')
+// 当前 tab
+const activeTab = ref('config')
 const configLoading = ref(false)
 
 // 账号
@@ -355,7 +372,7 @@ const productLoading = ref(false)
 const loadProductList = async () => {
   productLoading.value = true
   try {
-    const r = await listVirtualProducts()
+    const r = await listForVirtualShip(accounts.value[0]?.id)
     products.value = r.data || []
   } catch (e) {
     ElMessage.error('加载商品列表失败')
@@ -388,7 +405,7 @@ const openProductConfig = (row) => {
   productConfigForm.value = {
     id: row.id,
     title: row.title,
-    goodsType: row.goodsType || 'VIRTUAL',
+    goodsType: row.goodsType || 'PHYSICAL',
     deliverType: row.deliverType || 'CARD',
     deliverContentTemplate: row.deliverContentTemplate || ''
   }
@@ -398,10 +415,12 @@ const openProductConfig = (row) => {
 const saveProductConfig = async () => {
   productConfigSaving.value = true
   try {
+    // 实物商品不保留虚拟发货配置
+    const isVirtual = productConfigForm.value.goodsType === 'VIRTUAL'
     await saveProductVirtualShipConfig(productConfigForm.value.id, {
       goodsType: productConfigForm.value.goodsType,
-      deliverType: productConfigForm.value.deliverType,
-      deliverContentTemplate: productConfigForm.value.deliverContentTemplate
+      deliverType: isVirtual ? productConfigForm.value.deliverType : null,
+      deliverContentTemplate: isVirtual ? productConfigForm.value.deliverContentTemplate : null
     })
     ElMessage.success('配置已保存')
     showProductConfigDialog.value = false

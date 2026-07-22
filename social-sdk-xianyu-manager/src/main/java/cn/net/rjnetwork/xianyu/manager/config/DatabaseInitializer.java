@@ -239,10 +239,17 @@ public class DatabaseInitializer {
 
     private void ensureVirtualColumns() {
         ensureColumn("virtual_card_pool", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+        ensureColumn("virtual_card_pool", "used_order_id", "INTEGER");
+        ensureColumn("virtual_ship_task", "execute_at", "DATETIME");
     }
 
     private void ensureOrderColumns() {
         ensureColumn("xianyu_order", "type", "VARCHAR(16) DEFAULT 'BOUGHT'");
+        ensureColumn("xianyu_order", "item_id", "VARCHAR(64)");
+        ensureColumn("xianyu_order", "buyer_id", "VARCHAR(64)");
+        ensureColumn("xianyu_order", "seller_id", "VARCHAR(64)");
+        ensureColumn("xianyu_order", "order_detail_url", "VARCHAR(512)");
+        ensureColumn("xianyu_order", "raw_data", "TEXT");
         ensureColumn("xianyu_order", "trade_status_enum", "VARCHAR(32)");
         ensureColumn("xianyu_order", "is_seller", "TINYINT(1)");
         ensureColumn("xianyu_order", "goods_type", "VARCHAR(16) DEFAULT 'PHYSICAL'");

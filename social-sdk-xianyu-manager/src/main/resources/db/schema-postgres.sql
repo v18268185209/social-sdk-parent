@@ -124,8 +124,13 @@ CREATE TABLE IF NOT EXISTS xianyu_order (
     account_id INTEGER NOT NULL,
     type VARCHAR(16) DEFAULT 'BOUGHT', -- SOLD, BOUGHT
     order_id VARCHAR(64),
+    item_id VARCHAR(64), -- 闲鱼商品 ID
     item_title VARCHAR(256),
-    counterparty_name VARCHAR(128), -- 买方名字(bought)或卖方名字(sold)
+    counterparty_name VARCHAR(128), -- 对手方昵称：SOLD=买家，BOUGHT=卖家
+    buyer_id VARCHAR(64),
+    seller_id VARCHAR(64),
+    order_detail_url VARCHAR(512),
+    raw_data TEXT,
     amount REAL,
     status VARCHAR(32) DEFAULT 'PENDING',
     trade_status_enum VARCHAR(32), -- 闲鱼原始状态枚举 (tradeStatusEnum)
@@ -133,6 +138,7 @@ CREATE TABLE IF NOT EXISTS xianyu_order (
     tracking_no VARCHAR(64),
     order_time TIMESTAMP, -- 订单创建时间(来自闲鱼 API)
     goods_type VARCHAR(16) DEFAULT 'PHYSICAL',
+    product_id INTEGER, -- 关联本地商品 id（订单同步时按 item_id 反查回填）
     require_virtual_ship INTEGER DEFAULT 0,
     virtual_shipped_at TIMESTAMP,
     auto_receipt_at TIMESTAMP,
@@ -452,6 +458,7 @@ CREATE TABLE IF NOT EXISTS virtual_ship_task (
     status VARCHAR(16) DEFAULT 'PENDING', -- PENDING / PROCESSING / SHIPPED / FAILED / SKIPPED
     retry_count INTEGER DEFAULT 0,
     error_message TEXT,
+    execute_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     processed_at TIMESTAMP,
@@ -588,6 +595,7 @@ CREATE TABLE IF NOT EXISTS ai_ops_task (
     payload TEXT,                                 -- JSON 任务参数
     result_summary TEXT,                          -- AI 生成摘要
     error_message TEXT,
+    execute_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

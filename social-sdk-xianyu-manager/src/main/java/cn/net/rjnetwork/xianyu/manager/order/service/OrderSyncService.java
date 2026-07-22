@@ -9,6 +9,7 @@ import cn.net.rjnetwork.xianyu.manager.order.mapper.OrderMapper;
 import cn.net.rjnetwork.xianyu.manager.order.model.XianyuOrder;
 import cn.net.rjnetwork.xianyu.manager.product.mapper.ProductMapper;
 import cn.net.rjnetwork.xianyu.manager.product.model.XianyuProduct;
+import cn.net.rjnetwork.xianyu.manager.virtual.service.VirtualShipService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.context.ApplicationEventPublisher;
@@ -41,14 +42,17 @@ public class OrderSyncService {
     private final AccountMapper accountMapper;
     private final OrderMapper orderMapper;
     private final ProductMapper productMapper;
+    private final VirtualShipService virtualShipService;
     private final ApplicationEventPublisher eventPublisher;
 
     public OrderSyncService(AccountMapper accountMapper, OrderMapper orderMapper,
                             ProductMapper productMapper,
+                            VirtualShipService virtualShipService,
                             ApplicationEventPublisher eventPublisher) {
         this.accountMapper = accountMapper;
         this.orderMapper = orderMapper;
         this.productMapper = productMapper;
+        this.virtualShipService = virtualShipService;
         this.eventPublisher = eventPublisher;
     }
 
@@ -237,14 +241,24 @@ public class OrderSyncService {
         order.setAccountId(accountId);
         order.setType(type);
 
+        order.setRawData(item.toString());
+
         // commonData
         JsonNode commonData = item.path("commonData");
         if (commonData.isObject()) {
             // 优先用 orderIdStr 或 orderId
             order.setOrderId(commonData.has("orderIdStr") ? commonData.path("orderIdStr").asText() : getText(commonData, "orderId"));
+            order.setItemId(getText(commonData, "itemId"));
             order.setTradeStatusEnum(getText(commonData, "tradeStatusEnum"));
-            // 卖家标记
-            order.setIsSeller(Boolean.TRUE.equals(commonData.path("seller").asText(null)));
+            order.setOrderDetailUrl(getText(commonData, "orderDetailUrl"));
+            String peerUserId = getText(commonData, "peerUserId");
+            if ("SOLD".equals(type)) {
+                order.setBuyerId(peerUserId);
+                order.setIsSeller(true);
+            } else {
+                order.setSellerId(peerUserId);
+                order.setIsSeller(Boolean.TRUE.equals(commonData.path("seller").asText(null)));
+            }
         }
 
         // content.data.detailInfo / priceInfo
@@ -274,7 +288,7 @@ public class OrderSyncService {
             }
 
             // 优先用 tradeStatusEnum 映射状态
-            String tradeStatus = getTradeStatusFromCommon(item, "commonData");
+            String tradeStatus = mapStatusFromEnum(getTradeStatusFromCommon(item, "commonData"));
             order.setStatus(tradeStatus != null ? tradeStatus : mapStatusFromMsg(getText(headData, "statusViewMsg")));
 
             String createTime = getText(headData, "createTime");

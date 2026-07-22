@@ -19,3 +19,8 @@ export function removeCollect(id) {
 export function syncCollects(accountId) {
   return api.post('/collect/sync', null, { params: { accountId } })
 }
+
+// ===== 搜索闲鱼商品（用于添加收藏弹窗） =====
+export function searchCollectItems(accountId, keyword) {
+  return api.get('/collect/search', { params: { accountId, keyword } })
+}

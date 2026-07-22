@@ -15,8 +15,19 @@ public class XianyuOrder extends BaseEntity {
     private Long accountId;
     private String type; // SOLD, BOUGHT
     private String orderId;
+    /** 闲鱼商品 ID，用于精准关联本地商品 */
+    private String itemId;
     private String itemTitle;
+    /** 对手方昵称：SOLD=买家，BOUGHT=卖家 */
     private String counterpartyName;
+    /** 买家用户 ID（SOLD 订单优先填充） */
+    private String buyerId;
+    /** 卖家用户 ID（BOUGHT 订单优先填充） */
+    private String sellerId;
+    /** 闲鱼订单详情链接 */
+    private String orderDetailUrl;
+    /** 原始订单 JSON 快照，便于后续补字段/排查接口结构变化 */
+    private String rawData;
     private BigDecimal amount;
     private String status; // PENDING, PAID, SHIPPED, COMPLETED, REFUNDING, REFUNDED, CLOSED
     /** 闲鱼原始状态枚举 (tradeStatusEnum)，用于调试和回查 */
