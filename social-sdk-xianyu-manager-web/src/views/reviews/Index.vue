@@ -341,6 +341,21 @@ function reviewRater(row) {
   return data?.raterNick || data?.raterUserNick || data?.raterNickname || data?.raterName || data?.userNick || data?.nick || data?.user?.nick || '-'
 }
 
+function reviewSeller(row) {
+  const data = reviewData(row)
+  return data?.sellerName || data?.sellerNick || data?.seller?.nick || '-'
+}
+
+function reviewBuyer(row) {
+  const data = reviewData(row)
+  return data?.buyerName || data?.buyerNick || data?.buyer?.nick || '-'
+}
+
+function reviewItemTitle(row) {
+  const data = reviewData(row)
+  return data?.itemTitle || data?.title || data?.item?.title || '-'
+}
+
 function reviewCreateTime(row) {
   const data = reviewData(row)
   return data?.createTime || data?.gmtCreate || data?.gmtCreateStr || data?.rateTime || data?.timeDesc || data?.time || '-'
