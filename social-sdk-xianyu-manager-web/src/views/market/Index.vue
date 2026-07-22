@@ -1,17 +1,60 @@
 <template>
   <div class="page-root">
     <el-tabs v-model="activeTab">
+      <el-tab-pane label="关键词管理" name="manage" />
       <el-tab-pane label="关键词趋势" name="trend" />
       <el-tab-pane label="价格分布" name="distribution" />
       <el-tab-pane label="卖家画像" name="seller" />
     </el-tabs>
+
+    <!-- ====== 关键词管理 ====== -->
+    <div v-show="activeTab === 'manage'">
+      <el-card style="margin-bottom: 16px;">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <el-input v-model="newKeyword" placeholder="输入关键词，如：iPhone 15" style="width:220px;" @keyup.enter="addKeyword" />
+          <el-input-number v-model="newInterval" :min="5" :max="1440" label="间隔(分钟)" style="width:130px;" />
+          <el-button type="primary" @click="addKeyword" :disabled="!newKeyword.trim()">添加追踪</el-button>
+        </div>
+      </el-card>
+
+      <el-card>
+        <template #header>
+          <span>已追踪关键词（{{ keywords.length }}）</span>
+          <el-button style="float:right;" size="small" @click="loadKeywords">刷新</el-button>
+        </template>
+        <el-table :data="keywords" stripe size="small" v-loading="loadingKeywords">
+          <el-table-column prop="keyword" label="关键词" min-width="150" />
+          <el-table-column prop="status" label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'" size="small">{{ row.status }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="crawlIntervalMinutes" label="间隔(分钟)" width="110" />
+          <el-table-column prop="lastCrawlResultCount" label="上次抓取数" width="110" />
+          <el-table-column prop="lastCrawlAt" label="上次抓取时间" width="180">
+            <template #default="{ row }">
+              {{ row.lastCrawlAt ? row.lastCrawlAt.replace('T', ' ').substring(0, 19) : '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="280">
+            <template #default="{ row }">
+              <el-button size="small" @click="crawlKeyword(row)" :loading="row._crawling">立即抓取</el-button>
+              <el-button v-if="row.status === 'ACTIVE'" size="small" @click="pauseKeyword(row)">暂停</el-button>
+              <el-button v-else size="small" type="success" @click="resumeKeyword(row)">恢复</el-button>
+              <el-button size="small" type="danger" @click="deleteKeyword(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-if="!loadingKeywords && keywords.length === 0" description="暂无追踪关键词，请添加" />
+      </el-card>
+    </div>
 
     <!-- ====== 关键词趋势 ====== -->
     <div v-show="activeTab === 'trend'">
       <el-card style="margin-bottom: 16px;">
         <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
           <el-select v-model="keyword" placeholder="选择关键词" style="width:220px;" @change="loadTrend">
-            <el-option v-for="kw in keywords" :key="kw" :label="kw" :value="kw" />
+            <el-option v-for="kw in keywordOptions" :key="kw" :label="kw" :value="kw" />
           </el-select>
           <el-button type="primary" @click="loadTrend" :disabled="!keyword">查询趋势</el-button>
           <el-button @click="computeStat" :disabled="!keyword">计算今日统计</el-button>
@@ -47,7 +90,7 @@
       <el-card style="margin-bottom: 16px;">
         <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
           <el-select v-model="distKeyword" placeholder="选择关键词" style="width:220px;">
-            <el-option v-for="kw in keywords" :key="kw" :label="kw" :value="kw" />
+            <el-option v-for="kw in keywordOptions" :key="kw" :label="kw" :value="kw" />
           </el-select>
           <el-input-number v-model="distDays" :min="1" :max="90" label="天数" style="width:120px;" />
           <el-button type="primary" @click="loadDistribution">查询</el-button>
@@ -97,14 +140,19 @@ import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/compon
 import VChart from 'vue-echarts'
 import { ElMessage } from 'element-plus'
 import {
-  getMarketKeywords, getMarketTrend, getMarketLatest, getMarketDistribution,
+  getMarketKeywords, addMarketKeyword, pauseMarketKeyword, resumeMarketKeyword,
+  deleteMarketKeyword, crawlMarketKeyword,
+  getMarketTrend, getMarketLatest, getMarketDistribution,
   computeDailyStat, fetchSeller, searchSeller
 } from '@/api/market'
 
 use([CanvasRenderer, LineChart, TooltipComponent, LegendComponent, GridComponent])
 
-const activeTab = ref('trend')
+const activeTab = ref('manage')
 const keywords = ref([])
+const newKeyword = ref('')
+const newInterval = ref(30)
+const loadingKeywords = ref(false)
 const keyword = ref('')
 const distKeyword = ref('')
 const distDays = ref(7)
@@ -114,6 +162,8 @@ const distribution = ref(null)
 const sellers = ref([])
 const sellerQuery = ref('')
 const loadingSellers = ref(false)
+
+const keywordOptions = computed(() => keywords.value.map(k => k.keyword))
 
 const trendOption = computed(() => ({
   tooltip: { trigger: 'axis' },
@@ -130,10 +180,62 @@ const trendOption = computed(() => ({
 }))
 
 async function loadKeywords() {
+  loadingKeywords.value = true
   try {
     const r = await getMarketKeywords()
     if (r.success) keywords.value = r.data
   } catch (e) {}
+  loadingKeywords.value = false
+}
+
+async function addKeyword() {
+  if (!newKeyword.value.trim()) return
+  try {
+    const r = await addMarketKeyword(newKeyword.value.trim(), newInterval.value)
+    if (r.success) {
+      ElMessage.success('添加成功')
+      newKeyword.value = ''
+      await loadKeywords()
+    }
+  } catch (e) { ElMessage.error('添加失败') }
+}
+
+async function pauseKeyword(row) {
+  try {
+    await pauseMarketKeyword(row.keyword)
+    ElMessage.success('已暂停')
+    await loadKeywords()
+  } catch (e) { ElMessage.error('操作失败') }
+}
+
+async function resumeKeyword(row) {
+  try {
+    await resumeMarketKeyword(row.keyword)
+    ElMessage.success('已恢复')
+    await loadKeywords()
+  } catch (e) { ElMessage.error('操作失败') }
+}
+
+async function deleteKeyword(row) {
+  try {
+    await deleteMarketKeyword(row.keyword)
+    ElMessage.success('已删除')
+    await loadKeywords()
+  } catch (e) { ElMessage.error('删除失败') }
+}
+
+async function crawlKeyword(row) {
+  row._crawling = true
+  try {
+    const r = await crawlMarketKeyword(row.keyword)
+    if (r.success && r.data >= 0) {
+      ElMessage.success(`抓取完成，共 ${r.data} 条商品`)
+    } else {
+      ElMessage.warning('抓取失败，请检查账号 Cookie')
+    }
+    await loadKeywords()
+  } catch (e) { ElMessage.error('抓取失败') }
+  row._crawling = false
 }
 
 async function loadTrend() {

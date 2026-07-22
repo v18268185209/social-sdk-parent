@@ -798,9 +798,13 @@ async function viewDetail(row) {
         creditScore: data.creditScore || 0,
         reviewNum: data.reviewNum || 0,
       }
+    } else {
+      detailForm.value = { ...detailForm.value, status: 'COOKIE_EXPIRED', lastError: res.message || '实时数据获取失败' }
+      ElMessage.warning(res.message || '实时数据获取失败，请检查 Cookie 状态')
+      await loadAccounts()
     }
   } catch (e) {
-    // 获取失败，保留数据库已有数据
+    // 获取失败，拦截器已提示，保留数据库已有数据
   } finally {
     detailLoading.value = false
   }
@@ -832,6 +836,10 @@ async function syncProfile() {
       }
       ElMessage.success('数据已同步到数据库')
       // 刷新列表
+      await loadAccounts()
+    } else {
+      detailForm.value = { ...detailForm.value, status: 'COOKIE_EXPIRED', lastError: res.message || '同步失败' }
+      ElMessage.warning(res.message || '同步失败，请检查 Cookie 状态')
       await loadAccounts()
     }
   } catch (e) {

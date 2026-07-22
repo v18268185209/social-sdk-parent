@@ -4,6 +4,24 @@ import api from './request'
 export function getMarketKeywords() {
   return api.get('/market/keywords')
 }
+export function addMarketKeyword(keyword, interval = 30) {
+  const params = new URLSearchParams()
+  params.append('keyword', keyword)
+  params.append('interval', interval)
+  return api.post('/market/keywords', params)
+}
+export function pauseMarketKeyword(keyword) {
+  return api.post(`/market/keywords/${encodeURIComponent(keyword)}/pause`)
+}
+export function resumeMarketKeyword(keyword) {
+  return api.post(`/market/keywords/${encodeURIComponent(keyword)}/resume`)
+}
+export function deleteMarketKeyword(keyword) {
+  return api.delete(`/market/keywords/${encodeURIComponent(keyword)}`)
+}
+export function crawlMarketKeyword(keyword) {
+  return api.post(`/market/keywords/${encodeURIComponent(keyword)}/crawl`)
+}
 export function getMarketTrend(keyword, days = 30) {
   return api.get(`/market/trend/${encodeURIComponent(keyword)}?days=${days}`)
 }

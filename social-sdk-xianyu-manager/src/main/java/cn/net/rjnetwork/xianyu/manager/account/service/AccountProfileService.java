@@ -52,16 +52,23 @@ public class AccountProfileService {
             result.success = true;
             result.accountId = accountId;
 
-            // 从登录状态获取 userId
-            if (loginResult != null && loginResult.loggedIn) {
-                result.userId = loginResult.userId;
-                // 如果 checkLoginStatus 没返回头像和昵称，用这里的
-                if (result.displayName == null && loginResult.nickname != null) {
-                    result.displayName = loginResult.nickname;
-                }
-                if (result.avatar == null && loginResult.avatar != null) {
-                    result.avatar = loginResult.avatar;
-                }
+            // 从登录状态获取 userId。登录态失效时不能继续拿后续接口的空/缓存数据当作成功，
+            // 否则前端会仍显示 ACTIVE 且没有任何提示。
+            if (loginResult == null || !loginResult.loggedIn) {
+                String message = loginResult != null && loginResult.message != null
+                        ? loginResult.message
+                        : "登录状态校验失败";
+                markCookieExpired(account, message);
+                return ProfileResult.error("Cookie 已失效，请重新登录：" + message);
+            }
+
+            result.userId = loginResult.userId;
+            // 如果 checkLoginStatus 没返回头像和昵称，用这里的
+            if (result.displayName == null && loginResult.nickname != null) {
+                result.displayName = loginResult.nickname;
+            }
+            if (result.avatar == null && loginResult.avatar != null) {
+                result.avatar = loginResult.avatar;
             }
 
             // 解析 getUserPageNav 数据
@@ -165,6 +172,13 @@ public class AccountProfileService {
 
         result.syncedAt = account.getProfileSyncedAt();
         return result;
+    }
+
+    private void markCookieExpired(XianyuAccount account, String message) {
+        account.setStatus("COOKIE_EXPIRED");
+        account.setLastError(message);
+        account.setUpdatedAt(LocalDateTime.now());
+        accountMapper.updateById(account);
     }
 
     private String getText(JsonNode node, String field) {

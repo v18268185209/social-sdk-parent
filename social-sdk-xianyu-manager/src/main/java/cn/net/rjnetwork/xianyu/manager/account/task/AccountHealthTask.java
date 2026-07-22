@@ -6,8 +6,8 @@ import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
 import cn.net.rjnetwork.xianyu.manager.notify.NotifyEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -31,13 +31,12 @@ public class AccountHealthTask {
     }
 
     /**
-     * 每5分钟检测一次账号健康状态
+     * 检测账号健康状态，由 ScheduledTasks 统一调度。
      */
-    @Scheduled(cron = "0 */5 * * * *")
     public void checkAccountHealth() {
         List<XianyuAccount> accounts = accountMapper.selectList(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<XianyuAccount>()
-                        .eq(XianyuAccount::getStatus, "ACTIVE")
+                new LambdaQueryWrapper<XianyuAccount>()
+                        .in(XianyuAccount::getStatus, "ACTIVE", "OFFLINE")
         );
 
         for (XianyuAccount account : accounts) {
