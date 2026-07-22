@@ -48,6 +48,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/system/info").permitAll()
                 .requestMatchers("/api/system/health").permitAll()
+                .requestMatchers("/api/uploads/**", "/uploads/**").permitAll()
                 // AI 测试接口允许无 JWT 访问（内部功能需要）
                 .requestMatchers("/api/ai/chat/test").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()

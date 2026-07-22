@@ -777,7 +777,7 @@ async function handleLocalSave() {
   if (localForm.price == null || localForm.price <= 0) return ElMessage.warning('请输入有效售价')
   localSubmitting.value = true
   try {
-    const images = localImageFileList.value.filter(f => f.status === 'success' && f.url).map(f => f.url)
+    const images = localImageFileList.value.filter(f => f.status === 'success' && f.url).map(f => denormalizeUploadUrl(f.url))
     const payload = { ...localForm, images }
     let res
     if (localForm.id) {
@@ -935,10 +935,11 @@ async function customLocalUpload(options) {
   try {
     const res = await api.post('/products/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
     if (res.success) {
+      const normalizedUrl = normalizeImageUrl(res.data.url)
       localImageFileList.value = localImageFileList.value.map(f =>
-        f.uid === file.uid ? { ...f, url: normalizeImageUrl(res.data.url), status: 'success' } : f
+        f.uid === file.uid ? { ...f, url: normalizedUrl, status: 'success' } : f
       )
-      options.onSuccess(res.data.url)
+      options.onSuccess(normalizedUrl)
     } else {
       throw new Error(res.message || '上传失败')
     }
@@ -1040,10 +1041,10 @@ async function handleCreate() {
   }
   const images = imageFileList.value
     .filter(f => f.status === 'success' && f.url)
-    .map(f => f.url)
+    .map(f => denormalizeUploadUrl(f.url))
   const videos = videoFileList.value
     .filter(f => f.status === 'success' && f.url)
-    .map(f => f.url)
+    .map(f => denormalizeUploadUrl(f.url))
   submitting.value = true
   try {
     // el-cascader 选中节点对象（checkStrictly + emitPath:false 时 v-model 拿到 catId 值）
@@ -1226,11 +1227,20 @@ function parseJsonArray(raw) {
   try { return JSON.parse(raw) } catch { return [] }
 }
 
-// 后端返回 /uploads/xxx.jpg，前端需拼 BASE_API_URL 前缀走代理
+// 后端返回 /uploads/xxx.jpg，前端需拼 BASE_API_URL 前缀走 /api/uploads 静态映射
 function normalizeImageUrl(url) {
-  if (!url) return url
-  const base = import.meta.env.BASE_API_URL || ''
+  if (!url || typeof url !== 'string') return url
+  if (/^(https?:)?\/\//i.test(url) || url.startsWith('data:') || url.startsWith('blob:')) return url
+  const base = (import.meta.env.BASE_API_URL || '/api').replace(/\/$/, '')
+  if (url.startsWith('/api/uploads/')) return url
   if (url.startsWith('/uploads/')) return base + url
+  return url
+}
+
+function denormalizeUploadUrl(url) {
+  if (!url || typeof url !== 'string') return url
+  const base = (import.meta.env.BASE_API_URL || '/api').replace(/\/$/, '')
+  if (base && url.startsWith(base + '/uploads/')) return url.substring(base.length)
   return url
 }
 
@@ -1262,16 +1272,17 @@ async function customUpload(options, field) {
     })
     if (res.success) {
       const url = res.data.url
+      const displayUrl = normalizeImageUrl(url)
       if (field === 'images') {
         imageFileList.value = imageFileList.value.map(f =>
-          f.uid === file.uid ? { ...f, url, status: 'success' } : f
+          f.uid === file.uid ? { ...f, url: displayUrl, status: 'success' } : f
         )
       } else {
         videoFileList.value = videoFileList.value.map(f =>
-          f.uid === file.uid ? { ...f, url, status: 'success' } : f
+          f.uid === file.uid ? { ...f, url: displayUrl, status: 'success' } : f
         )
       }
-      options.onSuccess(url)
+      options.onSuccess(displayUrl)
     } else {
       throw new Error(res.message || '上传失败')
     }

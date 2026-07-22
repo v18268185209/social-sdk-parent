@@ -263,14 +263,9 @@
         </el-collapse>
       </div>
 
-      <!-- 底部操作栏 -->
+      <!-- 底部 -->
       <template #footer>
         <el-button @click="refundDetailVisible = false">关闭</el-button>
-        <el-button v-if="bottomBar.length" v-for="btn in bottomBar" :key="btn.code"
-          :type="btn.style?.bgColor === 'yellow' ? 'warning' : 'primary'"
-          @click="handleBottomAction(btn)">
-          {{ btn.name }}
-        </el-button>
       </template>
     </el-dialog>
   </div>
