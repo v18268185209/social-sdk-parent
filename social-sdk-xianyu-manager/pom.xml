@@ -7,11 +7,11 @@
     <parent>
         <groupId>cn.net.rjnetwork</groupId>
         <artifactId>social-sdk-parent</artifactId>
-        <version>0.0.1</version>
+        <version>0.0.2</version>
     </parent>
 
     <artifactId>social-sdk-xianyu-manager</artifactId>
-    <version>0.0.1</version>
+    <version>0.0.2</version>
     <packaging>jar</packaging>
 
     <name>Social SDK Xianyu Manager</name>
