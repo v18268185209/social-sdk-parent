@@ -691,6 +691,27 @@ CREATE TABLE IF NOT EXISTS open_app (
 
 CREATE INDEX idx_open_app_key ON open_app(app_key);
 
+-- ======================== OpenList 网盘服务 ========================
+
+-- OpenList 实例表（存储初始账号密码、运行状态）
+CREATE TABLE IF NOT EXISTS openlist_instance (
+    id INTEGER PRIMARY KEY,
+    port INTEGER NOT NULL DEFAULT 5244,
+    url VARCHAR(256) DEFAULT 'http://127.0.0.1:5244',
+    data_dir VARCHAR(512),
+    initial_username VARCHAR(128),
+    INITIAL_PASSWORD VARCHAR(128),
+    install_path VARCHAR(512),
+    os_name VARCHAR(32),
+    arch VARCHAR(16),
+    installed INTEGER DEFAULT 0,
+    running INTEGER DEFAULT 0,
+    first_started_at DATETIME,
+    last_started_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ======================== 价格历史 & 市场情报 ========================
 
 -- 市场搜索快照（定时抓取指定关键词的商品列表，用于价格趋势分析）

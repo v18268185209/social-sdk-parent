@@ -1,6 +1,8 @@
 package cn.net.rjnetwork.xianyu.manager.clouddisk.service;
 
 import cn.net.rjnetwork.xianyu.manager.config.OpenListProperties;
+import cn.net.rjnetwork.xianyu.manager.clouddisk.mapper.OpenlistInstanceMapper;
+import cn.net.rjnetwork.xianyu.manager.clouddisk.model.OpenlistInstance;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -10,6 +12,7 @@ import java.net.URL;
 import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.zip.ZipEntry;
@@ -20,6 +23,7 @@ public class OpenListTaskService {
 
     private final OpenListProperties properties;
     private final OpenListInstallerService installerService;
+    private final OpenlistInstanceMapper instanceMapper;
     private final Path dataDir;
     private String osName;
     private String arch;
@@ -32,11 +36,17 @@ public class OpenListTaskService {
 
     private volatile Process process;
 
+    // 抓取到的初始账号密码
+    private volatile String initialUsername;
+    private volatile String initialPassword;
+    private volatile boolean initialCredsCaptured;
+
     private final ConcurrentHashMap<String, SseEmitter> emitters = new ConcurrentHashMap<>();
 
-    public OpenListTaskService(OpenListProperties properties, OpenListInstallerService installerService) {
+    public OpenListTaskService(OpenListProperties properties, OpenListInstallerService installerService, OpenlistInstanceMapper instanceMapper) {
         this.properties = properties;
         this.installerService = installerService;
+        this.instanceMapper = instanceMapper;
         this.dataDir = installerService.getDataDir();
 
         this.currentPhase = "idle";
@@ -78,6 +88,10 @@ public class OpenListTaskService {
         s.put("phase", currentPhase);
         s.put("progress", progress);
         s.put("message", currentMessage);
+        // 暴露首次启动自动生成的账号密码（OpenList 首次启动时随机生成并打印在日志中）
+        s.put("initialUsername", initialUsername);
+        s.put("initialPassword", initialPassword);
+        s.put("initialCredsCaptured", initialCredsCaptured);
         return s;
     }
 
@@ -204,13 +218,17 @@ public class OpenListTaskService {
 
             this.process = pb.start();
 
-            // 读取输出
+            // 读取输出，抓取初始密码
             final Process p = this.process;
             Thread logThread = new Thread(() -> {
                 try (BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
                     String line;
                     while ((line = br.readLine()) != null) {
                         System.out.println("[OpenList] " + line);
+                        // 抓取 OpenList 自动生成的初始账号密码
+                        // 典型日志: "INFO ... admin user has been initialized randomly, username: xxx, password: xxx"
+                        // 或: "INFO ... Initial username: xxx password: xxx"
+                        captureInitialCreds(line);
                         if (line.contains(" Listening ") || line.contains("listen") || line.contains("started")) {
                             updatePhase("running", "启动成功，正在运行...", 1.0);
                         }
@@ -234,8 +252,46 @@ public class OpenListTaskService {
     }
 
     /**
+     * 从日志行中抓取 OpenList 自动生成的初始账号密码。
+     */
+    private void captureInitialCreds(String line) {
+        if (initialCredsCaptured || line == null) return;
+        String lower = line.toLowerCase();
+        if (!lower.contains("username") && !lower.contains("password")) return;
+
+        String username = null;
+        String password = null;
+
+        java.util.regex.Pattern uPat = java.util.regex.Pattern.compile(
+            "(?:username|user)\\s*[:=]\\s*(\\S+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+        java.util.regex.Pattern pPat = java.util.regex.Pattern.compile(
+            "(?:password|passwd)\\s*[:=]\\s*(\\S+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+        java.util.regex.Matcher uMat = uPat.matcher(line);
+        java.util.regex.Matcher pMat = pPat.matcher(line);
+        if (uMat.find()) username = uMat.group(1).replaceAll("[^a-zA-Z0-9_@-]", "");
+        if (pMat.find()) password = pMat.group(1).replaceAll("[,;\"']", "");
+
+        if (username == null && lower.contains("admin user has been initialized")) {
+            java.util.regex.Pattern altPat = java.util.regex.Pattern.compile(
+                "admin user has been initialized.*?username[:=\\s]+([^\\s,;]+).*?password[:=\\s]+([^\\s,;]+)",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher altMat = altPat.matcher(line);
+            if (altMat.find()) {
+                username = altMat.group(1);
+                password = altMat.group(2);
+            }
+        }
+
+        if (username != null && password != null) {
+            this.initialUsername = username;
+            this.initialPassword = password;
+            this.initialCredsCaptured = true;
+            System.out.println("[OpenList] 已抓取初始账号: " + username);
+        }
+    }
+
+    /**
      * 写入 config.json：配置端口、用户名、密码。
-     * OpenList 首次启动时会从该文件读取配置。
      */
     private void writeConfigJson() {
         Path configFile = dataDir.resolve("config.json");

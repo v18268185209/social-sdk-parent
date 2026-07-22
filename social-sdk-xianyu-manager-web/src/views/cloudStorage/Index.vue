@@ -115,57 +115,10 @@
           show-icon
         >
           <template #default>
-            访问 <a :href="status.url + '/d'" target="_blank">{{ status.url }}/d</a> 管理网盘挂载。
+            访问 <a :href="status.url" target="_blank">{{ status.url }}</a> 管理网盘挂载和存储驱动。
           </template>
         </el-alert>
       </div>
-    </el-card>
-
-    <!-- 网盘挂载管理（对齐 OpenList 存储管理 API） -->
-    <el-card style="margin-bottom: 20px;">
-      <template #header>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span>🌐 网盘挂载（OpenList 存储管理）</span>
-          <el-button type="primary" size="small" @click="showMountDialog = true" :disabled="!status.running">
-            <el-icon><Plus /></el-icon> 添加网盘
-          </el-button>
-        </div>
-      </template>
-
-      <el-table :data="mounts" stripe v-loading="mountLoading" style="width: 100%;">
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column label="驱动" width="140">
-          <template #default="{ row }">
-            <el-tag>{{ driverLabel(row.driver) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="mountPath" label="挂载路径" width="180" />
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.enabled ? 'success' : 'info'">
-              {{ row.enabled ? '启用' : '禁用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="健康" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'work' ? 'success' : 'warning'">
-              {{ row.status === 'work' ? '正常' : row.status || '未知' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="order" label="排序" width="60" />
-        <el-table-column label="操作" width="240" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" @click="toggleMount(row)" :type="row.enabled ? 'warning' : 'success'">
-              {{ row.enabled ? '禁用' : '启用' }}
-            </el-button>
-            <el-button size="small" type="danger" @click="removeMount(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <el-empty v-if="!mountLoading && mounts.length === 0" description="暂无挂载，请先启动 OpenList" />
     </el-card>
 
     <!-- 文件管理卡片 -->
@@ -174,14 +127,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span>📄 文件管理</span>
           <div style="display: flex; gap: 10px;">
-            <el-select v-model="filterMountPath" placeholder="筛选网盘" clearable style="width: 200px;" @change="loadFiles">
-              <el-option
-                v-for="m in mounts"
-                :key="m.id"
-                :label="m.mountPath"
-                :value="m.mountPath"
-              />
-            </el-select>
+            <el-input v-model="filterMountPath" placeholder="输入挂载路径，如 /baidu" clearable style="width: 200px;" @change="loadFiles" />
             <el-button type="primary" size="small" @click="showUploadDialog = true" :disabled="!filterMountPath">
               <el-icon><Upload /></el-icon> 上传文件
             </el-button>
@@ -220,65 +166,6 @@
       <el-empty v-if="!fileLoading && files.length === 0" description="暂无文件" />
     </el-card>
 
-    <!-- 添加网盘存储对话框 -->
-    <el-dialog v-model="showMountDialog" title="添加网盘存储" width="600px">
-      <el-form label-width="100px">
-        <el-form-item label="存储驱动">
-          <el-select v-model="mountForm.driver" style="width: 100%;" @change="onDriverChange">
-            <el-option
-              v-for="d in drivers"
-              :key="d.name"
-              :label="d.label"
-              :value="d.name"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="挂载路径">
-          <el-input v-model="mountForm.mountPath" placeholder="/baidu" />
-        </el-form-item>
-        <el-form-item label="排序">
-          <el-input-number v-model="mountForm.order" :min="0" :max="100" />
-        </el-form-item>
-        <el-form-item label="启用">
-          <el-switch v-model="mountForm.enabled" />
-        </el-form-item>
-
-        <!-- 动态配置字段 -->
-        <el-divider>驱动配置</el-divider>
-        <el-form-item v-for="field in currentDriverFields" :key="field.name" :label="field.label">
-          <el-input
-            v-if="field.type === 'string'"
-            v-model="mountForm.config[field.name]"
-            :placeholder="field.placeholder"
-            style="width: 100%;"
-          />
-          <el-input
-            v-if="field.type === 'password'"
-            v-model="mountForm.config[field.name]"
-            :placeholder="field.placeholder"
-            type="password"
-            show-password
-            style="width: 100%;"
-          />
-          <el-input-number
-            v-if="field.type === 'number'"
-            v-model="mountForm.config[field.name]"
-            :min="0"
-            style="width: 100%;"
-          />
-          <el-switch
-            v-if="field.type === 'boolean'"
-            v-model="mountForm.config[field.name]"
-          />
-          <p v-if="field.description" style="color: #909399; font-size: 12px; margin: 0;">{{ field.description }}</p>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showMountDialog = false">取消</el-button>
-        <el-button type="primary" @click="addMount" :loading="addingMount">添加</el-button>
-      </template>
-    </el-dialog>
-
     <!-- 上传文件对话框 -->
     <el-dialog v-model="showUploadDialog" title="上传文件" width="500px">
       <el-upload
@@ -303,12 +190,11 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Plus, Upload, UploadFilled, Download, VideoPlay, VideoPause, RefreshRight
+  Upload, UploadFilled, Download, VideoPlay, VideoPause, RefreshRight
 } from '@element-plus/icons-vue'
 import {
   getOpenListStatus, installOpenList, startOpenList, stopOpenList, restartOpenList,
-  listStorages, createStorage, deleteStorage, enableStorage, disableStorage,
-  listDrivers, getDriverInfo, listOpenListFiles, uploadOpenListFile, deleteOpenListFile
+  listOpenListFiles, uploadOpenListFile, deleteOpenListFile
 } from '@/api/openList'
 
 // ============== OpenList 状态 ==============
@@ -438,132 +324,6 @@ const statusText = s => {
   return '空闲'
 }
 
-// ============== 存储挂载管理 ==============
-const mounts = ref([])
-const mountLoading = ref(false)
-const addingMount = ref(false)
-const showMountDialog = ref(false)
-const drivers = ref([])
-
-const mountForm = ref({
-  driver: 'BaiduNetdisk',
-  mountPath: '/baidu',
-  order: 0,
-  enabled: true,
-  config: {}
-})
-
-const currentDriverFields = ref([])
-
-const driverLabel = name => {
-  const d = drivers.value.find(x => x.name === name)
-  return d ? d.label : name
-}
-
-const loadDrivers = async () => {
-  try {
-    const res = await listDrivers()
-    drivers.value = res.data || []
-  } catch (e) {
-    console.error('加载驱动列表失败:', e)
-  }
-}
-
-const loadMounts = async () => {
-  if (!status.value.running) return
-  mountLoading.value = true
-  try {
-    const res = await listStorages()
-    mounts.value = res.data || []
-  } catch (e) {
-    console.error('加载存储列表失败:', e)
-  } finally {
-    mountLoading.value = false
-  }
-}
-
-const onDriverChange = async (driverName) => {
-  currentDriverFields.value = []
-  try {
-    const res = await getDriverInfo(driverName)
-    let schema = []
-    try {
-      const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
-      const driverData = data.data || data
-      if (driverData && driverData.config) {
-        const configFields = driverData.config
-        schema = Object.entries(configFields).map(([k, v]) => ({
-          name: k,
-          type: typeof v === 'boolean' ? 'boolean' : typeof v === 'number' ? 'number' : 'string',
-          label: k,
-          description: ''
-        }))
-      }
-    } catch (e) {
-      console.error('解析驱动配置失败:', e)
-    }
-    currentDriverFields.value = schema
-  } catch (e) {
-    console.error('获取驱动信息失败:', e)
-  }
-}
-
-const addMount = async () => {
-  if (!mountForm.value.mountPath || !mountForm.value.mountPath.startsWith('/')) {
-    ElMessage.warning('挂载路径必须以 / 开头')
-    return
-  }
-  if (!mountForm.value.driver) {
-    ElMessage.warning('请选择存储驱动')
-    return
-  }
-
-  addingMount.value = true
-  try {
-    const payload = {
-      mount_path: mountForm.value.mountPath,
-      driver: mountForm.value.driver,
-      order: mountForm.value.order,
-      enabled: mountForm.value.enabled,
-      config: mountForm.value.config
-    }
-    await createStorage(payload)
-    ElMessage.success('存储挂载添加成功')
-    showMountDialog.value = false
-    loadMounts()
-  } catch (e) {
-    ElMessage.error('添加失败: ' + (e.message || e))
-  } finally {
-    addingMount.value = false
-  }
-}
-
-const removeMount = async (row) => {
-  await ElMessageBox.confirm(`确定删除挂载 ${row.mountPath} 吗？`, '提示', { type: 'warning' })
-  try {
-    await deleteStorage(row.id)
-    ElMessage.success('已删除')
-    loadMounts()
-  } catch (e) {
-    ElMessage.error('删除失败')
-  }
-}
-
-const toggleMount = async (row) => {
-  try {
-    if (row.enabled) {
-      await disableStorage(row.id)
-      ElMessage.success('已禁用')
-    } else {
-      await enableStorage(row.id)
-      ElMessage.success('已启用')
-    }
-    loadMounts()
-  } catch (e) {
-    ElMessage.error('操作失败')
-  }
-}
-
 // ============== 文件管理 ==============
 const files = ref([])
 const fileLoading = ref(false)
@@ -663,10 +423,9 @@ const deleteFile = async (row) => {
 watch(filterMountPath, () => loadFiles())
 
 onMounted(() => {
-  loadDrivers()
   loadStatus()
-  loadMounts()
   startPolling()
+})
 })
 
 onUnmounted(() => {
