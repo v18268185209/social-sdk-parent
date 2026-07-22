@@ -484,7 +484,7 @@
       <!-- 主图 + 视频预览 -->
       <el-carousel v-if="detail.images && detail.images.length" height="260px" style="margin-bottom: 16px; border-radius: 8px; overflow: hidden;">
         <el-carousel-item v-for="(img, idx) in detail.images" :key="idx">
-          <el-image :src="img" fit="contain" style="width: 100%; height: 100%;" :preview-src-list="detail.images" />
+          <el-image :src="normalizeImageUrl(img)" fit="contain" style="width: 100%; height: 100%;" :preview-src-list="detail.images.map(normalizeImageUrl)" />
         </el-carousel-item>
       </el-carousel>
 
@@ -817,7 +817,7 @@ function editLocalProduct(row) {
   })
   const imgs = parseJsonArray(row.images) || (row.imageUrl ? [row.imageUrl] : [])
   localForm.images = imgs
-  localImageFileList.value = imgs.map((url, idx) => ({ uid: `img-${idx}`, url, name: `图片${idx + 1}`, status: 'success' }))
+  localImageFileList.value = imgs.map((url, idx) => ({ uid: `img-${idx}`, url: normalizeImageUrl(url), name: `图片${idx + 1}`, status: 'success' }))
   showLocalCreateDialog.value = true
 }
 
@@ -936,7 +936,7 @@ async function customLocalUpload(options) {
     const res = await api.post('/products/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
     if (res.success) {
       localImageFileList.value = localImageFileList.value.map(f =>
-        f.uid === file.uid ? { ...f, url: res.data.url, status: 'success' } : f
+        f.uid === file.uid ? { ...f, url: normalizeImageUrl(res.data.url), status: 'success' } : f
       )
       options.onSuccess(res.data.url)
     } else {
@@ -1224,6 +1224,14 @@ function parseJsonArray(raw) {
   if (!raw) return []
   if (Array.isArray(raw)) return raw
   try { return JSON.parse(raw) } catch { return [] }
+}
+
+// 后端返回 /uploads/xxx.jpg，前端需拼 BASE_API_URL 前缀走代理
+function normalizeImageUrl(url) {
+  if (!url) return url
+  const base = import.meta.env.BASE_API_URL || ''
+  if (url.startsWith('/uploads/')) return base + url
+  return url
 }
 
 function handleUploadChange(fileList, field) {

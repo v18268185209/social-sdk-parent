@@ -195,8 +195,83 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="refundDetailVisible" title="退款详情" width="600">
-      <pre>{{ JSON.stringify(refundDetail, null, 2) }}</pre>
+    <!-- 退款详情弹窗 -->
+    <el-dialog v-model="refundDetailVisible" title="退款详情" width="700" top="8vh">
+      <div v-if="refundDetail" class="refund-detail">
+        <!-- 头部状态 -->
+        <div class="refund-header">
+          <el-tag :type="refundStatusTagType" size="large" effect="dark">
+            {{ basicInfo.refundStatusDesc || '退款' }}
+          </el-tag>
+          <div class="refund-header-amount">¥{{ basicInfo.applyMoney || '-' }}</div>
+          <div class="refund-header-title">{{ statusInfo.title || '退款详情' }}</div>
+        </div>
+
+        <!-- 时间线 -->
+        <el-timeline v-if="nodeStatusList.length" class="refund-timeline">
+          <el-timeline-item
+            v-for="(node, idx) in nodeStatusList"
+            :key="idx"
+            :type="node.nodeStatus === 'finish' ? 'success' : (node.nodeStatus === 'complete' ? 'primary' : 'info')"
+            :hollow="node.nodeStatus !== 'finish' && node.nodeStatus !== 'complete'"
+            :timestamp="node.time"
+            placement="top">
+            <div class="timeline-txt">{{ node.txt }}</div>
+          </el-timeline-item>
+        </el-timeline>
+
+        <!-- 基本信息 -->
+        <el-descriptions v-if="basicInfo.refundId" :column="2" border size="small" class="refund-desc">
+          <el-descriptions-item label="退款单号">{{ basicInfo.refundId }}</el-descriptions-item>
+          <el-descriptions-item label="订单号">{{ orderId }}</el-descriptions-item>
+          <el-descriptions-item label="退款类型">{{ basicInfo.refundTypeDesc || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="退款原因">{{ basicInfo.reasonText || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="商品状态">{{ basicInfo.goodsStatusDesc || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="运费承担">{{ basicInfo.postFeeBear || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="客服介入">{{ basicInfo.csStatusDesc || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="退款结束时间">{{ basicInfo.disputeEndTime || '-' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <!-- 进度详情 -->
+        <div v-if="progressList.length" class="refund-progress">
+          <el-divider content-position="left">进度详情</el-divider>
+          <div v-for="(p, idx) in progressList" :key="idx" class="progress-item">
+            <div class="progress-time">{{ p.timeStr }}</div>
+            <div class="progress-text">{{ p.text }}</div>
+            <div v-if="p.tips && p.tips.length" class="progress-tips">
+              <el-tag v-for="tip in p.tips" :key="tip" size="small" type="info" effect="plain">{{ tip }}</el-tag>
+            </div>
+          </div>
+        </div>
+
+        <!-- 退款规则 -->
+        <div v-if="refundDescribe.title" class="refund-describe">
+          <el-divider content-position="left">{{ refundDescribe.title }}</el-divider>
+          <div v-for="(line, li) in refundDescribe.descRichText" :key="li" class="describe-line">
+            <span v-for="(seg, si) in line.data" :key="si">
+              <a v-if="seg.linkUrl" :href="seg.linkUrl" target="_blank" style="color: #409eff">{{ seg.content }}</a>
+              <span v-else>{{ seg.content }}</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- 原始响应 JSON（不丢数据） -->
+        <el-collapse style="margin-top: 16px">
+          <el-collapse-item title="原始响应 JSON">
+            <pre class="credit-json">{{ JSON.stringify(refundDetail, null, 2) }}</pre>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
+
+      <!-- 底部操作栏 -->
+      <template #footer>
+        <el-button @click="refundDetailVisible = false">关闭</el-button>
+        <el-button v-if="bottomBar.length" v-for="btn in bottomBar" :key="btn.code"
+          :type="btn.style?.bgColor === 'yellow' ? 'warning' : 'primary'"
+          @click="handleBottomAction(btn)">
+          {{ btn.name }}
+        </el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -228,6 +303,48 @@ const refunds = ref([])
 const refundForm = ref({ orderId: '', reason: '', amount: '' })
 const refundDetailVisible = ref(false)
 const refundDetail = ref(null)
+
+// 退款详情解析后的字段（从 mtop components 中提取）
+const refundComponents = computed(() => refundDetail.value?.data?.data?.components || [])
+
+const basicInfo = computed(() => {
+  const comp = refundComponents.value.find(c => c.render === 'basicRefundInfo')
+  return comp?.data || {}
+})
+
+const statusInfo = computed(() => {
+  const comp = refundComponents.value.find(c => c.render === 'refundStatusInfo')
+  return comp?.data || {}
+})
+
+const nodeStatusList = computed(() => {
+  const comp = refundComponents.value.find(c => c.render === 'nodeStatusInfo')
+  return comp?.data?.nodeStatusList || []
+})
+
+const progressList = computed(() => {
+  const comp = refundComponents.value.find(c => c.render === 'progressDetail')
+  return comp?.data?.progressNodeList || []
+})
+
+const refundDescribe = computed(() => {
+  const comp = refundComponents.value.find(c => c.render === 'refundDescribe')
+  return comp?.data || {}
+})
+
+const bottomBar = computed(() => {
+  const comp = refundComponents.value.find(c => c.render === 'bottomBar')
+  return Array.isArray(comp) ? comp : (Array.isArray(comp?.data) ? comp.data : [])
+})
+
+const orderId = computed(() => refundDetail.value?.data?.data?.orderId || '')
+
+const refundStatusTagType = computed(() => {
+  const status = basicInfo.value.refundStatus
+  if (status === 'REFUND_SUCCESS') return 'success'
+  if (status === 'REFUND_CLOSED' || status === 'REFUND_FAIL') return 'danger'
+  return 'warning'
+})
 
 // 信用画像卡片（从 data.module.shop / data.module.tabs 提取）
 const creditCards = computed(() => {
@@ -497,4 +614,19 @@ function refundStatusType(status) {
 .credit-detail { margin-top: 16px; }
 .credit-detail-hint { font-size: 12px; color: #909399; margin-left: 4px; }
 .credit-json { background: #f5f7fa; padding: 16px; border-radius: 4px; max-height: 400px; overflow: auto; font-size: 12px; line-height: 1.5; }
+.refund-detail { max-height: 70vh; overflow-y: auto; padding-right: 4px; }
+.refund-header { text-align: center; margin-bottom: 20px; padding: 16px; background: #f5f7fa; border-radius: 8px; }
+.refund-header-amount { font-size: 28px; font-weight: 700; color: #f56c6c; margin-top: 8px; }
+.refund-header-title { font-size: 14px; color: #606266; margin-top: 4px; }
+.refund-timeline { margin: 16px 0; }
+.timeline-txt { font-size: 14px; color: #303133; }
+.refund-desc { margin: 16px 0; }
+.refund-progress { margin: 16px 0; }
+.progress-item { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px dashed #ebeef5; }
+.progress-item:last-child { border-bottom: none; }
+.progress-time { width: 140px; font-size: 13px; color: #909399; flex-shrink: 0; }
+.progress-text { flex: 1; font-size: 14px; color: #303133; }
+.progress-tips { display: flex; gap: 6px; flex-wrap: wrap; }
+.refund-describe { margin: 16px 0; }
+.describe-line { font-size: 13px; color: #606266; line-height: 1.8; }
 </style>
