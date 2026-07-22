@@ -11,9 +11,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.jdbc.datasource.SimpleDriverDataSource;
-
 import javax.sql.DataSource;
+import java.io.File;
 import java.sql.SQLException;
 import java.util.Arrays;
 
@@ -39,6 +38,8 @@ public class DruidConfig {
             @Value("${spring.datasource.driver-class-name}") String driverClassName,
             @Value("${spring.datasource.username:#{null}}") String username,
             @Value("${spring.datasource.password:#{null}}") String password) throws SQLException {
+
+        ensureSqliteDatabaseDirectory(url);
 
         DruidDataSource ds = new DruidDataSource();
         ds.setUrl(url);
@@ -72,11 +73,14 @@ public class DruidConfig {
             }
         }
 
-        // ===== 防火墙 =====
-        ds.setFilters("stat,wall,slf4j");
+        // ===== 过滤器 =====
+        // SQLite 本地文件库不启用 wall，避免拦截 AUTOINCREMENT 等 SQLite 方言语法。
+        String dialect = databaseProvider != null ? databaseProvider.dialect() : "sqlite";
+        ds.setFilters("sqlite".equalsIgnoreCase(dialect) ? "stat,slf4j" : "stat,wall,slf4j");
 
         // ===== 连接泄漏检测 =====
-        ds.setRemoveAbandoned(true);
+        // SQLite 单连接启动初始化阶段容易被 removeAbandoned 误判，保持关闭。
+        ds.setRemoveAbandoned(!"sqlite".equalsIgnoreCase(dialect));
         ds.setRemoveAbandonedTimeout(1800);
         ds.setLogAbandoned(false);
 
@@ -84,9 +88,27 @@ public class DruidConfig {
         ds.setPoolPreparedStatements(true);
         ds.setMaxPoolPreparedStatementPerConnectionSize(20);
 
-        String dialect = databaseProvider != null ? databaseProvider.dialect() : "sqlite(fallback)";
         log.info("DruidDataSource initialized dialect={}, maxActive={}, url={}", dialect, maxActive, url);
         return ds;
+    }
+
+    private void ensureSqliteDatabaseDirectory(String url) {
+        if (url == null || !url.startsWith("jdbc:sqlite:")) {
+            return;
+        }
+        String path = url.substring("jdbc:sqlite:".length());
+        int queryIndex = path.indexOf('?');
+        if (queryIndex >= 0) {
+            path = path.substring(0, queryIndex);
+        }
+        if (path.isBlank() || ":memory:".equals(path) || path.startsWith("file:")) {
+            return;
+        }
+        File dbFile = new File(path);
+        File parent = dbFile.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            log.warn("Failed to create SQLite database directory: {}", parent.getAbsolutePath());
+        }
     }
 }
 
