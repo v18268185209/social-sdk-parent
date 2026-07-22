@@ -86,6 +86,14 @@ CREATE TABLE IF NOT EXISTS xianyu_product (
     image_url VARCHAR(512), -- 主图 URL（商品列表返回的首图）
     view_count INTEGER DEFAULT 0,
     favorite_count INTEGER DEFAULT 0,
+    raw_data TEXT,
+    auction_type VARCHAR(32),
+    item_status_raw VARCHAR(32),
+    post_info VARCHAR(64),
+    image_infos TEXT,
+    pic_width INTEGER,
+    pic_height INTEGER,
+    has_video BOOLEAN,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted INTEGER DEFAULT 0
