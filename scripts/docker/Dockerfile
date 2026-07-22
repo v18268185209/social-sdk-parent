@@ -56,6 +56,8 @@ RUN mkdir -p /app/data /app/data/openlist /app/chrome-profiles /app/logs /app/co
 
 # 环境变量
 ENV CHROME_BIN=/usr/bin/chromium \
+    CHROME_HEADLESS=true \
+    CHROME_HEADLESS_MODE=new \
     SPRING_PROFILES_ACTIVE=prod \
     JAVA_OPTS="-Xmx512m -Xms256m" \
     SERVER_PORT=8080 \

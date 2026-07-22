@@ -33,6 +33,8 @@ COPY --from=builder /app/social-sdk-xianyu-manager/target/*.jar app.jar
 RUN mkdir -p /app/data /app/chrome-profiles /app/logs
 EXPOSE 8080
 ENV CHROME_BIN=/usr/bin/chromium \
+    CHROME_HEADLESS=true \
+    CHROME_HEADLESS_MODE=new \
     SPRING_PROFILES_ACTIVE=prod \
     JAVA_OPTS="-Xmx512m -Xms256m"
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dfile.encoding=UTF-8 -jar /app/app.jar"]

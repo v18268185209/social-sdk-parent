@@ -15,7 +15,21 @@
         </div>
       </template>
 
-      <el-tabs v-model="activeTab" @tab-change="loadProducts">
+      <!-- 同步进度弹窗 -->
+    <el-dialog v-model="syncProgressVisible" title="同步商品" width="420px" :close-on-click-modal="false" :show-close="false">
+      <div style="text-align: center; padding: 12px 0;">
+        <el-progress :percentage="syncProgress && syncProgress.total ? Math.round((syncProgress.current / syncProgress.total) * 100) : 0" :stroke-width="16" style="margin-bottom: 16px;" />
+        <div v-if="syncProgress" style="font-size: 14px; color: #606266;">
+          <div style="margin-bottom: 6px;">{{ syncProgress.message || '正在同步...' }}</div>
+          <div v-if="syncProgress.phase === 'DETAILING'" style="font-size: 12px; color: #909399;">
+            已处理 {{ syncProgress.current }} / {{ syncProgress.total }} 件
+          </div>
+        </div>
+        <div v-else style="font-size: 14px; color: #909399;">正在启动同步任务...</div>
+      </div>
+    </el-dialog>
+
+    <el-tabs v-model="activeTab" @tab-change="loadProducts">
         <el-tab-pane label="在售" name="ON_SALE" />
         <el-tab-pane label="全部" name="ALL" />
       </el-tabs>
@@ -71,6 +85,9 @@ const page = ref(1)
 const size = ref(20)
 const total = ref(0)
 const syncing = ref(false)
+const syncProgress = ref(null) // 当前同步进度
+const syncProgressVisible = ref(false) // 进度弹窗是否显示
+let syncTimer = null // 轮询定时器
 
 async function loadAccounts() {
   accountsLoading.value = true
@@ -103,14 +120,44 @@ async function loadProducts() {
 async function syncProducts() {
   if (!selectedAccountId.value) return
   syncing.value = true
+  syncProgressVisible.value = true
+  syncProgress.value = { phase: 'PENDING', total: 0, current: 0, inserted: 0, updated: 0, failed: 0, message: '正在启动同步...' }
   try {
     const res = await api.post('/products/sync', null, { params: { accountId: selectedAccountId.value } })
     if (res.success) {
-      ElMessage.success(`同步完成，共 ${res.data.count} 件商品`)
-      loadProducts()
-    } else { ElMessage.error(res.message || '同步失败') }
-  } catch (e) {}
-  finally { syncing.value = false }
+      const syncId = res.data.syncId
+      // 启动轮询
+      syncTimer = setInterval(async () => {
+        try {
+          const prog = await api.get('/products/sync/progress', { params: { syncId } })
+          if (prog.success) {
+            syncProgress.value = prog.data
+            if (prog.data.phase === 'COMPLETED' || prog.data.phase === 'FAILED') {
+              clearInterval(syncTimer)
+              syncTimer = null
+              setTimeout(() => {
+                syncProgressVisible.value = false
+                syncing.value = false
+                if (prog.data.phase === 'COMPLETED') {
+                  ElMessage.success(prog.data.message || '同步完成')
+                  loadProducts()
+                } else {
+                  ElMessage.error(prog.data.message || '同步失败')
+                }
+              }, 1500)
+            }
+          }
+        } catch (e) {}
+      }, 1500)
+    } else {
+      ElMessage.error(res.message || '同步失败')
+      syncing.value = false
+      syncProgressVisible.value = false
+    }
+  } catch (e) {
+    syncing.value = false
+    syncProgressVisible.value = false
+  }
 }
 
 function editProduct(row) { ElMessage.info('编辑功能待 UI 完善') }

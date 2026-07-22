@@ -25,6 +25,9 @@ services:
       - DB_PATH=/app/data/xianyu-manager.db
       # JVM 参数
       - JAVA_OPTS=-Xmx512m -Xms256m
+      # Linux/Docker 默认无头；网页配置页会读取后端当前值并显示为无头模式
+      - CHROME_HEADLESS=true
+      - CHROME_HEADLESS_MODE=new
       # 自定义 JWT/Crypto 密钥（必须修改！）
       - XIANYU_JWT_SECRET=${XIANYU_JWT_SECRET:-change-me-in-production}
       - XIANYU_CRYPTO_SECRET=${XIANYU_CRYPTO_SECRET:-change-me-in-production}

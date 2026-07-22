@@ -131,6 +131,12 @@ notify:
   digest:
     cron: "0 0 9 * * ?"                       # 每天 09:00 生成昨日摘要
 
+# Chrome 容器配置
+# 默认保持有界面模式以提高滑块兼容性；Linux/Docker 服务器可用 CHROME_HEADLESS=true 覆盖。
+chrome:
+  headless: ${CHROME_HEADLESS:false}
+  headless-mode: ${CHROME_HEADLESS_MODE:new}
+
 # CDP 滑块验证配置 - 远程控制浏览器自动化处理闲鱼风控拦截
 cdp:
   host: 127.0.0.1

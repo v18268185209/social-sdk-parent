@@ -71,6 +71,7 @@ public class DatabaseInitializer {
             ensureMessageColumns();
             ensureOpenAppTable();
             ensureImColumns();
+            ensureRuleColumns();
             // ===== 新增模块的列补齐 =====
             ensureMarketColumns();
             ensureMonitorColumns();
@@ -260,6 +261,11 @@ public class DatabaseInitializer {
         ensureColumn("xianyu_account", "im_token_expires_at", "DATETIME");
     }
 
+    private void ensureRuleColumns() {
+        ensureColumn("xianyu_keyword_rule", "action", "VARCHAR(16)");
+        ensureColumn("xianyu_keyword_rule", "action_target_item_id", "VARCHAR(64)");
+    }
+
     /**
      * 补齐 xianyu_account 的 Chrome 容器隔离字段（旧库升级场景）。
      * schema-sqlite.sql 新建库已含这些列；此处用 ALTER 兜底已有库。
@@ -353,17 +359,22 @@ public class DatabaseInitializer {
     // ======================== 新增模块迁移 ========================
 
     private void ensureMarketColumns() {
-        // market_snapshot 表补齐
+        // market_snapshot 表补齐（继承 BaseEntity，旧库/当前 schema 可能缺 updated_at/deleted）
         ensureColumn("market_snapshot", "raw_data", "TEXT");
         ensureColumn("market_snapshot", "total_results", "INTEGER DEFAULT 0");
-        // price_history 表补齐
+        ensureColumn("market_snapshot", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+        ensureColumn("market_snapshot", "deleted", "INTEGER DEFAULT 0");
+        // price_history 表补齐（继承 BaseEntity，旧库/当前 schema 可能缺 updated_at/deleted）
         ensureColumn("price_history", "currency", "VARCHAR(8) DEFAULT 'CNY'");
         ensureColumn("price_history", "item_condition", "VARCHAR(32)");
-        // market_daily_stat 表补齐
+        ensureColumn("price_history", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+        ensureColumn("price_history", "deleted", "INTEGER DEFAULT 0");
+        // market_daily_stat 表补齐（继承 BaseEntity，旧库/当前 schema 可能缺 deleted）
         ensureColumn("market_daily_stat", "p25_price", "REAL");
         ensureColumn("market_daily_stat", "p75_price", "REAL");
         ensureColumn("market_daily_stat", "volume", "INTEGER DEFAULT 0");
         ensureColumn("market_daily_stat", "sampled_count", "INTEGER DEFAULT 0");
+        ensureColumn("market_daily_stat", "deleted", "INTEGER DEFAULT 0");
     }
 
     private void ensureMonitorColumns() {

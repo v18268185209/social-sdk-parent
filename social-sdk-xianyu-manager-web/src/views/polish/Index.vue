@@ -20,7 +20,69 @@
             <el-button type="primary" @click="doPolish" :loading="loading">擦亮</el-button>
           </el-form-item>
         </el-form>
-        <pre v-if="singleResult">{{ JSON.stringify(singleResult, null, 2) }}</pre>
+
+        <!-- 擦亮结果 - 只读表单 -->
+        <div v-if="singleResult" class="polish-result">
+          <el-divider content-position="left">
+            <el-icon><View /></el-icon> 擦亮结果
+          </el-divider>
+          <el-alert v-if="singleResult.success" type="success" :closable="false" show-icon>
+            擦亮成功
+            <span v-if="singleResult.polishedAt"> · {{ formatTime(singleResult.polishedAt) }}</span>
+          </el-alert>
+          <el-alert v-else type="warning" :closable="false" show-icon>
+            擦亮已提交，请查看详情确认
+          </el-alert>
+
+          <div v-if="singleItem" class="polish-item-card">
+            <el-descriptions :column="2" border size="default">
+              <el-descriptions-item label="商品标题" :span="2">
+                <span class="polish-item-title">{{ singleItem.title }}</span>
+              </el-descriptions-item>
+              <el-descriptions-item label="商品ID">{{ singleItem.id || singleResult.itemId }}</el-descriptions-item>
+              <el-descriptions-item label="卖家">{{ singleItem.userNick || '—' }}</el-descriptions-item>
+              <el-descriptions-item label="价格">
+                <span class="polish-item-price">¥{{ singleItem.price }}</span>
+                <span v-if="singleItem.originalPrice && singleItem.originalPrice !== singleItem.price" class="polish-item-original">
+                  (原价 ¥{{ singleItem.originalPrice }})
+                </span>
+              </el-descriptions-item>
+              <el-descriptions-item label="状态">
+                <el-tag v-if="!singleItem.itemDeleted && singleItem.itemStatus === 0" type="success" size="small">在售</el-tag>
+                <el-tag v-else-if="singleItem.itemDeleted" type="danger" size="small">已删除</el-tag>
+                <el-tag v-else type="info" size="small">状态: {{ singleItem.itemStatus }}</el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="所在城市">{{ singleItem.city || '—' }} / {{ singleItem.province || '—' }}</el-descriptions-item>
+              <el-descriptions-item label="所在地区">{{ singleItem.area || singleItem.divisionId || '—' }}</el-descriptions-item>
+              <el-descriptions-item label="浏览量">{{ singleItem.browseCount ?? 0 }}</el-descriptions-item>
+              <el-descriptions-item label="收藏数">{{ singleItem.favorNum ?? singleItem.collectNum ?? 0 }}</el-descriptions-item>
+              <el-descriptions-item label="评论数">{{ singleItem.commentNum ?? 0 }}</el-descriptions-item>
+              <el-descriptions-item label="所在地区">{{ singleItem.locationAware ? '支持同城' : '普通' }}</el-descriptions-item>
+              <el-descriptions-item label="取货方式">
+                {{ singleItem.onlyTakeSelf ? '仅自提' : (singleItem.onlyInSameCity ? '同城' : '支持邮寄') }}
+              </el-descriptions-item>
+              <el-descriptions-item label="首次上架" :span="2">{{ singleItem.firstModified || '—' }}</el-descriptions-item>
+              <el-descriptions-item label="下架时间" :span="2">{{ singleItem.outStockTime || '—' }}</el-descriptions-item>
+            </el-descriptions>
+
+            <!-- 商品图片 -->
+            <div v-if="singleItem.imageUrls?.length" class="polish-images">
+              <div class="polish-images-title">商品图片</div>
+              <div class="polish-images-list">
+                <el-image v-for="(url, idx) in singleItem.imageUrls" :key="idx"
+                  :src="url" :preview-src-list="singleItem.imageUrls" :initial-index="idx"
+                  fit="cover" class="polish-image" />
+              </div>
+            </div>
+          </div>
+
+          <!-- 原始 JSON -->
+          <el-collapse style="margin-top: 16px">
+            <el-collapse-item title="原始响应 JSON">
+              <pre class="polish-json">{{ JSON.stringify(singleResult, null, 2) }}</pre>
+            </el-collapse-item>
+          </el-collapse>
+        </div>
       </el-tab-pane>
 
       <el-tab-pane label="批量擦" name="batch">
@@ -77,7 +139,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
 import { polishItem, batchPolish, superPolish } from '@/api/polish'
@@ -96,6 +158,23 @@ const batchForm = ref({ accountId: null, itemIds: [] })
 const batchResult = ref(null)
 const superForm = ref({ accountId: null, itemId: '', times: 3 })
 const superResult = ref(null)
+
+// 从擦亮响应中提取 itemDO
+const singleItem = computed(() => {
+  return singleResult.value?.response?.data?.itemDO || null
+})
+
+// 格式化时间（ISO -> 可读）
+function formatTime(t) {
+  if (!t) return ''
+  try {
+    const d = new Date(t.replace('T', ' ').replace('Z', ''))
+    if (isNaN(d.getTime())) return t
+    return d.toLocaleString('zh-CN', { hour12: false })
+  } catch {
+    return t
+  }
+}
 
 onMounted(async () => {
   try {
@@ -170,4 +249,14 @@ async function doSuperPolish() {
 
 <style scoped>
 .polish-page { padding: 16px; }
+.polish-result { margin-top: 16px; }
+.polish-item-card { margin-top: 16px; }
+.polish-item-title { font-weight: 600; font-size: 15px; color: #303133; }
+.polish-item-price { color: #f56c6c; font-weight: 700; font-size: 16px; }
+.polish-item-original { color: #909399; text-decoration: line-through; margin-left: 8px; font-size: 13px; }
+.polish-images { margin-top: 16px; padding-top: 16px; border-top: 1px solid #ebeef5; }
+.polish-images-title { font-size: 13px; color: #909399; margin-bottom: 8px; }
+.polish-images-list { display: flex; gap: 8px; flex-wrap: wrap; }
+.polish-image { width: 96px; height: 96px; border-radius: 4px; border: 1px solid #ebeef5; }
+.polish-json { background: #f5f7fa; padding: 16px; border-radius: 4px; max-height: 400px; overflow: auto; font-size: 12px; line-height: 1.5; }
 </style>

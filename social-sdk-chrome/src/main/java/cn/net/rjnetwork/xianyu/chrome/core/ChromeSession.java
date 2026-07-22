@@ -506,7 +506,7 @@ public class ChromeSession {
 
     private List<String> buildLaunchCommand(ChromeProfile profile) {
         List<String> cmd = new ArrayList<>();
-        cmd.add(detectChromeExecutable());
+        cmd.add(detectChromeExecutable(profile.getAccountId()));
         cmd.add("--remote-debugging-port=" + profile.getCdpPort());
         cmd.add("--user-data-dir=" + profile.getProfileDir());
         cmd.add("--window-size=" + config.getWindowWidth() + "," + config.getWindowHeight());
@@ -571,37 +571,38 @@ public class ChromeSession {
         return cmd;
     }
 
-    private String detectChromeExecutable() {
-        if (config.getExecutablePath() != null && !config.getExecutablePath().isEmpty()) {
-            return config.getExecutablePath();
-        }
-        // 常见 macOS 路径
-        String[] candidates = {
-                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                "/Applications/Chromium.app/Contents/MacOS/Chromium",
-                "/usr/bin/google-chrome",
-                "/usr/bin/chromium-browser",
-                "/usr/bin/chromium",
-                "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
-        };
-        for (String c : candidates) {
-            if (new File(c).exists()) {
-                return c;
+    private String detectChromeExecutable(long accountId) {
+        String configuredPath = config.getExecutablePath();
+        if (configuredPath != null && !configuredPath.isBlank()) {
+            String executable = resolveExecutableAt(configuredPath);
+            if (executable != null) {
+                return executable;
             }
+            log.warn("[SESSION] 配置的 Chrome 路径不可用: {}", configuredPath);
         }
-        // 从 PATH 探测
-        try {
-            Process which = new ProcessBuilder("which", "google-chrome").start();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(which.getInputStream()))) {
-                String line = reader.readLine();
-                if (line != null && !line.isEmpty()) {
-                    return line.trim();
-                }
+
+        String chromeBin = System.getenv("CHROME_BIN");
+        if (chromeBin != null && !chromeBin.isBlank()) {
+            String executable = resolveExecutableAt(chromeBin);
+            if (executable != null) {
+                return executable;
             }
-        } catch (IOException ignored) {
+            log.warn("[SESSION] CHROME_BIN 不可用: {}", chromeBin);
         }
-        // 默认：直接叫 google-chrome
-        return "google-chrome";
+
+        ChromeDetector.DetectionResult detected = ChromeDetector.detect();
+        if (detected.found) {
+            return detected.path;
+        }
+
+        throw ChromeException.launchFailed(accountId,
+                "未找到可用的 Chrome/Chromium/Edge 浏览器，请在 Chrome 配置中设置 chrome.executable-path，"
+                        + "或安装 Chrome/Edge，或设置 CHROME_BIN。已搜索路径数=" + detected.searched.size());
+    }
+
+    private String resolveExecutableAt(String path) {
+        File f = new File(path.trim());
+        return f.exists() && f.canExecute() ? f.getAbsolutePath() : null;
     }
 
     private void destroyProcessSilently(Process process) {

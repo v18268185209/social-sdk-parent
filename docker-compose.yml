@@ -15,6 +15,9 @@ services:
       - TZ=Asia/Shanghai
       # 覆盖 application.yml 中的配置
       - DB_PATH=/app/data/xianyu.db
+      # Linux/Docker 默认无头；网页配置页会读取后端当前值并显示为无头模式
+      - CHROME_HEADLESS=true
+      - CHROME_HEADLESS_MODE=new
     tmpfs:
       - /tmp:size=64M
     security_opt:

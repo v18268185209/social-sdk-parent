@@ -648,8 +648,8 @@ public class MessageService {
             // 容器未启动或已崩溃 → 启动该账号独占容器
             boolean launched = accountService.launchChromeContainer(acc);
             if (!launched || acc.getCdpPort() == null || acc.getCdpPort() <= 0) {
-                log.warn("[MESSAGE] launchChromeContainer failed for account {}, fall back to global CDP", accountId);
-                return null;
+                String reason = accountService.getLastChromeLaunchError(accountId).orElse("未知原因");
+                throw new IllegalStateException("账号 Chrome 容器启动失败，无法进行自动滑块验证: " + reason);
             }
             String endpoint = "http://127.0.0.1:" + acc.getCdpPort();
             log.info("[MESSAGE] launched Chrome container for account {}, cdpEndpoint={}",

@@ -40,6 +40,9 @@ public class AccountService {
     /** Chrome 容器管理器（可选，非 Chrome 环境为 null） */
     private ChromeProfileManager chromeProfileManager;
 
+    /** 最近一次 Chrome 容器启动失败原因（accountId → error message） */
+    private final Map<Long, String> chromeLaunchErrors = new ConcurrentHashMap<>();
+
     public AccountService(AccountMapper accountMapper) {
         this.accountMapper = accountMapper;
     }
@@ -419,6 +422,7 @@ public class AccountService {
      */
     public boolean launchChromeContainer(XianyuAccount account) {
         if (chromeProfileManager == null) {
+            chromeLaunchErrors.put(account.getId(), "Chrome 容器管理器不可用");
             return false;
         }
         try {
@@ -434,12 +438,22 @@ public class AccountService {
             account.setChromeLaunchedAt(profile.getLaunchedAt());
             account.setUpdatedAt(LocalDateTime.now());
             accountMapper.updateById(account);
+            chromeLaunchErrors.remove(account.getId());
             return true;
         } catch (Exception e) {
-            System.err.println("[ACCOUNT-SERVICE] 启动 Chrome 容器失败, accountId=" + account.getId() + ", err=" + e.getMessage());
+            String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            chromeLaunchErrors.put(account.getId(), message);
+            logger.warn("[ACCOUNT-SERVICE] 启动 Chrome 容器失败, accountId={}, err={}", account.getId(), message, e);
             // 不阻断登录，仅记录错误
             return false;
         }
+    }
+
+    /**
+     * 获取指定账号最近一次 Chrome 容器启动失败原因。
+     */
+    public Optional<String> getLastChromeLaunchError(long accountId) {
+        return Optional.ofNullable(chromeLaunchErrors.get(accountId));
     }
 
     /**

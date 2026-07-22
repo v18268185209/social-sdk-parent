@@ -6,8 +6,7 @@ import cn.net.rjnetwork.xianyu.manager.account.task.AccountHealthTask;
 import cn.net.rjnetwork.xianyu.manager.message.service.ImMessageWatcherService;
 import cn.net.rjnetwork.xianyu.manager.monitor.service.MonitorService;
 import cn.net.rjnetwork.xianyu.manager.notify.NotifyEvent;
-import cn.net.rjnetwork.xianyu.manager.product.service.ProductSyncService;
-import cn.net.rjnetwork.xianyu.manager.product.service.ProductSyncService.SyncResult;
+import cn.net.rjnetwork.xianyu.manager.product.service.ProductService;
 import cn.net.rjnetwork.xianyu.manager.virtual.service.VirtualShipService;
 import cn.net.rjnetwork.xianyu.manager.order.service.OrderSyncService;
 import cn.net.rjnetwork.xianyu.manager.monitor.service.MonitorTaskService;
@@ -28,7 +27,7 @@ public class ScheduledTasks {
     private static final Logger log = LoggerFactory.getLogger(ScheduledTasks.class);
 
     private final AccountMapper accountMapper;
-    private final ProductSyncService productSyncService;
+    private final ProductService productService;
     private final MonitorService monitorService;
     private final AccountHealthTask healthTask;
     private final ImMessageWatcherService watcherService;
@@ -38,7 +37,7 @@ public class ScheduledTasks {
     private final MonitorTaskRunner monitorTaskRunner;
     private final CollectService collectService;
 
-    public ScheduledTasks(AccountMapper accountMapper, ProductSyncService productSyncService,
+    public ScheduledTasks(AccountMapper accountMapper, ProductService productService,
                           MonitorService monitorService, AccountHealthTask healthTask,
                           ImMessageWatcherService watcherService,
                           VirtualShipService virtualShipService,
@@ -47,7 +46,7 @@ public class ScheduledTasks {
                           MonitorTaskRunner monitorTaskRunner,
                           CollectService collectService) {
         this.accountMapper = accountMapper;
-        this.productSyncService = productSyncService;
+        this.productService = productService;
         this.monitorService = monitorService;
         this.healthTask = healthTask;
         this.watcherService = watcherService;
@@ -64,8 +63,9 @@ public class ScheduledTasks {
         List<XianyuAccount> accounts = accountMapper.selectList(null);
         for (XianyuAccount acc : accounts) {
             try {
-                SyncResult r = productSyncService.sync(acc.getId());
-                log.info("[Schedule] sync account {}: {}", acc.getId(), r.success ? r.count : r.message);
+                ProductService.SyncResult r = productService.syncFromXianyu(acc.getId());
+                log.info("[Schedule] sync account {}: synced={} ins={} upd={}",
+                        acc.getId(), r.synced, r.inserted, r.updated);
             } catch (Exception e) {
                 log.warn("[Schedule] sync failed account {}: {}", acc.getId(), e.getMessage());
             }

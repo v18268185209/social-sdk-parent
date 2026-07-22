@@ -255,7 +255,7 @@ public class XianyuCaptchaSolver {
         try {
             browserEndpoint = getCdpEndpointFromBrowser();
         } catch (Exception e) {
-            return CaptchaResult.fail("无法连接 CDP 浏览器：" + e.getMessage());
+            return CaptchaResult.fail("无法连接 CDP 浏览器（" + getCdpHttpEndpoint() + "）：" + describeException(e));
         }
 
         // 2. 获取所有页面列表
@@ -1767,5 +1767,18 @@ public class XianyuCaptchaSolver {
     private static String truncate(String s, int max) {
         if (s == null) return "null";
         return s.length() > max ? s.substring(0, max) + "..." : s;
+    }
+
+    private static String describeException(Exception e) {
+        if (e == null) return "未知异常";
+        String message = e.getMessage();
+        if (message != null && !message.isBlank()) {
+            return message;
+        }
+        Throwable cause = e.getCause();
+        if (cause != null && cause.getMessage() != null && !cause.getMessage().isBlank()) {
+            return cause.getClass().getSimpleName() + ": " + cause.getMessage();
+        }
+        return e.getClass().getSimpleName();
     }
 }

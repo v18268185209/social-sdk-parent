@@ -54,17 +54,68 @@
           <el-input v-model="creditUserId" placeholder="用户 ID（留空取自己）" style="width: 220px; margin-left: 12px" clearable />
           <el-button type="primary" @click="loadCredit" style="margin-left: 12px">拉信用画像</el-button>
         </div>
-        <!-- 信用分卡片 -->
-        <div v-if="creditCards.length" style="display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap">
-          <el-card v-for="c in creditCards" :key="c.label" shadow="hover" style="min-width: 140px">
-            <div style="text-align: center">
-              <div style="font-size: 24px; font-weight: 700; color: #409eff">{{ c.value }}</div>
-              <div style="font-size: 12px; color: #999; margin-top: 4px">{{ c.label }}</div>
+
+        <!-- 用户头部信息 -->
+        <div v-if="creditData" class="credit-header">
+          <el-avatar :size="64" :src="creditData.data?.module?.base?.avatar?.avatar" />
+          <div class="credit-header-info">
+            <div class="credit-header-name">{{ creditData.data?.module?.base?.displayName || '—' }}</div>
+            <div class="credit-header-meta">
+              <el-icon><Location /></el-icon>
+              <span>{{ creditData.data?.module?.base?.ipLocation || '未知' }}</span>
+              <el-divider direction="vertical" />
+              <span class="credit-header-intro">{{ creditData.data?.module?.base?.introduction || '' }}</span>
             </div>
+            <!-- 信用等级标签 -->
+            <div v-if="creditData.data?.module?.base?.ylzTags?.length" class="credit-tags">
+              <el-tag v-for="tag in creditData.data.module.base.ylzTags" :key="tag.code"
+                :type="tag.code === 'cs_seller_level' ? 'success' : 'warning'" size="small" effect="dark">
+                <img v-if="tag.icon" :src="tag.icon" class="credit-tag-icon" />
+                {{ tag.text }} L{{ tag.attributes?.level }}
+              </el-tag>
+            </div>
+          </div>
+        </div>
+
+        <!-- 信用分卡片 -->
+        <div v-if="creditCards.length" class="credit-cards">
+          <el-card v-for="c in creditCards" :key="c.label" shadow="hover" class="credit-card">
+            <div class="credit-card-value">{{ c.value }}</div>
+            <div class="credit-card-label">{{ c.label }}</div>
           </el-card>
         </div>
-        <pre v-if="creditData" style="margin-top: 16px; background: #f5f7fa; padding: 16px; border-radius: 4px; max-height: 500px; overflow: auto">{{ JSON.stringify(creditData, null, 2) }}</pre>
-        <el-empty v-else description="暂无信用数据" />
+
+        <!-- 详细数据 -->
+        <el-descriptions v-if="creditData" :column="3" border size="small" class="credit-detail">
+          <el-descriptions-item label="店铺等级">
+            <el-tag type="primary">{{ creditData.data?.module?.shop?.level || '—' }}</el-tag>
+            <span class="credit-detail-hint">
+              (还差 {{ creditData.data?.module?.shop?.nextLevelNeedScore ?? -1 }} 分升级)
+            </span>
+          </el-descriptions-item>
+          <el-descriptions-item label="信用分">{{ creditData.data?.module?.shop?.score ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="评价数">{{ creditData.data?.module?.shop?.reviewNum ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="在售宝贝">{{ creditData.data?.module?.tabs?.item?.number ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="总评价">{{ creditData.data?.module?.tabs?.rate?.number ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="业务质量">
+            <a v-if="creditData.data?.module?.shop?.businessQuality?.href" :href="creditData.data.module.shop.businessQuality.href" target="_blank">
+              {{ creditData.data.module.shop.businessQuality.name }}
+            </a>
+            <span v-else>{{ creditData.data?.module?.shop?.businessQuality?.name || '—' }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="粉丝数">{{ creditData.data?.module?.social?.followers ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="关注数">{{ creditData.data?.module?.social?.following ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="擦亮上限">{{ creditData.data?.module?.shop?.itemToppingLimit ?? 0 }} 次/天</el-descriptions-item>
+        </el-descriptions>
+
+        <!-- 原始 JSON -->
+        <el-collapse style="margin-top: 16px">
+          <el-collapse-item title="原始响应 JSON">
+            <pre class="credit-json">{{ JSON.stringify(creditData, null, 2) }}</pre>
+          </el-collapse-item>
+        </el-collapse>
+
+        <el-empty v-if="!creditData" description="暂无信用数据" />
       </el-tab-pane>
 
       <!-- 退款管理 -->
@@ -134,6 +185,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Location, View } from '@element-plus/icons-vue'
 import { reviewOrder, listReviews, getCredit, applyRefund, listRefunds, getRefundDetail } from '@/api/review'
 import { listAccounts } from '@/api/account'
 
@@ -269,4 +321,18 @@ function refundStatusType(status) {
 <style scoped>
 .review-page { padding: 16px; }
 .toolbar { display: flex; align-items: center; }
+.credit-header { display: flex; align-items: center; gap: 16px; margin-top: 16px; padding: 16px; background: #f5f7fa; border-radius: 8px; }
+.credit-header-info { flex: 1; }
+.credit-header-name { font-size: 18px; font-weight: 700; color: #303133; }
+.credit-header-meta { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 13px; color: #909399; }
+.credit-header-intro { color: #606266; }
+.credit-tags { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.credit-tag-icon { width: 16px; height: 16px; vertical-align: middle; margin-right: 4px; }
+.credit-cards { display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+.credit-card { min-width: 140px; text-align: center; }
+.credit-card-value { font-size: 24px; font-weight: 700; color: #409eff; }
+.credit-card-label { font-size: 12px; color: #909399; margin-top: 4px; }
+.credit-detail { margin-top: 16px; }
+.credit-detail-hint { font-size: 12px; color: #909399; margin-left: 4px; }
+.credit-json { background: #f5f7fa; padding: 16px; border-radius: 4px; max-height: 400px; overflow: auto; font-size: 12px; line-height: 1.5; }
 </style>

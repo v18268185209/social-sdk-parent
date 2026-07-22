@@ -6,6 +6,7 @@ import cn.net.rjnetwork.xianyu.manager.product.dto.ProductCreateRequest;
 import cn.net.rjnetwork.xianyu.manager.product.dto.ProductUpdateRequest;
 import cn.net.rjnetwork.xianyu.manager.product.model.XianyuProduct;
 import cn.net.rjnetwork.xianyu.manager.product.service.ProductService;
+import cn.net.rjnetwork.xianyu.manager.product.service.SyncProgressService;
 import cn.net.rjnetwork.xianyu.manager.product.service.PolishService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.web.bind.annotation.*;
@@ -19,10 +20,13 @@ public class ProductController {
 
     private final ProductService productService;
     private final PolishService polishService;
+    private final SyncProgressService syncProgressService;
 
-    public ProductController(ProductService productService, PolishService polishService) {
+    public ProductController(ProductService productService, PolishService polishService,
+                             SyncProgressService syncProgressService) {
         this.productService = productService;
         this.polishService = polishService;
+        this.syncProgressService = syncProgressService;
     }
 
     @GetMapping
@@ -127,14 +131,25 @@ public class ProductController {
     }
 
     /**
-     * 从闲鱼同步指定账号的在线商品到本地。
+     * 启动同步任务（异步执行），返回 syncId 供前端轮询进度。
      * 需要账号已扫码登录且 cookie 有效。
+     *
+     * @param accountId 账号 id
+     * @return {syncId, message}
      */
     @PostMapping("/sync")
-    public ApiResponse<ProductService.SyncResult> syncFromXianyu(@RequestParam Long accountId) {
+    public ApiResponse<Map<String, Object>> syncFromXianyu(@RequestParam Long accountId) {
         try {
-            ProductService.SyncResult result = productService.syncFromXianyu(accountId);
-            return ApiResponse.ok(result);
+            // 校验账号 + cookie，防重复提交
+            String syncId = syncProgressService.createOrGetSyncId(accountId);
+            String runningSyncId = syncProgressService.createOrGetSyncId(accountId);
+            if (!runningSyncId.equals(syncId)) {
+                // 已有同步在跑，直接返回已有 syncId
+                return ApiResponse.ok(Map.of("syncId", runningSyncId, "message", "同步任务已在进行中"));
+            }
+            // 异步启动
+            productService.syncFromXianyuAsync(accountId, syncId);
+            return ApiResponse.ok(Map.of("syncId", syncId, "message", "同步任务已启动"));
         } catch (IllegalArgumentException e) {
             return ApiResponse.fail("INVALID_ARGUMENT", e.getMessage());
         } catch (IllegalStateException e) {
@@ -142,6 +157,21 @@ public class ProductController {
         } catch (Exception e) {
             return ApiResponse.fail("SYNC_FAILED", "Sync failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * 查询同步进度。前端每 1-2 秒轮询一次，直到 phase=COMPLETED 或 phase=FAILED。
+     *
+     * @param syncId 同步任务 id
+     * @return 进度详情（phase / total / current / inserted / updated / failed / message）
+     */
+    @GetMapping("/sync/progress")
+    public ApiResponse<SyncProgressService.Progress> getSyncProgress(@RequestParam String syncId) {
+        SyncProgressService.Progress progress = syncProgressService.getProgress(syncId);
+        if (progress == null) {
+            return ApiResponse.fail("NOT_FOUND", "同步任务不存在或已过期");
+        }
+        return ApiResponse.ok(progress);
     }
 
     // ======================== 商品擦亮（对齐前端 /api/products/polish）========================
