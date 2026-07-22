@@ -2,6 +2,7 @@ package cn.net.rjnetwork.xianyu.manager.message.websocket;
 
 import cn.net.rjnetwork.xianyu.manager.message.model.XianyuMessage;
 import cn.net.rjnetwork.xianyu.manager.message.service.MessageService;
+import cn.net.rjnetwork.xianyu.manager.buyer.service.BuyerProfileService;
 import cn.net.rjnetwork.xianyu.manager.rule.service.RuleService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,12 +24,14 @@ public class MessageHandler {
     private final MessageService messageService;
     private final MessageBroadcaster broadcaster;
     private final RuleService ruleService;
+    private final BuyerProfileService buyerProfileService;
     private final Map<Long, Object> accountLocks = new ConcurrentHashMap<>();
 
-    public MessageHandler(MessageService messageService, MessageBroadcaster broadcaster, RuleService ruleService) {
+    public MessageHandler(MessageService messageService, MessageBroadcaster broadcaster, RuleService ruleService, BuyerProfileService buyerProfileService) {
         this.messageService = messageService;
         this.broadcaster = broadcaster;
         this.ruleService = ruleService;
+        this.buyerProfileService = buyerProfileService;
     }
 
     /**
@@ -42,13 +45,22 @@ public class MessageHandler {
             // 1. 持久化消息
             messageService.saveIncomingMessage(message);
 
-            // 2. 自动回复
+            // 2. 更新买家画像（消息到达自动聚合）
+            try {
+                if ("INCOMING".equals(message.getDirection()) && message.getSenderId() != null && !message.getSenderId().isBlank()) {
+                    buyerProfileService.onIncomingMessage(message.getSenderId(), message.getSenderName() != null ? message.getSenderName() : "买家" + message.getSenderId());
+                }
+            } catch (Exception e) {
+                logger.warn("更新买家画像失败: {}", e.getMessage());
+            }
+
+            // 3. 自动回复
             String reply = messageService.autoReplyIfNeeded(accountId, message);
             if (reply != null) {
                 broadcaster.broadcast(accountId, message);
             }
 
-            // 3. 广播新消息
+            // 4. 广播新消息
             broadcaster.broadcast(accountId, message);
         }
     }
