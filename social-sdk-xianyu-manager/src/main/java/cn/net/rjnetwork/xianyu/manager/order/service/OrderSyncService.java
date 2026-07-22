@@ -7,6 +7,8 @@ import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
 import cn.net.rjnetwork.xianyu.manager.notify.NotifyEvent;
 import cn.net.rjnetwork.xianyu.manager.order.mapper.OrderMapper;
 import cn.net.rjnetwork.xianyu.manager.order.model.XianyuOrder;
+import cn.net.rjnetwork.xianyu.manager.product.mapper.ProductMapper;
+import cn.net.rjnetwork.xianyu.manager.product.model.XianyuProduct;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.context.ApplicationEventPublisher;
@@ -38,12 +40,15 @@ public class OrderSyncService {
 
     private final AccountMapper accountMapper;
     private final OrderMapper orderMapper;
+    private final ProductMapper productMapper;
     private final ApplicationEventPublisher eventPublisher;
 
     public OrderSyncService(AccountMapper accountMapper, OrderMapper orderMapper,
+                            ProductMapper productMapper,
                             ApplicationEventPublisher eventPublisher) {
         this.accountMapper = accountMapper;
         this.orderMapper = orderMapper;
+        this.productMapper = productMapper;
         this.eventPublisher = eventPublisher;
     }
 
@@ -390,6 +395,8 @@ public class OrderSyncService {
                                     "itemTitle", str(order.getItemTitle()), "status", str(order.getStatus()))));
                 }
             } else {
+                // 新订单：按 itemTitle + accountId 反查本地商品，回填 product_id + goodsType
+                resolveProductRef(order, accountId);
                 order.setCreatedAt(LocalDateTime.now());
                 order.setUpdatedAt(LocalDateTime.now());
                 orderMapper.insert(order);
@@ -418,6 +425,29 @@ public class OrderSyncService {
                 .eq(XianyuOrder::getOrderId, orderId)
                 .last("LIMIT 1");
         return orderMapper.selectOne(wrapper);
+    }
+
+    /**
+     * 按 itemTitle + accountId 精确反查本地商品，回填 order.productId + goodsType。
+     * 若查不到商品，productId 留空，后续虚拟发货任务创建时会跳过。
+     */
+    private void resolveProductRef(XianyuOrder order, Long accountId) {
+        if (order.getItemTitle() == null || order.getItemTitle().isBlank()) return;
+        XianyuProduct product = productMapper.selectOne(
+                new LambdaQueryWrapper<XianyuProduct>()
+                        .eq(XianyuProduct::getAccountId, accountId)
+                        .eq(XianyuProduct::getTitle, order.getItemTitle())
+                        .last("LIMIT 1"));
+        if (product != null) {
+            order.setProductId(product.getId());
+            if (product.getGoodsType() != null) {
+                order.setGoodsType(product.getGoodsType());
+            }
+            // 虚拟商品默认需要虚拟发货
+            if ("VIRTUAL".equals(product.getGoodsType())) {
+                order.setRequireVirtualShip(true);
+            }
+        }
     }
 
     private String getText(JsonNode node, String field) {

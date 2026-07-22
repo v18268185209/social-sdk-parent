@@ -29,6 +29,9 @@ public class XianyuOrder extends BaseEntity {
     /** 商品类型：PHYSICAL / VIRTUAL */
     private String goodsType;
 
+    /** 关联本地商品 id（订单同步时按 item_id 反查回填） */
+    private Long productId;
+
     /** 是否需要虚拟发货 */
     private Boolean requireVirtualShip;
 

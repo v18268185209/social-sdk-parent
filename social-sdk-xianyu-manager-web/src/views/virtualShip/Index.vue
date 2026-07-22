@@ -29,6 +29,38 @@
       </el-form>
     </el-card>
 
+    <!-- 商品虚拟发货配置列表 -->
+    <el-card style="margin: 16px 0;">
+      <template #header>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span>🛒 商品虚拟发货配置</span>
+          <el-button type="primary" size="small" @click="loadProductList" :loading="productLoading">刷新</el-button>
+        </div>
+      </template>
+      <el-alert type="info" :closable="false" style="margin-bottom: 12px;">
+        列出所有 goods_type=VIRTUAL 的商品。点击"配置"设置发货方式（卡密/账号/链接/网盘）和发货内容模板。
+        模板支持占位符：<b>${cardCode}</b> <b>${cardPassword}</b> <b>${link}</b> <b>${extractCode}</b> <b>${fileName}</b> <b>${itemTitle}</b> <b>${orderId}</b>
+      </el-alert>
+      <el-table :data="products" stripe v-loading="productLoading">
+        <el-table-column prop="id" label="ID" width="60" />
+        <el-table-column prop="title" label="商品标题" min-width="200" show-overflow-tooltip />
+        <el-table-column label="发货类型" width="110">
+          <template #default="{ row }">
+            <el-tag :type="deliverTypeTag(row.deliverType)">{{ deliverTypeLabel(row.deliverType) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="deliverContentTemplate" label="发货模板" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="stock" label="库存" width="80" />
+        <el-table-column prop="status" label="状态" width="90" />
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" @click="openProductConfig(row)">配置</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!productLoading && products.length === 0" description="暂无虚拟商品（goods_type=VIRTUAL）" />
+    </el-card>
+
     <!-- 卡密池卡片 -->
     <el-card style="margin-bottom: 20px;" v-if="deliverType === 'VIRTUAL_CARD'">
       <template #header>
@@ -140,6 +172,53 @@
       <el-empty v-if="!taskLoading && tasks.length === 0" description="暂无发货任务" />
     </el-card>
 
+    <!-- 商品虚拟发货配置弹窗 -->
+    <el-dialog v-model="showProductConfigDialog" title="商品虚拟发货配置" width="640px">
+      <el-form :model="productConfigForm" label-width="120px">
+        <el-form-item label="商品">
+          <span>{{ productConfigForm.title }}</span>
+        </el-form-item>
+        <el-form-item label="商品类型">
+          <el-radio-group v-model="productConfigForm.goodsType">
+            <el-radio label="VIRTUAL">虚拟商品</el-radio>
+            <el-radio label="PHYSICAL">实物商品</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="发货类型">
+          <el-radio-group v-model="productConfigForm.deliverType">
+            <el-radio label="CARD">卡密</el-radio>
+            <el-radio label="ACCOUNT">账号</el-radio>
+            <el-radio label="LINK">链接文本</el-radio>
+            <el-radio label="FILE">网盘文件</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="发货内容模板">
+          <el-input
+            v-model="productConfigForm.deliverContentTemplate"
+            type="textarea"
+            :rows="6"
+            :placeholder="templatePlaceholder"
+          />
+          <div style="color: #909399; font-size: 12px; margin-top: 6px; line-height: 1.6;">
+            <div v-if="productConfigForm.deliverType === 'CARD' || productConfigForm.deliverType === 'ACCOUNT'">
+              卡密发货。可用占位符：<b>${cardCode}</b> <b>${cardPassword}</b>。留空则走默认格式"卡号：xxx\n密码：xxx"。
+            </div>
+            <div v-else-if="productConfigForm.deliverType === 'LINK'">
+              链接发货。模板即发给买家的文本，支持 <b>${itemTitle}</b> <b>${orderId}</b> 等通用占位符。
+            </div>
+            <div v-else-if="productConfigForm.deliverType === 'FILE'">
+              网盘发货。模板填<b>本地文件路径</b>，系统自动上传网盘生成分享链接。发货文本可用：<b>${link}</b> <b>${extractCode}</b> <b>${fileName}</b>。
+            </div>
+            <div v-else>请选择发货类型。</div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showProductConfigDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveProductConfig" :loading="productConfigSaving">保存</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 批量添加卡密对话框 -->
     <el-dialog v-model="showAddCardDialog" title="批量添加卡密" width="500px">
       <el-alert type="info" :closable="false" style="margin-bottom: 12px;">每行一个卡密，如：XXXX-XXXX-XXXX-XXXX</el-alert>
@@ -165,14 +244,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Upload, UploadFilled } from '@element-plus/icons-vue'
 import api from '@/api/request'
 import {
   listVirtualShipTasks, getVirtualShipConfig, saveVirtualShipConfig,
   listVirtualCards, importVirtualCards, deleteVirtualCard,
-  listStorageAccounts, listStorageFiles, shareStorageFile, uploadStorageFile
+  listStorageAccounts, listStorageFiles, shareStorageFile, uploadStorageFile,
+  listVirtualProducts, saveProductVirtualShipConfig
 } from '@/api/virtualShip'
 
 // 配置（字段与后端 VirtualShipConfig 对齐）
@@ -268,6 +348,68 @@ const selectedFile = ref(null)
 const loadStorageAccounts = async () => {
   try { const r = await listStorageAccounts(); storageAccounts.value = r.data || [] } catch {}
 }
+
+// 商品虚拟发货配置
+const products = ref([])
+const productLoading = ref(false)
+const loadProductList = async () => {
+  productLoading.value = true
+  try {
+    const r = await listVirtualProducts()
+    products.value = r.data || []
+  } catch (e) {
+    ElMessage.error('加载商品列表失败')
+  } finally { productLoading.value = false }
+}
+
+// 商品配置弹窗
+const showProductConfigDialog = ref(false)
+const productConfigSaving = ref(false)
+const productConfigForm = ref({
+  id: null,
+  title: '',
+  goodsType: 'VIRTUAL',
+  deliverType: 'CARD',
+  deliverContentTemplate: ''
+})
+
+const templatePlaceholder = computed(() => {
+  const t = productConfigForm.value.deliverType
+  if (t === 'CARD' || t === 'ACCOUNT') return '卡号：${cardCode}\n密码：${cardPassword}\n（留空走默认格式）'
+  if (t === 'LINK') return '感谢购买【${itemTitle}】，下载链接：xxx\n订单号：${orderId}'
+  if (t === 'FILE') return '/data/files/my-product.zip\n（填本地文件路径，上传网盘后用 ${link} ${extractCode} 渲染）'
+  return ''
+})
+
+const deliverTypeLabel = t => ({ CARD: '卡密', ACCOUNT: '账号', LINK: '链接', FILE: '网盘' }[t] || '-')
+const deliverTypeTag = t => ({ CARD: 'primary', ACCOUNT: 'primary', LINK: 'success', FILE: 'warning' }[t] || 'info')
+
+const openProductConfig = (row) => {
+  productConfigForm.value = {
+    id: row.id,
+    title: row.title,
+    goodsType: row.goodsType || 'VIRTUAL',
+    deliverType: row.deliverType || 'CARD',
+    deliverContentTemplate: row.deliverContentTemplate || ''
+  }
+  showProductConfigDialog.value = true
+}
+
+const saveProductConfig = async () => {
+  productConfigSaving.value = true
+  try {
+    await saveProductVirtualShipConfig(productConfigForm.value.id, {
+      goodsType: productConfigForm.value.goodsType,
+      deliverType: productConfigForm.value.deliverType,
+      deliverContentTemplate: productConfigForm.value.deliverContentTemplate
+    })
+    ElMessage.success('配置已保存')
+    showProductConfigDialog.value = false
+    await loadProductList()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '保存配置失败')
+  } finally { productConfigSaving.value = false }
+}
 const loadFiles = async () => {
   if (!fileFilterAccountId.value) { files.value = []; return }
   fileLoading.value = true
@@ -324,5 +466,6 @@ onMounted(() => {
   loadCards()
   loadStorageAccounts()
   loadTasks()
+  loadProductList()
 })
 </script>

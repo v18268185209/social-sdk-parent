@@ -62,6 +62,18 @@
           </template>
         </el-table-column>
         <el-table-column prop="trackingNo" label="物流单号" width="150" />
+        <el-table-column label="虚拟发货" width="180">
+          <template #default="{ row }">
+            <span v-if="!row.requireVirtualShip && row.goodsType !== 'VIRTUAL'" style="color: #c0c4cc;">—</span>
+            <span v-else>
+              <el-tag :type="virtualShipTagType(row)" size="small">{{ virtualShipLabel(row) }}</el-tag>
+              <div v-if="row.virtualShippedAt" style="font-size: 11px; color: #909399; margin-top: 2px;">
+                {{ formatTime(row.virtualShippedAt) }}
+              </div>
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="deliverContent" label="发货内容快照" min-width="200" show-overflow-tooltip />
         <el-table-column label="操作" width="100" fixed="right">
           <template #default="{ row }">
             <el-button
@@ -188,6 +200,19 @@ function statusTagType(status) {
     CLOSED: '',
     BUYER_TO_CONFIRM: 'warning'
   }[status] || ''
+}
+
+// 虚拟发货状态展示
+function virtualShipLabel(row) {
+  if (row.requireVirtualShip && !row.virtualShippedAt) return '待发货'
+  if (row.virtualShippedAt) return '已发货'
+  if (row.goodsType === 'VIRTUAL') return '虚拟商品'
+  return '—'
+}
+function virtualShipTagType(row) {
+  if (row.requireVirtualShip && !row.virtualShippedAt) return 'warning'
+  if (row.virtualShippedAt) return 'success'
+  return 'info'
 }
 
 // 加载账号列表

@@ -69,7 +69,8 @@ public class VirtualShipService {
     // ======================================================================
 
     /**
-     * 支付成功后调用：如果需要虚拟发货，则创建发货任务
+     * 支付成功后调用：如果需要虚拟发货，则创建发货任务。
+     * <p>商品来源优先级：order.productId（订单同步时已回填）→ 按 itemTitle + accountId 反查兜底。</p>
      */
     @Transactional
     public VirtualShipTask createShipTaskIfVirtual(Long orderId) {
@@ -77,7 +78,18 @@ public class VirtualShipService {
         if (order == null) throw new IllegalArgumentException("Order not found: " + orderId);
         if (!Boolean.TRUE.equals(order.getRequireVirtualShip())) return null;
 
-        XianyuProduct product = productMapper.selectById(order.getItemTitle() != null ? findProductIdByOrder(order) : null);
+        // 优先用 order.productId 直查商品；查不到则按 title 兜底
+        XianyuProduct product = null;
+        if (order.getProductId() != null) {
+            product = productMapper.selectById(order.getProductId());
+        }
+        if (product == null && order.getItemTitle() != null) {
+            product = productMapper.selectOne(
+                    new LambdaQueryWrapper<XianyuProduct>()
+                            .eq(XianyuProduct::getAccountId, order.getAccountId())
+                            .eq(XianyuProduct::getTitle, order.getItemTitle())
+                            .last("LIMIT 1"));
+        }
         if (product == null || !"VIRTUAL".equals(product.getGoodsType())) return null;
 
         // 幂等：已存在任务则不重复创建
@@ -98,6 +110,7 @@ public class VirtualShipService {
 
         // 更新订单虚拟发货相关字段
         order.setGoodsType("VIRTUAL");
+        order.setProductId(product.getId());
         order.setRequireVirtualShip(true);
         if (config != null && config.getAutoConfirmDays() != null) {
             order.setAutoReceiptAt(LocalDateTime.now().plusDays(config.getAutoConfirmDays()));
@@ -105,20 +118,6 @@ public class VirtualShipService {
         orderMapper.updateById(order);
 
         return task;
-    }
-
-    /**
-     * 根据订单反查 productId（通过 order.item_title 关联）
-     * 预留：建议后续给 XianyuOrder 加 productId 字段
-     */
-    private Long findProductIdByOrder(XianyuOrder order) {
-        // 当前 schema 没有给 order 加 productId，通过 title 模糊匹配（注意：可能不准，建议加字段）
-        XianyuProduct product = productMapper.selectOne(
-                new LambdaQueryWrapper<XianyuProduct>()
-                        .eq(XianyuProduct::getAccountId, order.getAccountId())
-                        .eq(XianyuProduct::getTitle, order.getItemTitle())
-                        .last("LIMIT 1"));
-        return product != null ? product.getId() : null;
     }
 
     // ======================================================================
@@ -168,7 +167,7 @@ public class VirtualShipService {
         }
 
         try {
-            String deliverContent = acquireDeliverContent(product);
+            String deliverContent = acquireDeliverContent(order, product);
             if (deliverContent == null || deliverContent.isBlank()) {
                 failTask(task, "No available card/content in pool");
                 return;
@@ -194,11 +193,25 @@ public class VirtualShipService {
     }
 
     /**
-     * 从卡密池取一条，并标记为已使用
+     * 生成发货内容。
+     * <p>支持模板变量占位符，由 deliverContentTemplate 驱动；无模板时走默认格式。
+     * 占位符：
+     * <ul>
+     *   <li>CARD/ACCOUNT: ${cardCode} ${cardPassword}</li>
+     *   <li>FILE(网盘): ${link} ${extractCode} ${fileName}</li>
+     *   <li>通用: ${itemTitle} ${orderId}</li>
+     * </ul></p>
      */
     @Transactional
-    protected String acquireDeliverContent(XianyuProduct product) {
+    protected String acquireDeliverContent(XianyuOrder order, XianyuProduct product) {
         String type = product.getDeliverType();
+        String template = product.getDeliverContentTemplate();
+
+        // 通用变量
+        java.util.Map<String, String> vars = new java.util.LinkedHashMap<>();
+        vars.put("itemTitle", order.getItemTitle() != null ? order.getItemTitle() : "");
+        vars.put("orderId", order.getOrderId() != null ? order.getOrderId() : "");
+
         if ("CARD".equals(type) || "ACCOUNT".equals(type)) {
             // 从池子取一条
             VirtualCardPool card = cardPoolMapper.selectOne(
@@ -213,20 +226,28 @@ public class VirtualShipService {
             card.setUsedAt(LocalDateTime.now());
             cardPoolMapper.updateById(card);
 
-            // 构造发卡内容
-            if (card.getCardPassword() != null && !card.getCardPassword().isBlank()) {
-                return String.format("卡号：%s\n密码：%s", card.getCardCode(), card.getCardPassword());
+            vars.put("cardCode", card.getCardCode() != null ? card.getCardCode() : "");
+            vars.put("cardPassword", card.getCardPassword() != null ? card.getCardPassword() : "");
+
+            // 无模板走默认格式
+            if (template == null || template.isBlank()) {
+                if (card.getCardPassword() != null && !card.getCardPassword().isBlank()) {
+                    return String.format("卡号：%s\n密码：%s", card.getCardCode(), card.getCardPassword());
+                }
+                return card.getCardCode();
             }
-            return card.getCardCode();
+            return renderTemplate(template, vars);
         }
 
         if ("LINK".equals(type)) {
-            return product.getDeliverContentTemplate();
+            // LINK 直接把模板当发货内容（支持 ${itemTitle} 等通用占位符）
+            if (template == null || template.isBlank()) return null;
+            return renderTemplate(template, vars);
         }
 
         if ("FILE".equals(type)) {
-            // 真实场景：文件路径在 deliverContentTemplate，调 CloudStorageService 上传 + 分享
-            String filePath = product.getDeliverContentTemplate();
+            // FILE: deliverContentTemplate 是本地文件路径，上传网盘后拿 link + extractCode
+            String filePath = template;
             if (filePath == null || filePath.isBlank()) {
                 return null;
             }
@@ -255,8 +276,15 @@ public class VirtualShipService {
                     CloudStorageFile uploaded = cloudStorageService.uploadFile(account.getId(), uploadReq);
                     if (uploaded != null && "COMPLETED".equals(uploaded.getUploadStatus())) {
                         String link = cloudStorageService.shareFile(uploaded.getId());
-                        return String.format("下载链接：%s\n提取码：%s\n有效期：7天",
-                                link, uploaded.getExtractCode());
+                        vars.put("link", link != null ? link : "");
+                        vars.put("extractCode", uploaded.getExtractCode() != null ? uploaded.getExtractCode() : "");
+                        vars.put("fileName", uploaded.getFileName() != null ? uploaded.getFileName() : "");
+                        // 无模板走默认格式
+                        if (template == null || template.isBlank()) {
+                            return String.format("下载链接：%s\n提取码：%s\n有效期：7天",
+                                    link, uploaded.getExtractCode());
+                        }
+                        return renderTemplate(template, vars);
                     }
                 }
                 return "【系统错误】文件上传失败，请稍后重试";
@@ -267,6 +295,23 @@ public class VirtualShipService {
         }
 
         return null;
+    }
+
+    /**
+     * 模板渲染：把 ${key} 替换为 vars.get(key)，未命中变量保留原占位符。
+     */
+    private String renderTemplate(String template, java.util.Map<String, String> vars) {
+        if (template == null) return null;
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("\\$\\{(\\w+)\\}");
+        java.util.regex.Matcher m = p.matcher(template);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            String key = m.group(1);
+            String val = vars.getOrDefault(key, m.group(0));
+            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(val));
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     private void failTask(VirtualShipTask task, String error) {

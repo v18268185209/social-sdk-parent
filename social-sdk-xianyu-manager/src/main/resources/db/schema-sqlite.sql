@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS xianyu_order (
     tracking_no VARCHAR(64),
     order_time DATETIME, -- 订单创建时间(来自闲鱼 API)
     goods_type VARCHAR(16) DEFAULT 'PHYSICAL',
+    product_id INTEGER, -- 关联本地商品 id（订单同步时按 item_id 反查回填）
     require_virtual_ship INTEGER DEFAULT 0,
     virtual_shipped_at DATETIME,
     auto_receipt_at DATETIME,

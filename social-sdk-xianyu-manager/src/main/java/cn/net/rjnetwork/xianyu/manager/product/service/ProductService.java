@@ -315,6 +315,77 @@ public class ProductService {
         return product;
     }
 
+    /**
+     * 同步单个商品到本地（通过 itemId 拉详情 → upsert）。
+     * 用于改价/改库存后，将新发布的商品信息同步回本地 DB。
+     *
+     * @param accountId 账号 id
+     * @param itemId    闲鱼商品 id
+     */
+    private void syncSingleItem(Long accountId, String itemId) {
+        if (accountId == null || itemId == null || itemId.isBlank()) return;
+        XianyuAccount account = accountService.getById(accountId);
+        if (account == null || account.getCookieHeader() == null || account.getCookieHeader().isBlank()) return;
+
+        XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(account.getCookieHeader());
+        XianyuProductApiService productApi = new XianyuProductApiService(mtopClient);
+
+        try {
+            JsonNode detailResp = productApi.getProductDetail(itemId);
+            if (!isMtopSuccess(detailResp)) return;
+
+            JsonNode detailData = detailResp.path("data");
+            JsonNode b2cItem = detailData.path("b2cItemDO");
+            JsonNode picDetail = detailData.path("picDetailDO");
+            JsonNode itemDO = detailData.path("itemDO");
+
+            String title = pickText(b2cItem, "title");
+            if (title.isEmpty()) title = pickText(detailData, "title");
+            BigDecimal price = pickBigDecimal(b2cItem, "priceInCent", "soldPrice");
+            if (price == null) price = pickBigDecimal(detailData, "priceInfo.price", "soldPrice", "price");
+            BigDecimal orig = pickBigDecimal(b2cItem, "oriPriceInCent", "originalPrice");
+            Integer stock = pickInt(itemDO, "quantity");
+            if (stock == null) stock = pickInt(b2cItem, "quantity");
+            String description = pickText(b2cItem, "desc");
+            if (description.isEmpty()) description = pickText(detailData, "desc");
+            String images = extractImagesJson(picDetail.path("picUrlList"));
+            if (images == null) images = extractImagesJson(b2cItem.path("picUrlList"));
+            String mainImageUrl = firstPicUrl(picDetail.path("picUrlList"));
+            if (mainImageUrl == null) mainImageUrl = firstPicUrl(b2cItem.path("picUrlList"));
+            String rawStatus = pickString(itemDO, "itemStatus");
+            if (rawStatus == null || rawStatus.isEmpty()) rawStatus = pickString(detailData, "itemStatus");
+            String status = mapStatus(rawStatus);
+
+            XianyuProduct p = new XianyuProduct();
+            p.setAccountId(accountId);
+            p.setItemId(itemId);
+            p.setTitle(title);
+            if (price != null) p.setPrice(price);
+            if (orig != null) p.setOriginalPrice(orig);
+            if (stock != null) p.setStock(stock);
+            p.setImageUrl(mainImageUrl);
+            p.setImages(images);
+            if (description != null) p.setDescription(description);
+            if (status != null) p.setStatus(status);
+            p.setUpdatedAt(LocalDateTime.now());
+
+            // upsert by accountId + itemId
+            LambdaQueryWrapper<XianyuProduct> qw = new LambdaQueryWrapper<>();
+            qw.eq(XianyuProduct::getAccountId, accountId).eq(XianyuProduct::getItemId, itemId);
+            XianyuProduct existing = productMapper.selectOne(qw);
+            if (existing != null) {
+                p.setId(existing.getId());
+                p.setCreatedAt(existing.getCreatedAt());
+                productMapper.updateById(p);
+            } else {
+                p.setCreatedAt(LocalDateTime.now());
+                productMapper.insert(p);
+            }
+        } catch (Exception e) {
+            logger.warn("syncSingleItem: failed for account={} item={}: {}", accountId, itemId, e.getMessage());
+        }
+    }
+
     /** 从 publish 接口返回里解析 itemId（部分版本返回 data.itemId，部分不返回需 syncFromXianyu 拉） */
     private String parseItemIdFromPublishResp(JsonNode resp) {
         if (resp == null) return null;
@@ -419,6 +490,41 @@ public class ProductService {
         product.setUpdatedAt(LocalDateTime.now());
         productMapper.updateById(product);
         return product;
+    }
+
+    /**
+     * 保存商品级虚拟发货配置（deliver_type + deliver_content_template + goods_type）。
+     * <p>供"虚拟发货页 → 商品列表 → 配置弹窗"调用，把商品串进虚拟发货链路。</p>
+     */
+    @Transactional
+    public XianyuProduct saveVirtualShipConfig(Long productId,
+                                                String goodsType,
+                                                String deliverType,
+                                                String deliverContentTemplate) {
+        XianyuProduct product = productMapper.selectById(productId);
+        if (product == null) {
+            throw new IllegalArgumentException("Product not found: " + productId);
+        }
+        if (goodsType != null) product.setGoodsType(goodsType);
+        if (deliverType != null) product.setDeliverType(deliverType);
+        // 模板允许清空（传 null 不动，传空串清空）
+        if (deliverContentTemplate != null) product.setDeliverContentTemplate(deliverContentTemplate);
+        product.setUpdatedAt(LocalDateTime.now());
+        productMapper.updateById(product);
+        return product;
+    }
+
+    /**
+     * 查询所有虚拟商品（goods_type=VIRTUAL），供虚拟发货页商品列表展示。
+     */
+    public List<XianyuProduct> listVirtualProducts(Long accountId) {
+        LambdaQueryWrapper<XianyuProduct> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(XianyuProduct::getGoodsType, "VIRTUAL");
+        if (accountId != null) {
+            wrapper.eq(XianyuProduct::getAccountId, accountId);
+        }
+        wrapper.orderByDesc(XianyuProduct::getUpdatedAt);
+        return productMapper.selectList(wrapper);
     }
 
     @Transactional
@@ -617,6 +723,7 @@ public class ProductService {
         product.setPrice(price);
         product.setUpdatedAt(LocalDateTime.now());
         productMapper.updateById(product);
+
 
         // 6. 同步新商品信息到本地（如果有新 itemId 则 upsert 新记录，否则通过 syncFromXianyu 拉回）
         if (newItemId != null && !newItemId.isEmpty()) {

@@ -217,4 +217,46 @@ public class ProductController {
             return ApiResponse.fail("POLISH_FAILED", "超级擦亮失败: " + e.getMessage());
         }
     }
+
+    // ==================== 虚拟发货配置（商品级） ====================
+
+    /**
+     * 查询所有虚拟商品（goods_type=VIRTUAL），供虚拟发货页商品列表展示。
+     * GET /api/products/virtual?accountId=1
+     */
+    @GetMapping("/virtual")
+    public ApiResponse<java.util.List<XianyuProduct>> listVirtualProducts(
+            @RequestParam(required = false) Long accountId) {
+        return ApiResponse.ok(productService.listVirtualProducts(accountId));
+    }
+
+    /**
+     * 保存商品级虚拟发货配置（deliver_type + deliver_content_template + goods_type）。
+     * PUT /api/products/{id}/virtual-ship-config
+     * {
+     *   "productId": 1,
+     *   "goodsType": "VIRTUAL",
+     *   "deliverType": "CARD",        // CARD / ACCOUNT / LINK / FILE
+     *   "deliverContentTemplate": "卡号：${cardCode}\n密码：${cardPassword}"
+     * }
+     * <p>模板支持占位符：
+     * <ul>
+     *   <li>CARD/ACCOUNT: ${cardCode} ${cardPassword}</li>
+     *   <li>FILE(网盘): ${link} ${extractCode} ${fileName}</li>
+     *   <li>通用: ${itemTitle} ${orderId}</li>
+     * </ul></p>
+     */
+    @PutMapping("/{id}/virtual-ship-config")
+    @Audit("保存虚拟发货配置")
+    public ApiResponse<XianyuProduct> saveVirtualShipConfig(
+            @PathVariable Long id,
+            @RequestBody cn.net.rjnetwork.xianyu.manager.virtual.dto.VirtualShipProductConfigRequest request) {
+        request.setProductId(id);
+        return ApiResponse.ok(productService.saveVirtualShipConfig(
+                request.getProductId(),
+                request.getGoodsType(),
+                request.getDeliverType(),
+                request.getDeliverContentTemplate()
+        ));
+    }
 }

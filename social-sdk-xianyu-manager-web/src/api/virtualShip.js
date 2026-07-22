@@ -36,5 +36,26 @@ export function deleteVirtualCard(id) {
   return api.delete(`/virtual-ship/cards/${id}`)
 }
 
+// ============== 商品级虚拟发货配置 ==============
+
+/** 查询所有虚拟商品（goods_type=VIRTUAL） */
+export function listVirtualProducts(accountId) {
+  return api.get('/products/virtual', { params: { accountId } })
+}
+
+/**
+ * 保存商品级虚拟发货配置
+ * PUT /api/products/{id}/virtual-ship-config
+ * body: { goodsType, deliverType, deliverContentTemplate }
+ * deliverType: CARD / ACCOUNT / LINK / FILE
+ * deliverContentTemplate 支持占位符：
+ *   CARD/ACCOUNT: ${cardCode} ${cardPassword}
+ *   FILE(网盘):   ${link} ${extractCode} ${fileName}
+ *   通用:         ${itemTitle} ${orderId}
+ */
+export function saveProductVirtualShipConfig(id, data) {
+  return api.put(`/products/${id}/virtual-ship-config`, data)
+}
+
 // 文件管理复用 cloudStorage.js 导出
 export { listStorageAccounts, listStorageFiles, shareStorageFile, uploadStorageFile }
