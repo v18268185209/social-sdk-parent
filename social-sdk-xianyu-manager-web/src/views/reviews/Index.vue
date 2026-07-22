@@ -172,7 +172,7 @@
           </el-table-column>
           <el-table-column label="操作" width="100">
             <template #default="{ row }">
-              <el-button size="small" @click="viewRefundDetail(refundId(row))">详情</el-button>
+              <el-button size="small" @click="viewRefundDetail(refundOrderId(row))">详情</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -458,14 +458,14 @@ async function submitRefund() {
   }
 }
 
-async function viewRefundDetail(refundId) {
-  if (!refundId) return ElMessage.warning('无退款单号')
+async function viewRefundDetail(orderId) {
+  if (!orderId || orderId === '-') return ElMessage.warning('无订单号，无法拉退款详情')
   try {
-    const res = await getRefundDetail(accountId.value, refundId)
+    const res = await getRefundDetail(accountId.value, orderId)
     refundDetail.value = res.data
     refundDetailVisible.value = true
   } catch (e) {
-    ElMessage.error('拉退款详情失败: ' + e.message)
+    ElMessage.error('拉退款详情失败: ' + (e?.response?.data?.message || e.message))
   }
 }
 

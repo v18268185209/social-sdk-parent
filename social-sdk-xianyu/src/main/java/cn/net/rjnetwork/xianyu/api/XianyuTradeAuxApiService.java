@@ -119,11 +119,11 @@ public class XianyuTradeAuxApiService {
         return apiClient.callMtop("mtop.taobao.idle.merchant.refund.apply", toJson(data));
     }
 
-    /** 获取退款/售后详情 — 命名规律候选 mtop.taobao.idle.merchant.refund.detail（未真抓） */
-    public JsonNode getRefundDetail(String refundId) {
+    /** 获取退款/售后详情 — 真实接口要求业务参数 orderId */
+    public JsonNode getRefundDetail(String orderId) {
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("refundId", refundId != null ? refundId : "");
-        return apiClient.callMtop("mtop.taobao.idle.merchant.refund.detail", toJson(data));
+        data.put("orderId", orderId != null ? orderId : "");
+        return apiClient.callMtop("mtop.taobao.idle.merchant.refund.detail", "1.0", toJson(data));
     }
 
     // ==================== 订单关闭/虚拟发货/免拼发货 ====================
