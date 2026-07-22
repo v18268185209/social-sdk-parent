@@ -21,7 +21,7 @@ services:
       - SPRING_DATASOURCE_USERNAME=xianyu
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-xianyu123456}
       - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
-      - JAVA_OPTS=-Xmx512m -Xms256m
+      - JAVA_OPTS=-Xmx512m -Xms256m -Djava.io.tmpdir=/app/tmp
       - XIANYU_JWT_SECRET=${XIANYU_JWT_SECRET:-change-me-in-production}
       - XIANYU_CRYPTO_SECRET=${XIANYU_CRYPTO_SECRET:-change-me-in-production}
     depends_on:

@@ -17,7 +17,7 @@ services:
       # 覆盖 application.yml 中的 DB 路径
       - DB_PATH=/app/data/xianyu-manager.db
       # JVM 参数
-      - JAVA_OPTS=-Xmx512m -Xms256m
+      - JAVA_OPTS=-Xmx512m -Xms256m -Djava.io.tmpdir=/app/tmp
       # Linux/Docker 默认无头；网页配置页会读取后端当前值并显示为无头模式
       - CHROME_HEADLESS=true
       - CHROME_HEADLESS_MODE=new

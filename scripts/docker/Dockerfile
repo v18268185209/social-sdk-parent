@@ -66,7 +66,7 @@ WORKDIR /app
 COPY --from=builder /app/app.jar server.jar
 
 # 创建数据目录（持久化用）
-RUN mkdir -p /app/data /app/data/openlist /app/chrome-profiles /app/logs /app/config \
+RUN mkdir -p /app/data /app/data/openlist /app/chrome-profiles /app/logs /app/config /app/tmp \
     && chown -R xianyu:xianyu /app
 
 # 数据库镜像变体：sqlite / mysql / postgres
@@ -77,9 +77,10 @@ ENV CHROME_BIN=/usr/bin/chromium \
     CHROME_HEADLESS=true \
     CHROME_HEADLESS_MODE=new \
     SPRING_PROFILES_ACTIVE=${DB_MODE} \
-    JAVA_OPTS="-Xmx512m -Xms256m" \
+    JAVA_OPTS="-Xmx512m -Xms256m -Djava.io.tmpdir=/app/tmp" \
     SERVER_PORT=8080 \
     DB_PATH=/app/data/xianyu-manager.db \
+    TMPDIR=/app/tmp \
     TZ=Asia/Shanghai
 
 # 健康检查

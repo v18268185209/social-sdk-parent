@@ -23,7 +23,7 @@ services:
       - SPRING_DATASOURCE_DRIVER_CLASS_NAME=com.mysql.cj.jdbc.Driver
       # MyBatis-Plus 方言
       - MYBATIS_PLUS_GLOBAL_CONFIG_DB_CONFIG_ID_TYPE=auto
-      - JAVA_OPTS=-Xmx512m -Xms256m
+      - JAVA_OPTS=-Xmx512m -Xms256m -Djava.io.tmpdir=/app/tmp
       - XIANYU_JWT_SECRET=${XIANYU_JWT_SECRET:-change-me-in-production}
       - XIANYU_CRYPTO_SECRET=${XIANYU_CRYPTO_SECRET:-change-me-in-production}
     depends_on:
