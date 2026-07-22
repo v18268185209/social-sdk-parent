@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 public class OpenListProperties {
 
     private String url = "http://127.0.0.1:5244";
-    private String username = "openlist";
+    private String username = "admin";
     private String password = "openlist";
     private String dataDir = "./data/openlist";
     private String executableName = "openlist.exe";

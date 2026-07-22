@@ -343,6 +343,9 @@ public class VirtualShipService {
     @Transactional
     public VirtualShipConfig saveConfig(Long accountId, Boolean enabled, Integer delaySeconds,
                                         Integer autoConfirmDays, Boolean notifyAfterShip) {
+        if (accountId == null) {
+            throw new IllegalArgumentException("accountId 不能为空");
+        }
         VirtualShipConfig config = getConfig(accountId);
         if (config == null) {
             config = new VirtualShipConfig();

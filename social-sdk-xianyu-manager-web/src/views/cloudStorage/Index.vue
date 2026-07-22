@@ -78,7 +78,7 @@
             </el-link>
             <span v-else>-</span>
           </el-descriptions-item>
-          <el-descriptions-item label="默认账号">{{ status.username || 'openlist' }}</el-descriptions-item>
+          <el-descriptions-item label="默认账号">{{ status.username || 'admin' }}</el-descriptions-item>
           <el-descriptions-item label="默认密码">{{ status.password || 'openlist' }}</el-descriptions-item>
           <el-descriptions-item label="系统架构">{{ status.arch || '检测中...' }}</el-descriptions-item>
           <el-descriptions-item label="初始账号" v-if="status.initialCredsCaptured">
@@ -211,7 +211,7 @@ const status = ref({
   version: '',
   port: 5244,
   url: 'http://127.0.0.1:5244',
-  username: 'openlist',
+  username: 'admin',
   password: 'openlist',
   arch: 'unknown',
   phase: 'idle',

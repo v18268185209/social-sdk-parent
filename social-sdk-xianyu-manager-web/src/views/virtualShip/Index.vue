@@ -10,27 +10,27 @@
       </template>
 
       <el-form :model="configForm" label-width="140px">
-        <el-form-item label="发货类型">
-          <el-radio-group v-model="configForm.deliverType">
-            <el-radio label="VIRTUAL_CARD">卡密发货</el-radio>
-            <el-radio label="FILE">网盘发货</el-radio>
-          </el-radio-group>
+        <el-form-item label="启用自动发货">
+          <el-switch v-model="configForm.enabled" />
         </el-form-item>
-        <el-form-item label="自动签收">
-          <el-switch v-model="configForm.autoReceiptEnabled" />
-          <span style="margin-left: 8px; color: #909399; font-size: 12px;">
-            开启后，订单在 <el-input-number v-model="configForm.autoReceiptDays" :min="1" :max="30" size="small" style="width: 80px; margin: 0 8px;" /> 天后自动确认收货
+        <el-form-item label="发货延迟(秒)">
+          <el-input-number v-model="configForm.delaySeconds" :min="0" />
+          <span style="margin-left: 8px; color: #909399; font-size: 12px;">支付成功后延时发货（防风控）</span>
+        </el-form-item>
+        <el-form-item label="自动确认收货">
+          <span style="color: #909399; font-size: 12px;">
+            订单在 <el-input-number v-model="configForm.autoConfirmDays" :min="1" :max="30" size="small" style="width: 80px; margin: 0 8px;" /> 天后自动确认收货
           </span>
         </el-form-item>
-        <el-form-item label="发货延迟(分)">
-          <el-input-number v-model="configForm.shipDelayMinutes" :min="0" />
-          <span style="margin-left: 8px; color: #909399; font-size: 12px;">拍下后延迟发货（防风控）</span>
+        <el-form-item label="发货后通知">
+          <el-switch v-model="configForm.notifyAfterShip" />
+          <span style="margin-left: 8px; color: #909399; font-size: 12px;">发货后站内通知运营</span>
         </el-form-item>
       </el-form>
     </el-card>
 
-    <!-- 卡密池卡片（发货类型=VIRTUAL_CARD 时显示） -->
-    <el-card style="margin-bottom: 20px;" v-if="configForm.deliverType === 'VIRTUAL_CARD'">
+    <!-- 卡密池卡片 -->
+    <el-card style="margin-bottom: 20px;" v-if="deliverType === 'VIRTUAL_CARD'">
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span>🔑 卡密池</span>
@@ -61,8 +61,8 @@
       <el-empty v-if="!cardLoading && cards.length === 0" description="暂无卡密" />
     </el-card>
 
-    <!-- 网盘发货卡片（发货类型=FILE 时显示） -->
-    <el-card style="margin-bottom: 20px;" v-if="configForm.deliverType === 'FILE'">
+    <!-- 网盘发货卡片 -->
+    <el-card style="margin-bottom: 20px;" v-if="deliverType === 'FILE'">
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span>📁 网盘文件（发货素材）</span>
@@ -175,8 +175,16 @@ import {
   listStorageAccounts, listStorageFiles, shareStorageFile, uploadStorageFile
 } from '@/api/virtualShip'
 
-// 配置
-const configForm = ref({ deliverType: 'VIRTUAL_CARD', autoReceiptEnabled: false, autoReceiptDays: 7, shipDelayMinutes: 0 })
+// 配置（字段与后端 VirtualShipConfig 对齐）
+const configForm = ref({
+  accountId: null,
+  enabled: true,
+  delaySeconds: 30,
+  autoConfirmDays: 7,
+  notifyAfterShip: true
+})
+// 发货类型是前端展示用，后端不存储
+const deliverType = ref('VIRTUAL_CARD')
 const configLoading = ref(false)
 
 // 账号
@@ -188,14 +196,38 @@ const loadConfig = async () => {
   if (!accounts.value.length) return
   try {
     const r = await getVirtualShipConfig(accounts.value[0].id)
-    if (r.data) configForm.value = r.data
+    if (r.data) {
+      // 只回写后端存在的字段，避免覆盖前端独有状态
+      configForm.value = {
+        ...configForm.value,
+        accountId: r.data.accountId,
+        enabled: r.data.enabled,
+        delaySeconds: r.data.delaySeconds,
+        autoConfirmDays: r.data.autoConfirmDays,
+        notifyAfterShip: r.data.notifyAfterShip
+      }
+    }
   } catch {}
 }
 const saveConfig = async () => {
+  if (!accounts.value.length) {
+    return ElMessage.warning('请先添加账号')
+  }
   configLoading.value = true
   try {
-    await saveVirtualShipConfig(configForm.value)
+    // 提交时带上当前账号 id，字段名与后端一致
+    const payload = {
+      accountId: accounts.value[0].id,
+      enabled: configForm.value.enabled,
+      delaySeconds: configForm.value.delaySeconds,
+      autoConfirmDays: configForm.value.autoConfirmDays,
+      notifyAfterShip: configForm.value.notifyAfterShip
+    }
+    await saveVirtualShipConfig(payload)
     ElMessage.success('配置已保存')
+    await loadConfig()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '保存配置失败')
   } finally { configLoading.value = false }
 }
 

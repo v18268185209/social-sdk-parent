@@ -574,19 +574,11 @@ public class ProductService {
     }
 
     /**
-     * 改价 — 走「编辑重发」真闭环：拉原商品详情 → 拼 publish data 带 itemId+新价 → 调 publishItem
-     * <p>真实定位结论（2026-07-19 全参考项目翻查）：闲鱼 PC 无独立改价 mtop 接口，
-     * 真正的改价路径是「编辑商品重新 publish」——调 mtop.idle.pc.idleitem.publish 带 itemId + 新价格 + 原商品全套信息，
-     * itemId 保留，浏览量/收藏不清零。SDK 的 publishItem 重载版已支持 itemId 参数（publishScene=pcEdit）。</p>
+     * 改价 — 走「新建替代」完整流程：获取原商品信息 → 改价格 → 发布新商品 → 下架原商品
+     * <p>闲鱼 PC 无独立改价接口，SDK 的 XianyuProductEditApiService.updatePrice 已封装完整逻辑：
+     * getProductDetail(itemId) → 提取原商品字段 → 改价格 → publishItem(null, ...) 发布新商品 → shelfOff(itemId) 下架原商品。</p>
      *
-     * <p>编辑重发改价流程：</p>
-     * <ol>
-     *   <li>校验账号 cookie + itemId</li>
-     *   <li>调 getProductDetail 拉原商品完整详情（b2cItemDO/picDetailDO/logisticsDO/trackParams）</li>
-     *   <li>从详情里拆出 publish data 需要的字段：标题/描述/图片/分类/所在地/运费/库存/属性标签</li>
-     *   <li>调 publishItem(itemId, title, desc, newPriceInCent, origPrice, stock, images, cat, labels, addr, delivery)</li>
-     *   <li>闲鱼确认 SUCCESS 后回写本地 product.price</li>
-     * </ol>
+     * <p>本方法负责：校验 → 调 SDK → 解析新 itemId → 更新本地 DB（原商品标记下架，新商品 upsert）。</p>
      */
     @Transactional
     public XianyuProduct updatePrice(Long id, java.math.BigDecimal price) {
@@ -602,131 +594,38 @@ public class ProductService {
         }
         String itemId = product.getItemId();
         if (itemId == null || itemId.isBlank()) {
-            throw new IllegalStateException("Product has no itemId, can not edit republish");
+            throw new IllegalStateException("Product has no itemId, can not update price");
         }
 
-        // 2. 构造 SDK：MtopApiClient + ProductApiService（拉详情）+ PublishApiService（重发）
+        // 2. 构造 SDK（三参数构造函数，支持改价改库存）
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(account.getCookieHeader());
         XianyuProductApiService productApi = new XianyuProductApiService(mtopClient);
         XianyuPublishApiService publishApi = new XianyuPublishApiService(mtopClient);
+        XianyuProductEditApiService editApi = new XianyuProductEditApiService(mtopClient, productApi, publishApi);
 
-        // 3. 拉原商品详情（b2cItemDO/picDetailDO/logisticsDO/trackParams）
-        JsonNode detailResp = productApi.getProductDetail(itemId);
-        if (!isMtopSuccess(detailResp)) {
-            throw new IllegalStateException("Xianyu getProductDetail failed: " + safeMtopMsg(detailResp));
-        }
-        JsonNode detailData = detailResp.path("data");
-        JsonNode b2cItem = detailData.path("b2cItemDO");
-        JsonNode picDetail = detailData.path("picDetailDO");
-        JsonNode logistics = detailData.path("logisticsDO");
-        JsonNode trackParams = detailData.path("trackParams");
-
-        // 4. 从详情拆出 publish data 需要的字段
-        // 标题/描述：b2cItemDO.title / b2cItemDO.desc（部分版本在 itemTextDO）
-        String title = pickText(b2cItem, "title");
-        if (title.isEmpty()) title = pickText(detailData, "title");
-        String desc = pickText(b2cItem, "desc");
-        if (desc.isEmpty()) desc = pickText(detailData, "desc");
-        if (desc.isEmpty()) desc = title;  // 闲鱼 itemTextDTO.desc 允许与 title 相同
-
-        // 库存：b2cItemDO.quantity 或本地 product.stock
-        String stock = pickText(b2cItem, "quantity");
-        if (stock.isEmpty() && product.getStock() != null) {
-            stock = String.valueOf(product.getStock());
-        }
-        if (stock.isEmpty()) stock = "1";
-
-        // 原价：b2cItemDO.oriPriceInCent 或本地 product.originalPrice
-        String origPriceInCent = pickText(b2cItem, "oriPriceInCent");
-        if (origPriceInCent.isEmpty() && product.getOriginalPrice() != null) {
-            origPriceInCent = String.valueOf(product.getOriginalPrice().multiply(java.math.BigDecimal.valueOf(100)).longValue());
-        }
-
-        // 图片：picDetailDO.picUrlList[] 或 b2cItemDO.picUrlList[]，每项含 url + 宽高
-        List<Map<String, Object>> imageInfoList = new ArrayList<>();
-        JsonNode picList = picDetail.path("picUrlList");
-        if (!picList.isArray() || picList.size() == 0) {
-            picList = b2cItem.path("picUrlList");
-        }
-        if (picList.isArray()) {
-            for (JsonNode pic : picList) {
-                String picUrl = pickText(pic, "url");
-                if (picUrl.isEmpty()) picUrl = pickText(pic, "picUrl");
-                if (picUrl.isEmpty()) continue;
-                Map<String, Object> img = new LinkedHashMap<>();
-                img.put("url", picUrl);
-                // 宽高：pix 字段形如 "1024x768"，或 width/height 字段
-                int w = 0, h = 0;
-                String pix = pickText(pic, "pix");
-                if (!pix.isEmpty() && pix.contains("x")) {
-                    try {
-                        String[] parts = pix.split("x");
-                        w = Integer.parseInt(parts[0]);
-                        h = Integer.parseInt(parts[1]);
-                    } catch (NumberFormatException ignored) {}
-                }
-                if (w == 0) w = pickInt(pic, "width");
-                if (h == 0) h = pickInt(pic, "height");
-                img.put("width", w);
-                img.put("height", h);
-                imageInfoList.add(img);
-            }
-        }
-
-        // 分类：b2cItemDO.catId / catName / channelCatId / tbCatId
-        Map<String, String> catDTO = new LinkedHashMap<>();
-        String catId = pickText(b2cItem, "catId");
-        if (catId.isEmpty()) catId = pickText(detailData, "catId");
-        if (!catId.isEmpty()) {
-            catDTO.put("catId", catId);
-            catDTO.put("catName", pickText(b2cItem, "catName"));
-            catDTO.put("channelCatId", pickText(b2cItem, "channelCatId"));
-            catDTO.put("tbCatId", pickText(b2cItem, "tbCatId"));
-        }
-
-        // 所在地：logisticsDO.addressList[0] 或 b2cItemDO.addrDTO
-        Map<String, Object> addrDTO = new LinkedHashMap<>();
-        JsonNode addrList = logistics.path("addressList");
-        if (addrList.isArray() && addrList.size() > 0) {
-            JsonNode addr = addrList.get(0);
-            addrDTO.put("area", pickText(addr, "area"));
-            addrDTO.put("city", pickText(addr, "city"));
-            addrDTO.put("divisionId", pickText(addr, "divisionId"));
-            String longitude = pickText(addr, "longitude");
-            String latitude = pickText(addr, "latitude");
-            if (!longitude.isEmpty() && !latitude.isEmpty()) {
-                addrDTO.put("gps", longitude + "," + latitude);
-            }
-            addrDTO.put("poiId", pickText(addr, "poiId"));
-            addrDTO.put("poi", pickText(addr, "poi"));
-        }
-
-        // 运费：logisticsDO 含运费设置，简单拼保守默认（按距离计费）
-        Map<String, Object> deliverySettings = new LinkedHashMap<>();
-        deliverySettings.put("supportFreight", true);
-        deliverySettings.put("canFreeShipping", false);
-        deliverySettings.put("onlyTakeSelf", false);
-        deliverySettings.put("templateId", "-100");
-
-        // 属性标签：trackParams.sellerOptions 或 b2cItemDO.itemLabelExtList，复杂结构留空让闲鱼按原值保留
-        List<Map<String, Object>> labelExtList = new ArrayList<>();
-
-        // 5. 新价格元转分（元 → 分）
-        String newPriceInCent = String.valueOf(price.multiply(java.math.BigDecimal.valueOf(100)).longValue());
-
-        // 6. 真调 publishItem 编辑重发（带 itemId + 新价 + 原商品全套信息）
-        JsonNode pubResp = publishApi.publishItem(
-                itemId, title, desc, newPriceInCent, origPriceInCent, stock,
-                imageInfoList, catDTO, labelExtList, addrDTO, deliverySettings
-        );
+        // 3. 调 SDK updatePrice：获取详情 → 改价 → 发布新商品 → 下架原商品
+        JsonNode pubResp = editApi.updatePrice(itemId, price.toPlainString());
         if (!isMtopSuccess(pubResp)) {
-            throw new IllegalStateException("Xianyu edit republish (price) failed: " + safeMtopMsg(pubResp));
+            throw new IllegalStateException("Xianyu updatePrice (republish new + shelf off old) failed: " + safeMtopMsg(pubResp));
         }
 
-        // 7. 闲鱼确认 SUCCESS 后回写本地 product.price
+        // 4. 解析新商品 itemId
+        String newItemId = parseItemIdFromPublishResp(pubResp);
+
+        // 5. 更新本地 DB：原商品标记下架（闲鱼已自动下架，本地同步状态）
+        product.setStatus("OFF_SALE");
         product.setPrice(price);
         product.setUpdatedAt(LocalDateTime.now());
         productMapper.updateById(product);
+
+        // 6. 同步新商品信息到本地（如果有新 itemId 则 upsert 新记录，否则通过 syncFromXianyu 拉回）
+        if (newItemId != null && !newItemId.isEmpty()) {
+            syncSingleItem(account.getId(), newItemId);
+        } else {
+            // 发布接口未返回新 itemId，通过列表同步拉回
+            try { syncFromXianyu(account.getId()); } catch (Exception e) { /* 不影响主流程 */ }
+        }
+
         return product;
     }
 
@@ -739,13 +638,11 @@ public class ProductService {
     }
 
     /**
-     * 改库存 — 走「编辑重发」真闭环：拉原商品详情 → 拼 publish data 带 itemId+新库存 → 调 publishItem
-     * <p>真实定位结论同 updatePrice：闲鱼 PC 无独立改库存 mtop 接口，
-     * 真路径是「编辑商品重新 publish」——publishItem 带 itemId + 新库存 + 原商品全套信息，
-     * itemId 保留，浏览量/收藏不清零。闲鱼 quantity 字段就是库存。</p>
+     * 改库存 — 走「新建替代」完整流程：获取原商品信息 → 改库存 → 发布新商品 → 下架原商品
+     * <p>闲鱼 PC 无独立改库存接口，SDK 的 XianyuProductEditApiService.updateStock 已封装完整逻辑：
+     * getProductDetail(itemId) → 提取原商品字段 → 改库存 → publishItem(null, ...) 发布新商品 → shelfOff(itemId) 下架原商品。</p>
      *
-     * <p>编辑重发改库存流程同 {@link #updatePrice}，只是用新库存替换 stock 字段，
-     * 价格走原商品原值（从 getProductDetail 拿原价回填，不改）。</p>
+     * <p>本方法负责：校验 → 调 SDK → 解析新 itemId → 更新本地 DB（原商品标记下架，新商品 upsert）。</p>
      */
     @Transactional
     public XianyuProduct updateStock(Long id, Integer stock) {
@@ -761,122 +658,38 @@ public class ProductService {
         }
         String itemId = product.getItemId();
         if (itemId == null || itemId.isBlank()) {
-            throw new IllegalStateException("Product has no itemId, can not edit republish");
+            throw new IllegalStateException("Product has no itemId, can not update stock");
         }
 
-        // 2. 构造 SDK：MtopApiClient + ProductApiService（拉详情）+ PublishApiService（重发）
+        // 2. 构造 SDK（三参数构造函数，支持改价改库存）
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(account.getCookieHeader());
         XianyuProductApiService productApi = new XianyuProductApiService(mtopClient);
         XianyuPublishApiService publishApi = new XianyuPublishApiService(mtopClient);
+        XianyuProductEditApiService editApi = new XianyuProductEditApiService(mtopClient, productApi, publishApi);
 
-        // 3. 拉原商品详情
-        JsonNode detailResp = productApi.getProductDetail(itemId);
-        if (!isMtopSuccess(detailResp)) {
-            throw new IllegalStateException("Xianyu getProductDetail failed: " + safeMtopMsg(detailResp));
-        }
-        JsonNode detailData = detailResp.path("data");
-        JsonNode b2cItem = detailData.path("b2cItemDO");
-        JsonNode picDetail = detailData.path("picDetailDO");
-        JsonNode logistics = detailData.path("logisticsDO");
-
-        // 4. 从详情拆出 publish data 需要的字段
-        String title = pickText(b2cItem, "title");
-        if (title.isEmpty()) title = pickText(detailData, "title");
-        String desc = pickText(b2cItem, "desc");
-        if (desc.isEmpty()) desc = pickText(detailData, "desc");
-        if (desc.isEmpty()) desc = title;
-
-        // 价格：保持原值不改（b2cItemDO.priceInCent 或本地 product.price）
-        String priceInCent = pickText(b2cItem, "priceInCent");
-        if (priceInCent.isEmpty() && product.getPrice() != null) {
-            priceInCent = String.valueOf(product.getPrice().multiply(java.math.BigDecimal.valueOf(100)).longValue());
-        }
-        String origPriceInCent = pickText(b2cItem, "oriPriceInCent");
-        if (origPriceInCent.isEmpty() && product.getOriginalPrice() != null) {
-            origPriceInCent = String.valueOf(product.getOriginalPrice().multiply(java.math.BigDecimal.valueOf(100)).longValue());
-        }
-
-        // 图片：picDetailDO.picUrlList[] 或 b2cItemDO.picUrlList[]
-        List<Map<String, Object>> imageInfoList = new ArrayList<>();
-        JsonNode picList = picDetail.path("picUrlList");
-        if (!picList.isArray() || picList.size() == 0) {
-            picList = b2cItem.path("picUrlList");
-        }
-        if (picList.isArray()) {
-            for (JsonNode pic : picList) {
-                String picUrl = pickText(pic, "url");
-                if (picUrl.isEmpty()) picUrl = pickText(pic, "picUrl");
-                if (picUrl.isEmpty()) continue;
-                Map<String, Object> img = new LinkedHashMap<>();
-                img.put("url", picUrl);
-                int w = 0, h = 0;
-                String pix = pickText(pic, "pix");
-                if (!pix.isEmpty() && pix.contains("x")) {
-                    try {
-                        String[] parts = pix.split("x");
-                        w = Integer.parseInt(parts[0]);
-                        h = Integer.parseInt(parts[1]);
-                    } catch (NumberFormatException ignored) {}
-                }
-                if (w == 0) w = pickInt(pic, "width");
-                if (h == 0) h = pickInt(pic, "height");
-                img.put("width", w);
-                img.put("height", h);
-                imageInfoList.add(img);
-            }
-        }
-
-        // 分类
-        Map<String, String> catDTO = new LinkedHashMap<>();
-        String catId = pickText(b2cItem, "catId");
-        if (catId.isEmpty()) catId = pickText(detailData, "catId");
-        if (!catId.isEmpty()) {
-            catDTO.put("catId", catId);
-            catDTO.put("catName", pickText(b2cItem, "catName"));
-            catDTO.put("channelCatId", pickText(b2cItem, "channelCatId"));
-            catDTO.put("tbCatId", pickText(b2cItem, "tbCatId"));
-        }
-
-        // 所在地
-        Map<String, Object> addrDTO = new LinkedHashMap<>();
-        JsonNode addrList = logistics.path("addressList");
-        if (addrList.isArray() && addrList.size() > 0) {
-            JsonNode addr = addrList.get(0);
-            addrDTO.put("area", pickText(addr, "area"));
-            addrDTO.put("city", pickText(addr, "city"));
-            addrDTO.put("divisionId", pickText(addr, "divisionId"));
-            String longitude = pickText(addr, "longitude");
-            String latitude = pickText(addr, "latitude");
-            if (!longitude.isEmpty() && !latitude.isEmpty()) {
-                addrDTO.put("gps", longitude + "," + latitude);
-            }
-            addrDTO.put("poiId", pickText(addr, "poiId"));
-            addrDTO.put("poi", pickText(addr, "poi"));
-        }
-
-        // 运费保守默认
-        Map<String, Object> deliverySettings = new LinkedHashMap<>();
-        deliverySettings.put("supportFreight", true);
-        deliverySettings.put("canFreeShipping", false);
-        deliverySettings.put("onlyTakeSelf", false);
-        deliverySettings.put("templateId", "-100");
-
-        // 属性标签留空（复杂结构，让闲鱼按原值保留）
-        List<Map<String, Object>> labelExtList = new ArrayList<>();
-
-        // 5. 真调 publishItem 编辑重发（带 itemId + 新库存 + 原商品全套信息 + 原价）
-        JsonNode pubResp = publishApi.publishItem(
-                itemId, title, desc, priceInCent, origPriceInCent, String.valueOf(stock),
-                imageInfoList, catDTO, labelExtList, addrDTO, deliverySettings
-        );
+        // 3. 调 SDK updateStock：获取详情 → 改库存 → 发布新商品 → 下架原商品
+        JsonNode pubResp = editApi.updateStock(itemId, String.valueOf(stock));
         if (!isMtopSuccess(pubResp)) {
-            throw new IllegalStateException("Xianyu edit republish (stock) failed: " + safeMtopMsg(pubResp));
+            throw new IllegalStateException("Xianyu updateStock (republish new + shelf off old) failed: " + safeMtopMsg(pubResp));
         }
 
-        // 6. 闲鱼确认 SUCCESS 后回写本地 product.stock
+        // 4. 解析新商品 itemId
+        String newItemId = parseItemIdFromPublishResp(pubResp);
+
+        // 5. 更新本地 DB：原商品标记下架（闲鱼已自动下架，本地同步状态）
+        product.setStatus("OFF_SALE");
         product.setStock(stock);
         product.setUpdatedAt(LocalDateTime.now());
         productMapper.updateById(product);
+
+        // 6. 同步新商品信息到本地（如果有新 itemId 则 upsert 新记录，否则通过 syncFromXianyu 拉回）
+        if (newItemId != null && !newItemId.isEmpty()) {
+            syncSingleItem(account.getId(), newItemId);
+        } else {
+            // 发布接口未返回新 itemId，通过列表同步拉回
+            try { syncFromXianyu(account.getId()); } catch (Exception e) { /* 不影响主流程 */ }
+        }
+
         return product;
     }
 

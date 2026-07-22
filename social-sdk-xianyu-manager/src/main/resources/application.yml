@@ -156,7 +156,7 @@ xianyu:
 # OpenList 配置
 openlist:
   url: http://127.0.0.1:5244
-  username: openlist
+  username: admin
   password: openlist
   data-dir: ./data/openlist
   executable-name: openlist.exe

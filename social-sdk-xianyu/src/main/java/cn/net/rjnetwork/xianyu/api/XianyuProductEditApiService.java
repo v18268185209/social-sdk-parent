@@ -194,9 +194,9 @@ public class XianyuProductEditApiService {
         Map<String, Object> addrDTO = extractAddrDTO(itemDO);
         Map<String, Object> deliverySettings = extractDeliverySettings(itemDO);
 
-        // 3. 发布新商品（不传 itemId → pcMainPublish 场景，生成新商品）
+        // 3. 发布新商品（itemId=null → pcMainPublish 场景，生成新商品）
         JsonNode publishResult = publishApiService.publishItem(
-            title, description, priceCent, origPriceCent, stock,
+            null, title, description, priceCent, origPriceCent, stock,
             images, catDTO, labelExtList, addrDTO, deliverySettings
         );
 
@@ -232,7 +232,7 @@ public class XianyuProductEditApiService {
         String newOrigPriceCent = priceToCent(originalPrice);
 
         JsonNode publishResult = publishApiService.publishItem(
-            title, description, priceCent, newOrigPriceCent, stock,
+            null, title, description, priceCent, newOrigPriceCent, stock,
             images, catDTO, labelExtList, addrDTO, deliverySettings
         );
 
