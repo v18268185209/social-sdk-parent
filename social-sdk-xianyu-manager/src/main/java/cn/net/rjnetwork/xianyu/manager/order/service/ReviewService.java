@@ -3,12 +3,21 @@ package cn.net.rjnetwork.xianyu.manager.order.service;
 import cn.net.rjnetwork.xianyu.api.XianyuApiFacade;
 import cn.net.rjnetwork.xianyu.manager.account.mapper.AccountMapper;
 import cn.net.rjnetwork.xianyu.manager.account.model.XianyuAccount;
+import cn.net.rjnetwork.xianyu.manager.order.mapper.OrderMapper;
+import cn.net.rjnetwork.xianyu.manager.order.model.XianyuOrder;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -20,11 +29,14 @@ import java.util.Map;
 public class ReviewService {
 
     private static final Logger log = LoggerFactory.getLogger(ReviewService.class);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final AccountMapper accountMapper;
+    private final OrderMapper orderMapper;
 
-    public ReviewService(AccountMapper accountMapper) {
+    public ReviewService(AccountMapper accountMapper, OrderMapper orderMapper) {
         this.accountMapper = accountMapper;
+        this.orderMapper = orderMapper;
     }
 
     /** 对指定订单发表评价（rating + content） */
@@ -46,7 +58,9 @@ public class ReviewService {
         XianyuAccount acc = requireAccount(accountId);
         XianyuApiFacade api = new XianyuApiFacade(acc.getCookieHeader());
         String ratedUid = firstNotBlank(buyerId, acc.getUserId(), getCookieValue(acc.getCookieHeader(), "unb"));
-        return api.getReviewList(ratedUid, String.valueOf(page), String.valueOf(pageSize));
+        JsonNode resp = api.getReviewList(ratedUid, String.valueOf(page), String.valueOf(pageSize));
+        enrichReviewOrders(resp, acc);
+        return resp;
     }
 
     /** 拉用户信用画像（ userId=null 时取自己） */
@@ -81,6 +95,105 @@ public class ReviewService {
         XianyuAccount acc = requireAccount(accountId);
         XianyuApiFacade api = new XianyuApiFacade(acc.getCookieHeader());
         return api.getRefundDetail(refundId);
+    }
+
+    private void enrichReviewOrders(JsonNode resp, XianyuAccount acc) {
+        JsonNode cardList = resp.path("data").path("cardList");
+        if (!cardList.isArray()) return;
+
+        List<XianyuOrder> orders = orderMapper.selectList(new QueryWrapper<XianyuOrder>()
+                .eq("account_id", acc.getId())
+                .eq("deleted", 0)
+                .orderByDesc("order_time")
+                .last("LIMIT 500"));
+        String selfName = firstNotBlank(acc.getDisplayName(), acc.getAccountName(), acc.getUserId(), getCookieValue(acc.getCookieHeader(), "tracknick"));
+
+        for (JsonNode card : cardList) {
+            JsonNode cardData = card.path("cardData");
+            if (!(cardData instanceof ObjectNode data)) continue;
+            XianyuOrder order = findMatchingOrder(data, orders);
+            if (order != null) {
+                putIfNotBlank(data, "orderId", order.getOrderId());
+                putIfNotBlank(data, "itemTitle", order.getItemTitle());
+                putIfNotBlank(data, "matchedOrderType", order.getType());
+                putIfNotBlank(data, "counterpartyName", order.getCounterpartyName());
+                putIfNotBlank(data, "buyerId", order.getBuyerId());
+                putIfNotBlank(data, "sellerId", order.getSellerId());
+                if ("BOUGHT".equals(order.getType())) {
+                    putIfNotBlank(data, "sellerName", order.getCounterpartyName());
+                    putIfNotBlank(data, "buyerName", selfName);
+                } else if ("SOLD".equals(order.getType())) {
+                    putIfNotBlank(data, "sellerName", selfName);
+                    putIfNotBlank(data, "buyerName", order.getCounterpartyName());
+                }
+            } else {
+                enrichPartyFromReviewRole(data, selfName);
+            }
+        }
+    }
+
+    private XianyuOrder findMatchingOrder(JsonNode review, List<XianyuOrder> orders) {
+        if (orders == null || orders.isEmpty()) return null;
+        String itemId = getText(review, "itemId");
+        if ("0".equals(itemId)) itemId = null;
+        String raterNick = getText(review, "raterUserNick");
+        LocalDateTime reviewTime = parseReviewTime(firstNotBlank(getText(review, "gmtCreate"), getText(review, "gmtCreateStr")));
+
+        XianyuOrder best = null;
+        int bestScore = 0;
+        for (XianyuOrder order : orders) {
+            int score = 0;
+            if (itemId != null && itemId.equals(order.getItemId())) score += 100;
+            if (raterNick != null && raterNick.equals(order.getCounterpartyName())) score += 60;
+            if (reviewTime != null && order.getOrderTime() != null) {
+                long days = Math.abs(java.time.Duration.between(order.getOrderTime(), reviewTime).toDays());
+                if (!order.getOrderTime().isAfter(reviewTime.plusDays(1)) && days <= 120) score += Math.max(1, 40 - (int) days);
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                best = order;
+            }
+        }
+        return bestScore >= 60 ? best : null;
+    }
+
+    private void enrichPartyFromReviewRole(ObjectNode data, String selfName) {
+        String raterNick = getText(data, "raterUserNick");
+        String role = firstRateTagText(data.path("rateTagList"));
+        if ("卖家".equals(role)) {
+            putIfNotBlank(data, "sellerName", raterNick);
+            putIfNotBlank(data, "buyerName", selfName);
+        } else if ("买家".equals(role)) {
+            putIfNotBlank(data, "buyerName", raterNick);
+            putIfNotBlank(data, "sellerName", selfName);
+        }
+    }
+
+    private String firstRateTagText(JsonNode tags) {
+        if (!tags.isArray() || tags.isEmpty()) return null;
+        return getText(tags.get(0), "text");
+    }
+
+    private LocalDateTime parseReviewTime(String value) {
+        if (value == null || value.isBlank()) return null;
+        String v = value.trim();
+        try {
+            if (v.length() == 10) return LocalDate.parse(v, DateTimeFormatter.ofPattern("yyyy-MM-dd")).atStartOfDay();
+            return LocalDateTime.parse(v, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String getText(JsonNode node, String field) {
+        if (node == null || field == null || !node.has(field) || node.path(field).isNull()) return null;
+        String value = node.path(field).asText(null);
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private void putIfNotBlank(ObjectNode node, String field, String value) {
+        if (node == null || field == null || value == null || value.isBlank()) return;
+        node.put(field, value);
     }
 
     private String firstNotBlank(String... values) {

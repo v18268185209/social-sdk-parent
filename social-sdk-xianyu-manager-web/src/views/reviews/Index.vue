@@ -27,6 +27,15 @@
           <el-table-column label="评价人" width="120">
             <template #default="{ row }">{{ reviewRater(row) }}</template>
           </el-table-column>
+          <el-table-column label="卖家" width="120">
+            <template #default="{ row }">{{ reviewSeller(row) }}</template>
+          </el-table-column>
+          <el-table-column label="买家" width="120">
+            <template #default="{ row }">{{ reviewBuyer(row) }}</template>
+          </el-table-column>
+          <el-table-column label="商品" min-width="160">
+            <template #default="{ row }">{{ reviewItemTitle(row) }}</template>
+          </el-table-column>
           <el-table-column label="评价时间" width="180">
             <template #default="{ row }">{{ reviewCreateTime(row) }}</template>
           </el-table-column>
@@ -142,26 +151,28 @@
           <el-button type="primary" @click="loadRefunds" style="margin-left: 12px">拉退款列表</el-button>
         </div>
         <el-table :data="refunds" border style="margin-top: 16px" v-loading="loading">
-          <el-table-column prop="orderId" label="订单号" width="180">
-            <template #default="{ row }">{{ row.orderId || row.commonData?.orderId || '-' }}</template>
+          <el-table-column label="订单号" width="180">
+            <template #default="{ row }">{{ refundOrderId(row) }}</template>
           </el-table-column>
-          <el-table-column prop="buyerNick" label="买家" width="120">
-            <template #default="{ row }">{{ row.buyerInfoVO?.userNick || row.buyerNick || '-' }}</template>
+          <el-table-column label="买家" width="120">
+            <template #default="{ row }">{{ refundBuyer(row) }}</template>
           </el-table-column>
-          <el-table-column prop="amount" label="金额" width="100">
-            <template #default="{ row }">{{ row.priceVO?.auctionPrice || row.amount || '-' }}</template>
+          <el-table-column label="金额" width="100">
+            <template #default="{ row }">{{ refundAmount(row) }}</template>
           </el-table-column>
-          <el-table-column prop="disputeStatus" label="状态" width="120">
+          <el-table-column label="状态" width="120">
             <template #default="{ row }">
-              <el-tag :type="refundStatusType(row.disputeStatus || row.commonData?.disputeStatus)" size="small">
-                {{ refundStatusLabel(row.disputeStatus || row.commonData?.disputeStatus) }}
+              <el-tag :type="refundStatusType(refundStatusValue(row))" size="small">
+                {{ refundStatusLabel(refundStatusValue(row)) }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="reason" label="退款原因" />
+          <el-table-column label="退款原因">
+            <template #default="{ row }">{{ refundReason(row) }}</template>
+          </el-table-column>
           <el-table-column label="操作" width="100">
             <template #default="{ row }">
-              <el-button size="small" @click="viewRefundDetail(row.refundId || row.commonData?.orderId)">详情</el-button>
+              <el-button size="small" @click="viewRefundDetail(refundId(row))">详情</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -363,12 +374,61 @@ async function loadRefunds() {
   try {
     const res = await listRefunds(accountId.value, refundStatus.value)
     const d = res.data
-    // mtop.taobao.idle.merchant.refund.list 返回 {data:{data:{items:[...]}}}
-    refunds.value = Array.isArray(d) ? d : (d?.data?.data?.items || d?.data?.items || d?.items || [])
+    refunds.value = extractRefundItems(d)
+    if (!refunds.value.length && isMtopFailed(d)) {
+      ElMessage.warning(mtopErrorMessage(d))
+    }
   } catch (e) {
-    ElMessage.error('拉退款列表失败: ' + e.message)
+    ElMessage.error('拉退款列表失败: ' + (e?.response?.data?.message || e.message))
     refunds.value = []
   } finally { loading.value = false }
+}
+
+function extractRefundItems(payload) {
+  if (Array.isArray(payload)) return payload
+  const candidates = [
+    payload?.data?.data?.items,
+    payload?.data?.data?.list,
+    payload?.data?.items,
+    payload?.data?.list,
+    payload?.items,
+    payload?.list,
+  ]
+  return candidates.find(Array.isArray) || []
+}
+
+function refundData(row) {
+  return row?.data || row?.refundInfo || row || {}
+}
+
+function refundOrderId(row) {
+  const data = refundData(row)
+  return data?.orderId || data?.bizOrderId || data?.tradeId || data?.commonData?.orderId || data?.commonData?.orderIdStr || '-'
+}
+
+function refundId(row) {
+  const data = refundData(row)
+  return data?.refundId || data?.disputeId || data?.refundApplyId || refundOrderId(row)
+}
+
+function refundBuyer(row) {
+  const data = refundData(row)
+  return data?.buyerInfoVO?.userNick || data?.buyerNick || data?.buyerName || data?.buyer?.nick || data?.counterpartyName || '-'
+}
+
+function refundAmount(row) {
+  const data = refundData(row)
+  return data?.priceVO?.auctionPrice || data?.refundFee || data?.refundAmount || data?.amount || data?.price || '-'
+}
+
+function refundStatusValue(row) {
+  const data = refundData(row)
+  return data?.disputeStatus || data?.refundStatus || data?.status || data?.commonData?.disputeStatus
+}
+
+function refundReason(row) {
+  const data = refundData(row)
+  return data?.reason || data?.refundReason || data?.desc || data?.title || '-'
 }
 
 async function submitRefund() {

@@ -97,7 +97,9 @@ public class XianyuTradeAuxApiService {
      */
     public JsonNode getRefundList(String disputeStatus, String page, String pageSize) {
         Map<String, Object> refundSearchParam = new LinkedHashMap<>();
-        refundSearchParam.put("disputeStatus", disputeStatus != null ? disputeStatus : "");
+        if (disputeStatus != null && !disputeStatus.isBlank()) {
+            refundSearchParam.put("disputeStatus", disputeStatus.trim());
+        }
         refundSearchParam.put("queryCode", "ALL");
 
         Map<String, Object> data = new LinkedHashMap<>();

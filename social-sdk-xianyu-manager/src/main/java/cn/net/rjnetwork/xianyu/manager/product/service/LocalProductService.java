@@ -272,19 +272,16 @@ public class LocalProductService {
         XianyuProduct published = productService.create(createReq);
 
         // 虚拟商品：发布成功后自动建卡密池/账号池（库存联动）
+        // 建池失败直接抛异常，不删除本地记录，用户可修正后重试
         if ("VIRTUAL".equals(item.getGoodsType())
                 && ("CARD".equals(item.getDeliverType()) || "ACCOUNT".equals(item.getDeliverType()))) {
-            try {
-                List<String> rawItems = parseJsonArray(item.getDeliverContentTemplate());
-                int imported = virtualShipService.importCards(published.getId(), rawItems);
-                log.info("[LOCAL-PUBLISH] 虚拟商品建池: productId={}, type={}, count={}",
-                        published.getId(), item.getDeliverType(), imported);
-            } catch (Exception e) {
-                log.warn("[LOCAL-PUBLISH] 建池失败（商品已发布）: {}", e.getMessage());
-            }
+            List<String> rawItems = parseJsonArray(item.getDeliverContentTemplate());
+            int imported = virtualShipService.importCards(published.getId(), rawItems);
+            log.info("[LOCAL-PUBLISH] 虚拟商品建池: productId={}, type={}, count={}",
+                    published.getId(), item.getDeliverType(), imported);
         }
 
-        // 发布成功 → 物理删除本地记录
+        // 全部成功 → 物理删除本地记录
         localProductMapper.deleteById(item.getId());
         log.info("[LOCAL-PUBLISH] 发布成功并清理本地商品: id={}", item.getId());
         return item;
