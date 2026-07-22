@@ -1,13 +1,15 @@
 # ============================================================================
 # Dockerfile — 闲鱼管理器
 #
-# 支持两种构建模式（通过 --build-arg DB_MODE=）：
+# 支持三种构建模式（通过 --build-arg DB_MODE=）：
 #   sqlite (默认) — 单容器，内嵌 SQLite
-#   mysql         — 独立容器，MySQL 8
+#   mysql         — 外接 MySQL 8
+#   postgres      — 外接 PostgreSQL
 #
 # 用法:
 #   docker build --build-arg DB_MODE=sqlite -t xianyu-manager:sqlite .
 #   docker build --build-arg DB_MODE=mysql -t xianyu-manager:mysql .
+#   docker build --build-arg DB_MODE=postgres -t xianyu-manager:postgres .
 # ============================================================================
 
 # ── Stage 1: Maven 构建 ────────────────────────────────────────────────────
@@ -54,11 +56,14 @@ COPY --from=builder /app/app.jar server.jar
 RUN mkdir -p /app/data /app/data/openlist /app/chrome-profiles /app/logs /app/config \
     && chown -R xianyu:xianyu /app
 
+# 数据库镜像变体：sqlite / mysql / postgres
+ARG DB_MODE=sqlite
+
 # 环境变量
 ENV CHROME_BIN=/usr/bin/chromium \
     CHROME_HEADLESS=true \
     CHROME_HEADLESS_MODE=new \
-    SPRING_PROFILES_ACTIVE=prod \
+    SPRING_PROFILES_ACTIVE=${DB_MODE} \
     JAVA_OPTS="-Xmx512m -Xms256m" \
     SERVER_PORT=8080 \
     DB_PATH=/app/data/xianyu-manager.db \

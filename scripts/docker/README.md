@@ -183,3 +183,74 @@ TAG=v1.0.0 REGISTRY=registry.example.com/xianyu ./build.sh push
 - Docker Engine 20.10+
 - Docker Compose v2+
 - macOS / Linux / Windows (WSL2)
+
+
+
+### 推送方式
+
+支持构建并推送三种镜像：
+
+    sqlite                                                                                                                                                                                                                          
+    mysql                                                                                                                                                                                                                           
+    postgres                                                                                                                                                                                                                        
+
+镜像标签格式：
+
+    <ACR_REGISTRY>/<ACR_NAMESPACE>/<IMAGE_NAME>:sqlite-<TAG>                                                                                                                                                                        
+    <ACR_REGISTRY>/<ACR_NAMESPACE>/<IMAGE_NAME>:mysql-<TAG>                                                                                                                                                                         
+    <ACR_REGISTRY>/<ACR_NAMESPACE>/<IMAGE_NAME>:postgres-<TAG>                                                                                                                                                                      
+
+例如：
+
+    registry.cn-hangzhou.aliyuncs.com/your-namespace/xianyu-manager:sqlite-v1.0.0                                                                                                                                                   
+    registry.cn-hangzhou.aliyuncs.com/your-namespace/xianyu-manager:mysql-v1.0.0                                                                                                                                                    
+    registry.cn-hangzhou.aliyuncs.com/your-namespace/xianyu-manager:postgres-v1.0.0                                                                                                                                                 
+
+Windows 使用方式：
+
+    set ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com                                                                                                                                                                              
+    set ACR_NAMESPACE=你的命名空间                                                                                                                                                                                                  
+    set TAG=v1.0.0                                                                                                                                                                                                                  
+    set IMAGE_NAME=xianyu-manager                                                                                                                                                                                                   
+                                                                                                                                                                                                                                    
+    scripts\docker\publish-acr.bat                                                                                                                                                                                                  
+
+如果需要脚本自动登录 ACR：
+
+    set ACR_USERNAME=你的阿里云ACR用户名                                                                                                                                                                                            
+    set ACR_PASSWORD=你的阿里云ACR密码或访问凭证                                                                                                                                                                                    
+    scripts\docker\publish-acr.bat                                                                                                                                                                                                  
+
+只构建不推送：
+
+    scripts\docker\publish-acr.bat --build-only                                                                                                                                                                                     
+
+只构建某一种：
+
+    scripts\docker\publish-acr.bat --mode sqlite --build-only                                                                                                                                                                       
+    scripts\docker\publish-acr.bat --mode mysql --build-only                                                                                                                                                                        
+    scripts\docker\publish-acr.bat --mode postgres --build-only                                                                                                                                                                     
+
+Linux/macOS 使用方式：
+
+    ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com \                                                                                                                                                                                
+    ACR_NAMESPACE=你的命名空间 \                                                                                                                                                                                                    
+    TAG=v1.0.0 \                                                                                                                                                                                                                    
+    IMAGE_NAME=xianyu-manager \                                                                                                                                                                                                     
+    bash scripts/docker/publish-acr.sh                                                                                                                                                                                              
+
+如果需要自动登录：
+
+    ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com \                                                                                                                                                                                
+    ACR_NAMESPACE=你的命名空间 \                                                                                                                                                                                                    
+    ACR_USERNAME=你的阿里云ACR用户名 \                                                                                                                                                                                              
+    ACR_PASSWORD=你的阿里云ACR密码或访问凭证 \                                                                                                                                                                                      
+    TAG=v1.0.0 \                                                                                                                                                                                                                    
+    bash scripts/docker/publish-acr.sh                                                                                                                                                                                              
+
+已验证：
+
+    bash -n scripts/docker/publish-acr.sh                                                                                                                                                                                           
+    bash scripts/docker/publish-acr.sh --help                                                                                                                                                                                       
+    cmd.exe //c "scripts\\docker\\publish-acr.bat --help"                                                                                                                                                                           
+    cmd.exe //c "scripts\\docker\\publish-acr.bat --mode bad --build-only"    
