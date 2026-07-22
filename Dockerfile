@@ -19,7 +19,19 @@ COPY social-sdk-proxys ./social-sdk-proxys
 COPY social-sdk-cdp-auth ./social-sdk-cdp-auth
 COPY social-sdk-xianyu-manager ./social-sdk-xianyu-manager
 COPY social-sdk-spring-boot-starter ./social-sdk-spring-boot-starter
-RUN mvn clean package -DskipTests -pl social-sdk-xianyu-manager -am
+RUN mvn clean package -DskipTests -pl social-sdk-xianyu-manager -am \
+    && for jar in social-sdk-xianyu-manager/target/*.jar; do \
+        case "$jar" in \
+          *.original|*-sources.jar|*-javadoc.jar) continue ;; \
+        esac; \
+        if jar tf "$jar" | grep -q '^BOOT-INF/'; then \
+          cp "$jar" /app/app.jar; \
+          break; \
+        fi; \
+      done \
+    && test -f /app/app.jar \
+    && jar xf /app/app.jar META-INF/MANIFEST.MF \
+    && grep -q 'Main-Class:' META-INF/MANIFEST.MF
 
 # ── Stage 2: 运行时镜像 ────────────────────────────────────────────────────
 FROM eclipse-temurin:17-jre
@@ -29,7 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY --from=builder /app/social-sdk-xianyu-manager/target/*.jar app.jar
+COPY --from=builder /app/app.jar app.jar
 RUN mkdir -p /app/data /app/chrome-profiles /app/logs
 EXPOSE 8080
 ENV CHROME_BIN=/usr/bin/chromium \

@@ -1,256 +1,420 @@
 # 闲鱼管理器 · Docker 版
 
-基于 Docker Compose 的容器化方案，支持 **SQLite（默认）** 和 **MySQL 8** 两种数据库模式。
+基于 Docker / Docker Compose 的容器化部署方案，支持三种数据库模式：
 
-## 架构说明
+- **SQLite**：最简单，单容器启动，推荐新手/单机部署。
+- **MySQL 8**：应用容器 + MySQL 容器。
+- **PostgreSQL**：应用容器 + PostgreSQL 容器。
 
-### SQLite 模式（单容器）
+## 镜像仓库信息
 
-```
-┌─────────────────────────┐
-│ xianyu-manager          │
-│ Spring Boot + SQLite    │
-│ Chromium (滑块验证)     │
-└─────────────────────────┘
-```
+当前项目镜像发布到阿里云 ACR：
 
-### MySQL 8 模式（双容器）
+| 配置项 | 值 |
+|---|---|
+| ACR_REGISTRY | `registry.cn-hangzhou.aliyuncs.com` |
+| ACR_NAMESPACE | `eqadmin` |
+| IMAGE_NAME | `xianyu-manager` |
+| TAG | `0.0.2` |
 
-```
-┌─────────────────────────┐     ┌─────────────────────────┐
-│ xianyu-manager          │ ──→ │ MySQL 8                 │
-│ Spring Boot + MyBatis   │ ←── │ (持久化卷)              │
-│ Chromium (滑块验证)     │     └─────────────────────────┘
-└─────────────────────────┘
+三种镜像地址：
+
+```text
+registry.cn-hangzhou.aliyuncs.com/eqadmin/xianyu-manager:sqlite-0.0.2
+registry.cn-hangzhou.aliyuncs.com/eqadmin/xianyu-manager:mysql-0.0.2
+registry.cn-hangzhou.aliyuncs.com/eqadmin/xianyu-manager:postgres-0.0.2
 ```
 
 ## 目录结构
 
-```
+```text
 scripts/docker/
-├── build.sh                    # 构建 & 启动脚本
-├── Dockerfile                  # 多阶段构建 Dockerfile
-├── docker-compose.yml          # SQLite 版 docker-compose
-├── docker-compose.mysql.yml    # MySQL 版 docker-compose（扩展）
-├── mysql-init/                 # MySQL 初始化脚本
-│   └── 01-init.sql
-├── mysql-config/               # MySQL 自定义配置
-│   └── custom.cnf
-├── .env.example                # 环境变量模板
-└── build/                      # 构建输出
+├── Dockerfile                    # 多阶段构建 Dockerfile
+├── README.md                     # Docker 使用说明
+├── .env.example                  # 环境变量模板，复制为 .env 后使用
+├── build.sh                      # Linux/macOS 构建 & 启动脚本
+├── publish-acr.sh                # Linux/macOS 构建并推送到 ACR
+├── publish-acr.bat               # Windows 构建并推送到 ACR
+├── docker-compose.yml            # SQLite 版 docker-compose
+├── docker-compose.mysql.yml      # MySQL 版 docker-compose 扩展
+├── docker-compose.postgres.yml   # PostgreSQL 版 docker-compose 扩展
+├── mysql-init/                   # MySQL 初始化脚本
+├── mysql-config/                 # MySQL 自定义配置
+├── data/                         # SQLite 数据、上传文件等运行时数据
+├── chrome-profiles/              # Chromium 登录态/用户数据
+├── logs/                         # 应用日志
+└── config/                       # 外部配置目录
 ```
 
-## 快速开始
+## 一、从 ACR 拉取镜像部署（推荐普通用户）
 
-### 1. SQLite 模式（最简单）
+### 1. 复制环境变量文件
+
+Windows PowerShell / CMD：
+
+```bat
+cd scripts\docker
+copy .env.example .env
+```
+
+Linux / macOS：
 
 ```bash
 cd scripts/docker
+cp .env.example .env
+```
 
-# 构建镜像
-./build.sh build
+如果需要修改端口、数据库密码，可以编辑 `.env`。默认配置已经可以直接启动。
 
-# 启动服务
+> 普通用户只需要 `docker-compose.yml` 和 `.env`。不要复制/引用 `docker-compose.build.yml`，它是源码构建用的，会查找本地 `Dockerfile`。
+
+### 2. 启动 SQLite 镜像（最简单，会自动从 ACR 拉取）
+
+Windows：
+
+```bat
+set ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com
+set ACR_NAMESPACE=eqadmin
+set IMAGE_NAME=xianyu-manager
+set TAG=0.0.2
+
+docker compose --env-file .env -f docker-compose.yml up -d
+```
+
+Linux / macOS：
+
+```bash
+export ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com
+export ACR_NAMESPACE=eqadmin
+export IMAGE_NAME=xianyu-manager
+export TAG=0.0.2
+
+docker compose --env-file .env -f docker-compose.yml up -d
+```
+
+访问：
+
+```text
+http://localhost:8080
+```
+
+服务器部署时访问：
+
+```text
+http://服务器IP:8080
+```
+
+### 3. 启动 MySQL 镜像（会自动从 ACR 拉取）
+
+Windows：
+
+```bat
+set ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com
+set ACR_NAMESPACE=eqadmin
+set IMAGE_NAME=xianyu-manager
+set TAG=0.0.2
+
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.mysql.yml up -d
+```
+
+Linux / macOS：
+
+```bash
+export ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com
+export ACR_NAMESPACE=eqadmin
+export IMAGE_NAME=xianyu-manager
+export TAG=0.0.2
+
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.mysql.yml up -d
+```
+
+### 4. 启动 PostgreSQL 镜像（会自动从 ACR 拉取）
+
+Windows：
+
+```bat
+set ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com
+set ACR_NAMESPACE=eqadmin
+set IMAGE_NAME=xianyu-manager
+set TAG=0.0.2
+
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.postgres.yml up -d
+```
+
+Linux / macOS：
+
+```bash
+export ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com
+export ACR_NAMESPACE=eqadmin
+export IMAGE_NAME=xianyu-manager
+export TAG=0.0.2
+
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.postgres.yml up -d
+```
+
+## 二、本地源码构建部署（开发者使用）
+
+### SQLite 模式
+
+```bash
+cd scripts/docker
+cp .env.example .env
+DB_MODE=sqlite docker compose --env-file .env -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+### MySQL 模式
+
+```bash
+cd scripts/docker
+cp .env.example .env
+DB_MODE=mysql docker compose --env-file .env -f docker-compose.yml -f docker-compose.mysql.yml -f docker-compose.build.yml up -d --build
+```
+
+### PostgreSQL 模式
+
+```bash
+cd scripts/docker
+cp .env.example .env
+DB_MODE=postgres docker compose --env-file .env -f docker-compose.yml -f docker-compose.postgres.yml -f docker-compose.build.yml up -d --build
+```
+
+也可以使用脚本：
+
+```bash
+# SQLite
 ./build.sh compose
-# 或: docker compose -f docker-compose.yml up -d
 
-# 访问
-open http://localhost:8080
+# MySQL
+DB_MODE=mysql ./build.sh compose
+
+# PostgreSQL
+DB_MODE=postgres ./build.sh compose
 ```
 
-### 2. MySQL 8 模式
+## 三、构建并推送镜像到 ACR（维护者使用）
+
+如果拉取后的容器日志出现：
+
+```text
+no main manifest attribute, in /app/server.jar
+```
+
+说明旧镜像里复制进容器的不是 Spring Boot 可执行 JAR。请使用最新 `scripts/docker/Dockerfile` 重新构建并覆盖推送 `0.0.2` 镜像，然后在部署机器执行：
 
 ```bash
-cd scripts/docker
-
-# 配置环境变量
-cp .env.example .env
-# 编辑 .env，设置 MySQL 密码
-
-# 构建 & 启动
-DB_MODE=mysql ./build.sh all
-# 或: docker compose -f docker-compose.yml -f docker-compose.mysql.yml up -d
-
-# 访问
-open http://localhost:8080
+docker compose --env-file .env -f docker-compose.yml pull
+docker compose --env-file .env -f docker-compose.yml up -d --force-recreate
 ```
 
-## 自定义配置
+### Windows 推送
 
-### 通过 .env 文件
+```bat
+set ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com
+set ACR_NAMESPACE=eqadmin
+set TAG=0.0.2
+set IMAGE_NAME=xianyu-manager
 
-```bash
-cp .env.example .env
-# 编辑 .env 修改端口、密码等
-
-# 使用自定义 .env
-docker compose --env-file .env up -d
+scripts\docker\publish-acr.bat
 ```
-
-### 通过 application.yml 挂载
-
-```yaml
-# docker-compose.yml
-volumes:
-  - ./config/application.yml:/app/config/application.yml:ro
-```
-
-### 通过命令行参数
-
-```bash
-docker run -d \
-  -p 8080:8080 \
-  -e SPRING_DATASOURCE_URL=jdbc:mysql://host:3306/xianyu \
-  -e XIANYU_JWT_SECRET=my-secret \
-  -v /my/data:/app/data \
-  xianyu-manager:latest
-```
-
-## 数据持久化
-
-| 数据 | 宿主机路径 | 容器路径 |
-|------|-----------|---------|
-| SQLite DB | `./data/` | `/app/data/` |
-| Chrome 配置 | `./chrome-profiles/` | `/app/chrome-profiles/` |
-| 日志 | `./logs/` | `/app/logs/` |
-| 配置 | `./config/` | `/app/config/` |
-| MySQL 数据 | `mysql-data` 卷 | `/var/lib/mysql/` |
-
-## 健康检查
-
-```bash
-# 查看容器状态
-docker compose ps
-
-# 查看日志
-docker compose logs -f xianyu-manager
-
-# 健康检查
-docker inspect --format='{{.State.Health.Status}}' xianyu-manager
-```
-
-## 常用命令
-
-```bash
-# 启动
-docker compose up -d
-
-# 停止
-docker compose down
-
-# 重启
-docker compose restart
-
-# 查看日志
-docker compose logs -f --tail=100
-
-# 进入容器
-docker exec -it xianyu-manager bash
-
-# 备份 SQLite
-docker exec xianyu-manager tar czf - /app/data > backup-$(date +%Y%m%d).tar.gz
-
-# 备份 MySQL
-docker exec xianyu-mysql mysqldump -u root -p xianyu_manager > backup-$(date +%Y%m%d).sql
-
-# 清理（保留数据卷）
-docker compose down --rmi local
-
-# 完全清理
-docker compose down -v --rmi local
-```
-
-## 与现有 Dockerfile/docker-compose 的关系
-
-项目根目录已有的 `Dockerfile` 和 `docker-compose.yml` 是早期版本。本目录提供：
-- 更完善的多阶段构建
-- MySQL 8 支持
-- 独立的构建脚本
-- 更好的配置管理
-
-## 构建镜像
-
-```bash
-# 本地构建
-./build.sh build
-
-# 构建 & 推送
-TAG=v1.0.0 REGISTRY=registry.example.com/xianyu ./build.sh push
-```
-
-## 要求
-
-- Docker Engine 20.10+
-- Docker Compose v2+
-- macOS / Linux / Windows (WSL2)
-
-
-
-### 推送方式
-
-支持构建并推送三种镜像：
-
-    sqlite                                                                                                                                                                                                                          
-    mysql                                                                                                                                                                                                                           
-    postgres                                                                                                                                                                                                                        
-
-镜像标签格式：
-
-    <ACR_REGISTRY>/<ACR_NAMESPACE>/<IMAGE_NAME>:sqlite-<TAG>                                                                                                                                                                        
-    <ACR_REGISTRY>/<ACR_NAMESPACE>/<IMAGE_NAME>:mysql-<TAG>                                                                                                                                                                         
-    <ACR_REGISTRY>/<ACR_NAMESPACE>/<IMAGE_NAME>:postgres-<TAG>                                                                                                                                                                      
-
-例如：
-
-    registry.cn-hangzhou.aliyuncs.com/your-namespace/xianyu-manager:sqlite-v1.0.0                                                                                                                                                   
-    registry.cn-hangzhou.aliyuncs.com/your-namespace/xianyu-manager:mysql-v1.0.0                                                                                                                                                    
-    registry.cn-hangzhou.aliyuncs.com/your-namespace/xianyu-manager:postgres-v1.0.0                                                                                                                                                 
-
-Windows 使用方式：
-
-    set ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com                                                                                                                                                                              
-    set ACR_NAMESPACE=你的命名空间                                                                                                                                                                                                  
-    set TAG=v1.0.0                                                                                                                                                                                                                  
-    set IMAGE_NAME=xianyu-manager                                                                                                                                                                                                   
-                                                                                                                                                                                                                                    
-    scripts\docker\publish-acr.bat                                                                                                                                                                                                  
 
 如果需要脚本自动登录 ACR：
 
-    set ACR_USERNAME=你的阿里云ACR用户名                                                                                                                                                                                            
-    set ACR_PASSWORD=你的阿里云ACR密码或访问凭证                                                                                                                                                                                    
-    scripts\docker\publish-acr.bat                                                                                                                                                                                                  
+```bat
+set ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com
+set ACR_NAMESPACE=eqadmin
+set TAG=0.0.2
+set IMAGE_NAME=xianyu-manager
+set ACR_USERNAME=你的阿里云ACR用户名
+set ACR_PASSWORD=你的阿里云ACR密码或访问凭证
+
+scripts\docker\publish-acr.bat
+```
 
 只构建不推送：
 
-    scripts\docker\publish-acr.bat --build-only                                                                                                                                                                                     
+```bat
+scripts\docker\publish-acr.bat --build-only
+```
 
-只构建某一种：
+只构建或推送某一种数据库镜像：
 
-    scripts\docker\publish-acr.bat --mode sqlite --build-only                                                                                                                                                                       
-    scripts\docker\publish-acr.bat --mode mysql --build-only                                                                                                                                                                        
-    scripts\docker\publish-acr.bat --mode postgres --build-only                                                                                                                                                                     
+```bat
+scripts\docker\publish-acr.bat --mode sqlite
+scripts\docker\publish-acr.bat --mode mysql
+scripts\docker\publish-acr.bat --mode postgres
+```
 
-Linux/macOS 使用方式：
+### Linux / macOS 推送
 
-    ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com \                                                                                                                                                                                
-    ACR_NAMESPACE=你的命名空间 \                                                                                                                                                                                                    
-    TAG=v1.0.0 \                                                                                                                                                                                                                    
-    IMAGE_NAME=xianyu-manager \                                                                                                                                                                                                     
-    bash scripts/docker/publish-acr.sh                                                                                                                                                                                              
+```bash
+ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com \
+ACR_NAMESPACE=eqadmin \
+TAG=0.0.2 \
+IMAGE_NAME=xianyu-manager \
+bash scripts/docker/publish-acr.sh
+```
 
-如果需要自动登录：
+如果需要自动登录 ACR：
 
-    ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com \                                                                                                                                                                                
-    ACR_NAMESPACE=你的命名空间 \                                                                                                                                                                                                    
-    ACR_USERNAME=你的阿里云ACR用户名 \                                                                                                                                                                                              
-    ACR_PASSWORD=你的阿里云ACR密码或访问凭证 \                                                                                                                                                                                      
-    TAG=v1.0.0 \                                                                                                                                                                                                                    
-    bash scripts/docker/publish-acr.sh                                                                                                                                                                                              
+```bash
+ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com \
+ACR_NAMESPACE=eqadmin \
+TAG=0.0.2 \
+IMAGE_NAME=xianyu-manager \
+ACR_USERNAME=你的阿里云ACR用户名 \
+ACR_PASSWORD=你的阿里云ACR密码或访问凭证 \
+bash scripts/docker/publish-acr.sh
+```
 
-已验证：
+只构建不推送：
 
-    bash -n scripts/docker/publish-acr.sh                                                                                                                                                                                           
-    bash scripts/docker/publish-acr.sh --help                                                                                                                                                                                       
-    cmd.exe //c "scripts\\docker\\publish-acr.bat --help"                                                                                                                                                                           
-    cmd.exe //c "scripts\\docker\\publish-acr.bat --mode bad --build-only"    
+```bash
+bash scripts/docker/publish-acr.sh --build-only
+```
+
+只构建或推送某一种数据库镜像：
+
+```bash
+bash scripts/docker/publish-acr.sh --mode sqlite
+bash scripts/docker/publish-acr.sh --mode mysql
+bash scripts/docker/publish-acr.sh --mode postgres
+```
+
+## 四、常用运维命令
+
+### 查看服务状态
+
+SQLite：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml ps
+```
+
+MySQL：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.mysql.yml ps
+```
+
+PostgreSQL：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.postgres.yml ps
+```
+
+### 查看日志
+
+```bash
+docker compose --env-file .env -f docker-compose.yml logs -f xianyu-manager
+```
+
+### 健康检查
+
+```bash
+curl http://localhost:8080/api/system/health
+```
+
+容器健康状态：
+
+```bash
+docker inspect --format='{{.State.Health.Status}}' xianyu-manager
+```
+
+### 停止服务
+
+SQLite：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml down
+```
+
+MySQL：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.mysql.yml down
+```
+
+PostgreSQL：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.postgres.yml down
+```
+
+### 重启服务
+
+```bash
+docker compose --env-file .env -f docker-compose.yml restart xianyu-manager
+```
+
+### 进入应用容器
+
+```bash
+docker exec -it xianyu-manager bash
+```
+
+## 五、数据持久化
+
+| 数据 | 宿主机路径/卷 | 容器路径 |
+|---|---|---|
+| SQLite 数据库、上传文件 | `./data/` | `/app/data/` |
+| Chrome 登录态/用户数据 | `./chrome-profiles/` | `/app/chrome-profiles/` |
+| 应用日志 | `./logs/` | `/app/logs/` |
+| 外部配置 | `./config/` | `/app/config/` |
+| MySQL 数据 | `mysql-data` Docker 卷 | `/var/lib/mysql/` |
+| PostgreSQL 数据 | `postgres-data` Docker 卷 | `/var/lib/postgresql/data/` |
+
+### 备份 SQLite 数据
+
+```bash
+docker exec xianyu-manager tar czf - /app/data > backup-sqlite.tar.gz
+```
+
+### 备份 MySQL 数据
+
+```bash
+docker exec xianyu-mysql mysqldump -u root -p xianyu_manager > backup-mysql.sql
+```
+
+### 备份 PostgreSQL 数据
+
+```bash
+docker exec xianyu-postgres pg_dump -U xianyu xianyu_manager > backup-postgres.sql
+```
+
+## 六、注意事项
+
+1. 生产环境请修改 `.env` 中的安全密钥：
+
+   ```text
+   XIANYU_JWT_SECRET
+   XIANYU_CRYPTO_SECRET
+   ```
+
+2. 如果宿主机端口被占用，修改 `.env`：
+
+   ```text
+   APP_PORT=18080
+   MYSQL_PORT=13306
+   POSTGRES_PORT=15432
+   ```
+
+3. Docker/Linux 环境默认使用无头浏览器：
+
+   ```text
+   CHROME_HEADLESS=true
+   CHROME_HEADLESS_MODE=new
+   ```
+
+4. SQLite 最省事；MySQL/PostgreSQL 更适合多人、多数据量或长期生产部署。
+
+5. 如果 ACR 镜像是私有仓库，拉取前需要先登录：
+
+   ```bash
+   docker login registry.cn-hangzhou.aliyuncs.com
+   ```
+
+## 七、环境要求
+
+- Docker Engine 20.10+
+- Docker Compose v2+
+- Java / Maven 仅源码构建镜像时需要；单纯拉取 ACR 镜像运行不需要本机安装 Java / Maven。

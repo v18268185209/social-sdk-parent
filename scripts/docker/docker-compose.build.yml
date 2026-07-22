@@ -1,0 +1,20 @@
+# ============================================================================
+# Docker Compose 源码构建覆盖文件
+#
+# 普通用户不要使用本文件：直接 docker compose -f docker-compose.yml up -d
+# 会从阿里云 ACR 拉取预构建镜像。
+#
+# 开发者需要从当前源码构建镜像时，叠加本文件：
+#   DB_MODE=sqlite docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#   DB_MODE=mysql docker compose -f docker-compose.yml -f docker-compose.mysql.yml -f docker-compose.build.yml up -d --build
+#   DB_MODE=postgres docker compose -f docker-compose.yml -f docker-compose.postgres.yml -f docker-compose.build.yml up -d --build
+# ============================================================================
+
+services:
+  xianyu-manager:
+    build:
+      context: ../..
+      dockerfile: scripts/docker/Dockerfile
+      args:
+        DB_MODE: ${DB_MODE:-sqlite}
+    image: xianyu-manager:${DB_MODE:-sqlite}-${TAG:-latest}

@@ -29,12 +29,22 @@ COPY social-sdk-spring-boot-starter ./social-sdk-spring-boot-starter
 # 复制前端源码（用于 Maven 插件构建）
 COPY social-sdk-xianyu-manager-web ./social-sdk-xianyu-manager-web
 
-# 构建 JAR（含前端），只复制 Spring Boot 可执行 JAR，排除 original/sources/javadoc 等附属包
+# 构建 JAR（含前端），只复制 Spring Boot 可执行 JAR。
+# 不能简单 find 第一个 *.jar：target 中可能同时存在普通 jar / sources / javadoc / original，
+# 普通 jar 没有 Main-Class，会导致容器启动时报 no main manifest attribute。
 RUN mvn clean package -DskipTests -pl social-sdk-xianyu-manager -am \
-    && JAR_FILE="$(find social-sdk-xianyu-manager/target -maxdepth 1 -type f -name '*.jar' \
-        ! -name '*.original' ! -name '*-sources.jar' ! -name '*-javadoc.jar' | head -n 1)" \
-    && test -n "$JAR_FILE" \
-    && cp "$JAR_FILE" /app/app.jar
+    && for jar in social-sdk-xianyu-manager/target/*.jar; do \
+        case "$jar" in \
+          *.original|*-sources.jar|*-javadoc.jar) continue ;; \
+        esac; \
+        if jar tf "$jar" | grep -q '^BOOT-INF/'; then \
+          cp "$jar" /app/app.jar; \
+          break; \
+        fi; \
+      done \
+    && test -f /app/app.jar \
+    && jar xf /app/app.jar META-INF/MANIFEST.MF \
+    && grep -q 'Main-Class:' META-INF/MANIFEST.MF
 
 # ── Stage 2: 运行时镜像 ────────────────────────────────────────────────────
 FROM eclipse-temurin:17-jre
@@ -74,7 +84,7 @@ ENV CHROME_BIN=/usr/bin/chromium \
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://127.0.0.1:${SERVER_PORT}/actuator/health || exit 1
+    CMD curl -f http://127.0.0.1:${SERVER_PORT}/api/system/health || exit 1
 
 # 暴露端口
 EXPOSE 8080

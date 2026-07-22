@@ -152,11 +152,11 @@ compose_up() {
     # 构建镜像先
     build_image
 
-    # 启动
+    # 启动。docker-compose.build.yml 必须最后叠加，用本地源码构建配置覆盖 ACR 镜像配置。
     if [[ -n "$override_file" && -f "$override_file" ]]; then
-        docker compose -f "$compose_file" -f "$override_file" up -d --build
+        DB_MODE="$DB_MODE" TAG="$TAG" docker compose -f "$compose_file" -f "$override_file" -f docker-compose.build.yml up -d --build
     else
-        docker compose -f "$compose_file" up -d --build
+        DB_MODE="$DB_MODE" TAG="$TAG" docker compose -f "$compose_file" -f docker-compose.build.yml up -d --build
     fi
 
     log_info "服务已启动"
@@ -173,8 +173,11 @@ show_status() {
     log_info "访问地址:"
     log_info "  Web UI:    http://localhost:8080"
     if [[ "$DB_MODE" == "mysql" ]]; then
-        log_info "  MySQL:     localhost:3306"
+        log_info "  MySQL:     localhost:${MYSQL_PORT:-3306}"
         log_info "  MySQL 用户: xianyu (密码见 docker-compose.mysql.yml)"
+    elif [[ "$DB_MODE" == "postgres" ]]; then
+        log_info "  PostgreSQL: localhost:${POSTGRES_PORT:-5432}"
+        log_info "  PostgreSQL 用户: xianyu (密码见 docker-compose.postgres.yml)"
     else
         log_info "  SQLite DB: /app/data/xianyu-manager.db"
     fi

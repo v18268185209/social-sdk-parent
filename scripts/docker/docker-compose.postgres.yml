@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ============================================================================
 # Docker Compose 配置 — PostgreSQL 模式
 #
@@ -14,12 +12,7 @@ version: '3.8'
 services:
   # ── 覆盖 xianyu-manager 配置（PostgreSQL 版） ───────────────────────────────
   xianyu-manager:
-    build:
-      context: ../..
-      dockerfile: scripts/docker/Dockerfile
-      args:
-        DB_MODE: postgres
-    image: xianyu-manager:postgres-latest
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-eqadmin}/${IMAGE_NAME:-xianyu-manager}:postgres-${TAG:-0.0.2}
     environment:
       - SPRING_PROFILES_ACTIVE=postgres
       - TZ=Asia/Shanghai

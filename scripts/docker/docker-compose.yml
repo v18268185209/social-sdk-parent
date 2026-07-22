@@ -1,14 +1,7 @@
-version: '3.8'
-
 services:
   # ── 闲鱼管理器（SQLite 版，默认） ─────────────────────────────────────────
   xianyu-manager:
-    build:
-      context: ../..
-      dockerfile: scripts/docker/Dockerfile
-      args:
-        DB_MODE: sqlite
-    image: xianyu-manager:sqlite-latest
+    image: ${ACR_REGISTRY:-registry.cn-hangzhou.aliyuncs.com}/${ACR_NAMESPACE:-eqadmin}/${IMAGE_NAME:-xianyu-manager}:sqlite-${TAG:-0.0.2}
     container_name: xianyu-manager
     restart: unless-stopped
     ports:
@@ -38,7 +31,7 @@ services:
     networks:
       - xianyu-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/api/system/health"]
       interval: 30s
       timeout: 10s
       retries: 3

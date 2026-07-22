@@ -132,7 +132,7 @@ social-sdk-parent/                          # 父 POM
     ├── electron/                           # Electron 桌面应用（Mac + Windows）
     ├── ios/                                # iOS 应用（Capacitor + Xcode）
     ├── android/                            # Android 应用（Capacitor + Gradle）
-    ├── docker/                             # Docker 多阶段构建（SQLite / MySQL 8）
+    ├── docker/                             # Docker 多阶段构建（SQLite / MySQL 8 / PostgreSQL）
     └── common/                             # 共享工具函数
 ```
 
@@ -388,34 +388,102 @@ mvn spring-boot:run
 
 ### 方式二：Docker 部署（推荐生产）
 
-#### 使用预构建 Dockerfile
+Docker 相关文件在 `scripts/docker/`，详细说明见 [`scripts/docker/README.md`](./scripts/docker/README.md)。
 
-```bash
-# SQLite 模式（默认）
-docker build --build-arg DB_MODE=sqlite -t xianyu-manager:sqlite .
+> 普通用户从阿里云 ACR 拉取镜像运行时，只需要 `docker-compose.yml` 和 `.env`。不要引用 `docker-compose.build.yml`，它是开发者从源码构建镜像用的。
 
-# MySQL 8 模式
-docker build --build-arg DB_MODE=mysql -t xianyu-manager:mysql .
+#### 1. 直接拉取阿里云 ACR 镜像运行（推荐普通用户）
+
+当前已发布镜像：
+
+```text
+registry.cn-hangzhou.aliyuncs.com/eqadmin/xianyu-manager:sqlite-0.0.2
+registry.cn-hangzhou.aliyuncs.com/eqadmin/xianyu-manager:mysql-0.0.2
+registry.cn-hangzhou.aliyuncs.com/eqadmin/xianyu-manager:postgres-0.0.2
 ```
 
-#### 使用 docker-compose
+SQLite 单容器启动（最简单）：
 
 ```bash
+cd scripts/docker
+cp .env.example .env
+
+docker compose --env-file .env -f docker-compose.yml up -d
+```
+
+Windows CMD：
+
+```bat
+cd scripts\docker
+copy .env.example .env
+
+set ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com
+set ACR_NAMESPACE=eqadmin
+set IMAGE_NAME=xianyu-manager
+set TAG=0.0.2
+
+docker compose --env-file .env -f docker-compose.yml up -d
+```
+
+启动后访问：
+
+```text
+http://localhost:8080
+```
+
+服务器部署时访问：
+
+```text
+http://服务器IP:8080
+```
+
+#### 2. MySQL / PostgreSQL 镜像启动
+
+MySQL：
+
+```bash
+cd scripts/docker
+cp .env.example .env
+
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.mysql.yml up -d
+```
+
+PostgreSQL：
+
+```bash
+cd scripts/docker
+cp .env.example .env
+
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.postgres.yml up -d
+```
+
+> 如果 ACR 镜像是私有仓库，先执行：`docker login registry.cn-hangzhou.aliyuncs.com`。
+
+#### 3. 本地源码构建镜像运行（开发者）
+
+```bash
+cd scripts/docker
+cp .env.example .env
+
 # SQLite
-docker-compose up -d
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
-# MySQL 8
-docker-compose -f scripts/docker/docker-compose.mysql.yml up -d
+# MySQL
+DB_MODE=mysql docker compose --env-file .env -f docker-compose.yml -f docker-compose.mysql.yml -f docker-compose.build.yml up -d --build
+
+# PostgreSQL
+DB_MODE=postgres docker compose --env-file .env -f docker-compose.yml -f docker-compose.postgres.yml -f docker-compose.build.yml up -d --build
 ```
 
-#### 数据持久化
+#### 4. 数据持久化
 
 ```bash
-# 数据存储在以下卷
-./data                    # SQLite 数据库 / MySQL 数据
-./chrome-profiles         # Chrome 容器配置
-./logs                    # 应用日志
-./config                  # 自定义配置
+scripts/docker/data              # SQLite 数据库、上传文件等
+scripts/docker/chrome-profiles   # Chrome 登录态/用户数据
+scripts/docker/logs              # 应用日志
+scripts/docker/config            # 自定义配置
+mysql-data                       # MySQL Docker 卷
+postgres-data                    # PostgreSQL Docker 卷
 ```
 
 ### 方式三：Electron 桌面应用
@@ -591,7 +659,7 @@ docker run -e SPRING_PROFILES_ACTIVE=mysql ...
 | `XIANYU_CRYPTO_SECRET` | Cookie / 敏感数据加密密钥 | `defaultCryptoSecretKeyForDevelopmentOnly` |
 | `SPRING_PROFILES_ACTIVE` | 数据库 profile：`sqlite` / `mysql` / `postgres` | `sqlite` |
 | `DB_PATH` | SQLite 数据库文件路径 | `./data/xianyu-manager.db` |
-| `DB_MODE` | Docker 构建模式：`sqlite` / `mysql` | `sqlite` |
+| `DB_MODE` | Docker 构建模式：`sqlite` / `mysql` / `postgres` | `sqlite` |
 | `JAVA_OPTS` | JVM 参数 | `-Xmx512m -Xms256m` |
 | `TZ` | 时区 | `Asia/Shanghai` |
 
