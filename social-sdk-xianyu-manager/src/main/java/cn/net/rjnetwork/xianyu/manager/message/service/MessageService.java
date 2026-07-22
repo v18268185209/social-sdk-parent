@@ -425,8 +425,11 @@ public class MessageService {
             
             // 检测风控并自动解决
             String errorMessage = e.getMessage();
-            if (errorMessage != null && (errorMessage.contains("FAIL_SYS_USER_VALIDATE") || 
-                errorMessage.contains("punish") || errorMessage.contains("captcha"))) {
+            if (errorMessage != null && (errorMessage.contains("FAIL_SYS_USER_VALIDATE") ||
+                errorMessage.contains("punish") || errorMessage.contains("captcha") ||
+                errorMessage.contains("FAIL_SYS_TOKEN_EXOIRED") ||
+                errorMessage.contains("FAIL_SYS_TOKEN_EMPTY") ||
+                errorMessage.contains("FAIL_SYS_ILLEGAL_REQUEST"))) {
                 if (!allowCaptcha) {
                     log.info("[MESSAGE] risk control detected during scheduled pull, skip captcha solving for account {}", acc.getId());
                     return false;
@@ -457,12 +460,22 @@ public class MessageService {
             // 从 JSON data.url 提取，也支持从异常消息里的明文 JSON 串正则提取
             String url = extractPunishUrlFromRaw(rawError);
 
-            if (url == null || url.isEmpty()) {
+            // token 过期 / 非法请求：pc.login.token 可能只返回 FAIL_SYS_TOKEN_EXOIRED 而
+            // 不带 punish URL（data 为空）。此时仍需回到 IM 页刷新 x5sec，不能直接放弃。
+            boolean tokenExpiredTrigger = rawError.contains("FAIL_SYS_TOKEN_EXOIRED")
+                    || rawError.contains("FAIL_SYS_TOKEN_EMPTY")
+                    || rawError.contains("FAIL_SYS_ILLEGAL_REQUEST");
+
+            if ((url == null || url.isEmpty()) && !tokenExpiredTrigger) {
                 log.warn("[MESSAGE] No punish URL found in error");
                 return false;
             }
 
-            log.info("[CDP-AUTH] Punish URL: {}", truncate(url, 250));
+            if (url != null && !url.isEmpty()) {
+                log.info("[CDP-AUTH] Punish URL: {}", truncate(url, 250));
+            } else {
+                log.info("[CDP-AUTH] Token expired without punish URL, will refresh via IM page");
+            }
             publishCaptchaRequired(acc, url, rawError);
             // 风控触发时，按账号启动（或复用）独占 Chrome 容器，并把它返回的 CDP 端点传给 captchaSolver，
             // 避免 captchaSolver 写死连全局单点 127.0.0.1:9222（用户没手动开 Chrome 时连不上）。
@@ -522,12 +535,22 @@ public class MessageService {
             log.info("[CDP-AUTH] sendMessage risk control, raw error: {}", truncate(rawError, 800));
 
             String url = extractPunishUrlFromRaw(rawError);
-            if (url == null || url.isEmpty()) {
+
+            // token 过期 / 非法请求同样需要走 IM 页刷新 x5sec
+            boolean tokenExpiredTrigger = rawError.contains("FAIL_SYS_TOKEN_EXOIRED")
+                    || rawError.contains("FAIL_SYS_TOKEN_EMPTY")
+                    || rawError.contains("FAIL_SYS_ILLEGAL_REQUEST");
+
+            if ((url == null || url.isEmpty()) && !tokenExpiredTrigger) {
                 log.warn("[MESSAGE] sendMessage: No punish URL found in error");
                 return false;
             }
 
-            log.info("[CDP-AUTH] sendMessage Punish URL: {}", truncate(url, 250));
+            if (url != null && !url.isEmpty()) {
+                log.info("[CDP-AUTH] sendMessage Punish URL: {}", truncate(url, 250));
+            } else {
+                log.info("[CDP-AUTH] sendMessage: Token expired without punish URL, will refresh via IM page");
+            }
             publishCaptchaRequired(acc, url, rawError);
             String accountCdpEndpoint = ensureAccountCdpEndpoint(acc);
             cn.net.rjnetwork.xianyu.captcha.model.CaptchaResult result = captchaSolver.solve(
@@ -1239,7 +1262,10 @@ public class MessageService {
             } catch (IllegalStateException ie) {
                 String msg = ie.getMessage() != null ? ie.getMessage() : "";
                 boolean isRisk = msg.contains("FAIL_SYS_USER_VALIDATE") || msg.contains("punish")
-                        || msg.contains("captcha") || msg.contains("RGV587_ERROR");
+                        || msg.contains("captcha") || msg.contains("RGV587_ERROR")
+                        || msg.contains("FAIL_SYS_TOKEN_EXOIRED")
+                        || msg.contains("FAIL_SYS_TOKEN_EMPTY")
+                        || msg.contains("FAIL_SYS_ILLEGAL_REQUEST");
                 if (!isRisk || attempt > 0) {
                     // 非风控异常，或重试后仍失败：原样抛
                     throw ie;

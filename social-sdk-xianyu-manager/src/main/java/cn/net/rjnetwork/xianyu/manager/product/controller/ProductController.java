@@ -2,6 +2,7 @@ package cn.net.rjnetwork.xianyu.manager.product.controller;
 
 import cn.net.rjnetwork.xianyu.manager.common.ApiResponse;
 import cn.net.rjnetwork.xianyu.manager.audit.annotation.Audit;
+import cn.net.rjnetwork.xianyu.manager.config.AsyncConfig;
 import cn.net.rjnetwork.xianyu.manager.product.dto.ProductCreateRequest;
 import cn.net.rjnetwork.xianyu.manager.product.dto.ProductUpdateRequest;
 import cn.net.rjnetwork.xianyu.manager.product.model.XianyuProduct;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Map;
+import java.util.concurrent.Executor;
 
 @RestController
 @RequestMapping("/api/products")
@@ -21,12 +23,15 @@ public class ProductController {
     private final ProductService productService;
     private final PolishService polishService;
     private final SyncProgressService syncProgressService;
+    private final Executor syncTaskExecutor;
 
     public ProductController(ProductService productService, PolishService polishService,
-                             SyncProgressService syncProgressService) {
+                             SyncProgressService syncProgressService,
+                             Executor syncTaskExecutor) {
         this.productService = productService;
         this.polishService = polishService;
         this.syncProgressService = syncProgressService;
+        this.syncTaskExecutor = syncTaskExecutor;
     }
 
     @GetMapping
@@ -140,15 +145,15 @@ public class ProductController {
     @PostMapping("/sync")
     public ApiResponse<Map<String, Object>> syncFromXianyu(@RequestParam Long accountId) {
         try {
-            // 校验账号 + cookie，防重复提交
-            String syncId = syncProgressService.createOrGetSyncId(accountId);
-            String runningSyncId = syncProgressService.createOrGetSyncId(accountId);
-            if (!runningSyncId.equals(syncId)) {
-                // 已有同步在跑，直接返回已有 syncId
+            // 防重复提交：先查有没有正在跑的（只查不改）
+            String runningSyncId = syncProgressService.getRunningSyncId(accountId);
+            if (runningSyncId != null) {
                 return ApiResponse.ok(Map.of("syncId", runningSyncId, "message", "同步任务已在进行中"));
             }
-            // 异步启动
-            productService.syncFromXianyuAsync(accountId, syncId);
+            // 确认无在跑任务后再新建
+            String syncId = syncProgressService.createNewSyncId(accountId);
+            // 手动提交到线程池
+            syncTaskExecutor.execute(() -> productService.syncFromXianyuAsync(accountId, syncId));
             return ApiResponse.ok(Map.of("syncId", syncId, "message", "同步任务已启动"));
         } catch (IllegalArgumentException e) {
             return ApiResponse.fail("INVALID_ARGUMENT", e.getMessage());

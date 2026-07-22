@@ -367,6 +367,10 @@ public class XianyuCaptchaSolver {
                     log.info("[CDP-AUTH] 等待后仍无滑块，IM 页面可用，复用当前 IM cookie");
                     return CaptchaResult.ok(cookie);
                 }
+                if (isMainPageUsable(cdpEndpoint) && cookie != null && !cookie.isBlank()) {
+                    log.info("[CDP-AUTH] 等待后仍无滑块，但消息列表已正常渲染，复用当前浏览器 cookie");
+                    return CaptchaResult.ok(cookie);
+                }
             }
         }
 
@@ -441,9 +445,12 @@ public class XianyuCaptchaSolver {
             if (hasX5Cookie(cookie)) {
                 log.info("[CDP-AUTH] IM x5sec cookie 提取成功");
                 return CaptchaResult.ok(cookie);
-            } else {
-                return CaptchaResult.fail("验证后未从 IM 页面提取到 x5sec cookie，验证可能未真正通过");
             }
+            if (isMainPageUsable(cdpEndpoint) && cookie != null && !cookie.isBlank()) {
+                log.info("[CDP-AUTH] IM 页面已正常渲染但未产生 x5sec，复用当前浏览器 cookie");
+                return CaptchaResult.ok(cookie);
+            }
+            return CaptchaResult.fail("验证后未从 IM 页面提取到 x5sec cookie，验证可能未真正通过");
         } catch (Exception e) {
             return CaptchaResult.fail("提取 cookie 异常：" + e.getMessage());
         }

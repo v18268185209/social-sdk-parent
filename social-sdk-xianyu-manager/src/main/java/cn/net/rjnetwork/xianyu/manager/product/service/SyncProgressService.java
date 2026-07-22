@@ -85,14 +85,26 @@ public class SyncProgressService {
      * 创建同步任务，返回 syncId。
      * 如果该账号已有同步在跑，直接返回已有的 syncId。
      */
-    public String createOrGetSyncId(Long accountId) {
+    /**
+     * 查该账号当前是否有同步任务在跑，有则返回其 syncId，否则返 null。
+     * 只查不改，不创建任何状态。
+     */
+    public String getRunningSyncId(Long accountId) {
         String existing = runningTasks.get(accountId);
-        if (existing != null) {
-            Progress p = progressCache.getIfPresent(existing);
-            if (p != null && (p.phase == Phase.PENDING || p.phase == Phase.LISTING || p.phase == Phase.DETAILING)) {
-                return existing;
-            }
+        if (existing == null) return null;
+        Progress p = progressCache.getIfPresent(existing);
+        if (p != null && (p.phase == Phase.PENDING || p.phase == Phase.LISTING || p.phase == Phase.DETAILING)) {
+            return existing;
         }
+        // 之前的任务已结束（COMPLETED/FAILED），清掉占位，允许新建
+        runningTasks.remove(accountId, existing);
+        return null;
+    }
+
+    /**
+     * 创建新的同步任务，返回 syncId。调用方必须先调 {@link #getRunningSyncId(Long)} 确认无在跑任务。
+     */
+    public String createNewSyncId(Long accountId) {
         String syncId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
         runningTasks.put(accountId, syncId);
         progressCache.put(syncId, Progress.pending(syncId));

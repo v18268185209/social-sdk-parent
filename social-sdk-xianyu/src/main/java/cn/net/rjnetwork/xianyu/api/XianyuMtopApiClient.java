@@ -338,12 +338,15 @@ public class XianyuMtopApiClient {
      * 闲鱼所有 MTOP 接口都需要 _m_h5_tk 中的 token 来计算 sign。
      */
     public synchronized void primeTokenIfNeeded() {
-        if (tokenPrimed) return;
-        if (cookie != null && XianyuMtopRequestBuilder.extractTokenFromCookie(cookie) != null
-                && !XianyuMtopRequestBuilder.extractTokenFromCookie(cookie).isEmpty()) {
+        if (tokenPrimed && hasValidMtopToken(getMergedCookie())) return;
+        if (hasValidMtopToken(getMergedCookie())) {
             tokenPrimed = true;
             return;
         }
+        // _m_h5_tk 的后缀是过期时间戳。过期 token 继续带着请求会反复得到
+        // FAIL_SYS_TOKEN_EXOIRED，必须先从登录 cookie 和 IM cookie 中剔除，让 MTOP 重新下发。
+        this.cookie = stripMtopTokenCookies(this.cookie);
+        this.imCookieHeader = stripMtopTokenCookies(this.imCookieHeader);
         try {
             // 用一个通用的 Gaia 接口做预热，不依赖登录态
             String dataJson = "{\"bizScene\":\"home\"}";
@@ -371,6 +374,40 @@ public class XianyuMtopApiClient {
         } catch (Exception e) {
             System.err.println("[MTOP primeTokenIfNeeded Error] " + e.getMessage());
         }
+    }
+
+    /** 当前 cookie 中是否有未过期的 MTOP token。 */
+    private boolean hasValidMtopToken(String cookieHeader) {
+        String h5tk = XianyuMtopRequestBuilder.getCookieValue(cookieHeader, "_m_h5_tk");
+        if (h5tk == null || h5tk.isBlank()) {
+            h5tk = XianyuMtopRequestBuilder.getCookieValue(cookieHeader, "m_h5_tk");
+        }
+        if (h5tk == null || h5tk.isBlank()) return false;
+        int idx = h5tk.indexOf('_');
+        if (idx <= 0 || idx >= h5tk.length() - 1) return false;
+        try {
+            long expiresAt = Long.parseLong(h5tk.substring(idx + 1));
+            return expiresAt > System.currentTimeMillis() + 60_000L;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    /** 移除过期 MTOP token cookie，让下一次预热能拿到新的 _m_h5_tk。 */
+    private String stripMtopTokenCookies(String cookieHeader) {
+        if (cookieHeader == null || cookieHeader.isBlank()) return cookieHeader;
+        StringBuilder sb = new StringBuilder();
+        for (String pair : cookieHeader.split(";")) {
+            int eq = pair.indexOf('=');
+            if (eq <= 0) continue;
+            String name = pair.substring(0, eq).trim();
+            if ("_m_h5_tk".equals(name) || "_m_h5_tk_enc".equals(name) || "m_h5_tk".equals(name)) {
+                continue;
+            }
+            if (sb.length() > 0) sb.append("; ");
+            sb.append(name).append("=").append(pair.substring(eq + 1).trim());
+        }
+        return sb.toString();
     }
 
     /** 检查响应是否为 token 过期 */

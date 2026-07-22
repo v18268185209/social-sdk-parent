@@ -8,6 +8,8 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.file.*;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.zip.ZipEntry;
@@ -17,24 +19,25 @@ import java.util.zip.ZipInputStream;
 public class OpenListTaskService {
 
     private final OpenListProperties properties;
+    private final OpenListInstallerService installerService;
     private final Path dataDir;
-    private final Path executablePath;
     private String osName;
     private String arch;
     private String downloadUrl;
-    private String localBinaryName;
 
     private volatile String currentTaskId;
     private volatile double progress; // 0.0 - 1.0
     private volatile String currentPhase; // idle, downloading, extracting, starting, running, failed, stopped
     private volatile String currentMessage;
 
+    private volatile Process process;
+
     private final ConcurrentHashMap<String, SseEmitter> emitters = new ConcurrentHashMap<>();
 
-    public OpenListTaskService(OpenListProperties properties) {
+    public OpenListTaskService(OpenListProperties properties, OpenListInstallerService installerService) {
         this.properties = properties;
-        this.dataDir = Paths.get(properties.getDataDir());
-        this.executablePath = dataDir.resolve("openlist.exe");
+        this.installerService = installerService;
+        this.dataDir = installerService.getDataDir();
 
         this.currentPhase = "idle";
         this.currentMessage = "空闲";
@@ -49,9 +52,6 @@ public class OpenListTaskService {
                    : rawArch.contains("arm64") || rawArch.contains("aarch64") ? "arm64"
                    : "amd64"; // fallback
 
-        this.localBinaryName = osName.contains("win") ? "openlist.exe"
-                            : osName.contains("mac") ? "openlist-darwin-amd64"
-                            : "openlist-linux-amd64";
         String osPart = osName.contains("win") ? "windows" : osName.contains("mac") ? "darwin" : "linux";
         this.downloadUrl = String.format(
             "https://github.com/OpenListTeam/OpenList/releases/latest/download/openlist-%s-%s%s",
@@ -63,16 +63,16 @@ public class OpenListTaskService {
 
     public Map<String, Object> getStatus() {
         Map<String, Object> s = new LinkedHashMap<>();
-        s.put("installed", Files.exists(executablePath));
-        s.put("running", "running".equals(currentPhase));
+        s.put("installed", Files.exists(installerService.getExecutablePath()));
+        s.put("running", process != null && process.isAlive());
         s.put("version", "latest");
         s.put("port", properties.getPort());
         s.put("url", properties.getUrl());
         s.put("username", properties.getUsername());
         s.put("password", properties.getPassword());
         s.put("downloadUrl", downloadUrl);
-        s.put("localBinaryName", localBinaryName);
-        s.put("execPath", executablePath.toString());
+        s.put("localBinaryName", installerService.getExecutablePath().getFileName().toString());
+        s.put("execPath", installerService.getExecutablePath().toString());
         s.put("osName", osName);
         s.put("arch", arch);
         s.put("phase", currentPhase);
@@ -104,7 +104,7 @@ public class OpenListTaskService {
             // 解压
             updatePhase("extracting", "正在解压安装包...", 0.7);
             if (downloadUrl.endsWith(".zip")) {
-                extractZip(tempFile, dataDir);
+                installerService.extractZip(tempFile, dataDir, installerService.getExecutablePath().getFileName().toString());
             }
             Files.deleteIfExists(tempFile);
 
@@ -175,13 +175,22 @@ public class OpenListTaskService {
 
     private void doStart() {
         try {
-            if (!Files.exists(executablePath)) {
+            Path execPath = installerService.getExecutablePath();
+            if (!Files.exists(execPath)) {
                 updatePhase("failed", "OpenList 未安装", 0.0);
                 return;
             }
 
+            // mac/linux 确保有执行权限
+            if (!osName.contains("win")) {
+                try {
+                    Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rwxr-xr-x");
+                    Files.setPosixFilePermissions(execPath, perms);
+                } catch (UnsupportedOperationException ignored) {}
+            }
+
             ProcessBuilder pb = new ProcessBuilder(
-                executablePath.toString(),
+                execPath.toString(),
                 "server",
                 "--data", dataDir.toString(),
                 "--port", String.valueOf(properties.getPort())
@@ -189,11 +198,12 @@ public class OpenListTaskService {
             pb.directory(dataDir.toFile());
             pb.redirectErrorStream(true);
 
-            Process process = pb.start();
+            this.process = pb.start();
 
             // 读取输出
+            final Process p = this.process;
             Thread logThread = new Thread(() -> {
-                try (BufferedReader br = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                try (BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
                     String line;
                     while ((line = br.readLine()) != null) {
                         System.out.println("[OpenList] " + line);
@@ -208,7 +218,7 @@ public class OpenListTaskService {
 
             // 等待启动
             Thread.sleep(3000);
-            if (process.isAlive()) {
+            if (p.isAlive()) {
                 updatePhase("running", "启动成功", 1.0);
             } else {
                 updatePhase("failed", "启动失败", 0.0);
@@ -221,7 +231,11 @@ public class OpenListTaskService {
 
     public synchronized void stopOpenList() {
         try {
-            // 找到并杀死 openlist 进程
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+                process.waitFor(5, TimeUnit.SECONDS);
+            }
+            // 兜底：用系统命令杀
             if (osName.contains("win")) {
                 Runtime.getRuntime().exec(new String[]{"taskkill", "/F", "/IM", "openlist.exe"});
             } else {
@@ -230,6 +244,8 @@ public class OpenListTaskService {
             updatePhase("stopped", "已停止", 0.0);
         } catch (Exception e) {
             updatePhase("failed", "停止失败: " + e.getMessage(), 0.0);
+        } finally {
+            process = null;
         }
     }
 

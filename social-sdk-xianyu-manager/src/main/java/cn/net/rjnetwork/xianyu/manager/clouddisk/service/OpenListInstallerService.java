@@ -232,7 +232,7 @@ public class OpenListInstallerService {
         }
     }
 
-    private void extractZip(Path zipPath, Path targetDir, String outputPath) throws IOException {
+    public void extractZip(Path zipPath, Path targetDir, String outputPath) throws IOException {
         try (ZipInputStream zis = new ZipInputStream(new FileInputStream(zipPath.toFile()))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
