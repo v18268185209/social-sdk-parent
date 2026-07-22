@@ -23,6 +23,21 @@
 
 ## 🏗️ 技术架构
 
+
+### 当前版本
+```
+<dependency>
+<groupId>cn.net.rjnetwork</groupId>
+<artifactId>social-sdk-parent</artifactId>
+<version>0.0.2</version>
+</dependency>
+
+
+
+```
+
+
+
 ### 项目结构
 
 ```

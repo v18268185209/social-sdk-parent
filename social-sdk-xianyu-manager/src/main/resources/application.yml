@@ -10,10 +10,8 @@ spring:
     resources:
       static-locations: classpath:/static/,file:./data/uploads/
   mvc:
-    # 让未匹配的导航请求抛出 NoHandlerFoundException，交给 SpaFallbackAdvice 转发到 index.html
-    # （已存在的静态资源仍由 ResourceHttpRequestHandler 正常返回，不受影响）
-    throw-exception-if-no-handler-found: true
-    static-path-pattern: /static/**
+    # 未匹配的前端路由由 SpaErrorController 在 /error 中兜底转发到 index.html
+    throw-exception-if-no-handler-found: false
   datasource:
     type: com.alibaba.druid.pool.DruidDataSource
     # datasource 的 driver/url/username/password 由各 profile 文件提供：

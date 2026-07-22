@@ -29,9 +29,12 @@ COPY social-sdk-spring-boot-starter ./social-sdk-spring-boot-starter
 # 复制前端源码（用于 Maven 插件构建）
 COPY social-sdk-xianyu-manager-web ./social-sdk-xianyu-manager-web
 
-# 构建 JAR（含前端）
+# 构建 JAR（含前端），只复制 Spring Boot 可执行 JAR，排除 original/sources/javadoc 等附属包
 RUN mvn clean package -DskipTests -pl social-sdk-xianyu-manager -am \
-    && mv social-sdk-xianyu-manager/target/*.jar /app/app.jar
+    && JAR_FILE="$(find social-sdk-xianyu-manager/target -maxdepth 1 -type f -name '*.jar' \
+        ! -name '*.original' ! -name '*-sources.jar' ! -name '*-javadoc.jar' | head -n 1)" \
+    && test -n "$JAR_FILE" \
+    && cp "$JAR_FILE" /app/app.jar
 
 # ── Stage 2: 运行时镜像 ────────────────────────────────────────────────────
 FROM eclipse-temurin:17-jre

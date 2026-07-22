@@ -3,7 +3,7 @@
 spring:
   datasource:
     driver-class-name: org.sqlite.JDBC
-    url: jdbc:sqlite:./data/xianyu-manager.db
+    url: ${DB_URL:jdbc:sqlite:${DB_PATH:./data/xianyu-manager.db}}
 
 # SQLite 单连接最优：max-active 由 SqliteProvider 控制（=1）
 # 用户无需手动调，见 SqliteProvider.maxActive()

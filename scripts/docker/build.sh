@@ -2,9 +2,10 @@
 # ============================================================================
 # build.sh — Docker 镜像构建 & 推送
 #
-# 支持两种数据库模式：
+# 支持三种数据库模式：
 #   sqlite (默认) — 单容器，使用内嵌 SQLite
 #   mysql         — 双容器（应用 + MySQL 8），支持自定义配置
+#   postgres      — 双容器（应用 + PostgreSQL），支持自定义配置
 #
 # 支持自定义配置：通过 docker-compose.override.yml 或环境变量文件
 # ============================================================================
@@ -32,8 +33,9 @@ show_usage() {
 用法: build.sh [options] [action]
 
 数据库模式（环境变量）:
-  DB_MODE=sqlite   使用 SQLite（单容器，默认）
+  DB_MODE=sqlite    使用 SQLite（单容器，默认）
   DB_MODE=mysql     使用 MySQL 8（双容器）
+  DB_MODE=postgres  使用 PostgreSQL（双容器）
 
 动作:
   build     构建 Docker 镜像
@@ -51,7 +53,9 @@ show_usage() {
 示例:
   ./build.sh build                          # 构建 SQLite 版
   DB_MODE=mysql ./build.sh build            # 构建 MySQL 版
+  DB_MODE=postgres ./build.sh build         # 构建 PostgreSQL 版
   DB_MODE=mysql ./build.sh compose          # 使用 MySQL 启动
+  DB_MODE=postgres ./build.sh compose       # 使用 PostgreSQL 启动
   DB_MODE=mysql COMPOSE_ACTION=up ./build.sh all
   TAG=v1.0.0 REGISTRY=registry.example.com/xianyu ./build.sh push
 EOF
@@ -83,8 +87,6 @@ build_jar_if_needed() {
 
 # ── 构建镜像 ───────────────────────────────────────────────────────────────
 build_image() {
-    build_jar_if_needed
-
     local image_name="xianyu-manager"
     local image_tag="${image_name}:${TAG}"
 
@@ -103,13 +105,8 @@ build_image() {
     )
 
     # 根据数据库模式添加不同的标签
-    if [[ "$DB_MODE" == "mysql" ]]; then
-        build_args+=("-t" "${image_name}:mysql-${TAG}")
-        [[ -n "$REGISTRY" ]] && build_args+=("-t" "${REGISTRY}/${image_name}:mysql-${TAG}")
-    else
-        build_args+=("-t" "${image_name}:sqlite-${TAG}")
-        [[ -n "$REGISTRY" ]] && build_args+=("-t" "${REGISTRY}/${image_name}:sqlite-${TAG}")
-    fi
+    build_args+=("-t" "${image_name}:${DB_MODE}-${TAG}")
+    [[ -n "$REGISTRY" ]] && build_args+=("-t" "${REGISTRY}/${image_name}:${DB_MODE}-${TAG}")
 
     cd "$PROJECT_ROOT"
     docker build "${build_args[@]}" || exit 1
@@ -133,11 +130,7 @@ push_image() {
     log_step "推送镜像到仓库: $image_tag"
     docker push "$image_tag"
 
-    if [[ "$DB_MODE" == "mysql" ]]; then
-        docker push "${REGISTRY}/xianyu-manager:mysql-${TAG}"
-    else
-        docker push "${REGISTRY}/xianyu-manager:sqlite-${TAG}"
-    fi
+    docker push "${REGISTRY}/xianyu-manager:${DB_MODE}-${TAG}"
 
     log_info "镜像推送成功"
 }
@@ -149,13 +142,18 @@ compose_up() {
     cd "$SCRIPT_DIR" || exit 1
 
     local compose_file="docker-compose.yml"
-    local override_file="docker-compose.mysql.yml"
+    local override_file=""
+    if [[ "$DB_MODE" == "mysql" ]]; then
+        override_file="docker-compose.mysql.yml"
+    elif [[ "$DB_MODE" == "postgres" ]]; then
+        override_file="docker-compose.postgres.yml"
+    fi
 
     # 构建镜像先
     build_image
 
     # 启动
-    if [[ "$DB_MODE" == "mysql" && -f "$override_file" ]]; then
+    if [[ -n "$override_file" && -f "$override_file" ]]; then
         docker compose -f "$compose_file" -f "$override_file" up -d --build
     else
         docker compose -f "$compose_file" up -d --build
