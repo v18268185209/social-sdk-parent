@@ -1,40 +1,28 @@
 <template>
   <div>
-    <el-card>
-      <template #header>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span>商品管理</span>
-          <div style="display: flex; gap: 12px; align-items: center;">
-            <el-select v-model="selectedAccountId" placeholder="选择账号" style="width: 200px;" :loading="accountsLoading" clearable>
-              <el-option v-for="a in accounts" :key="a.id" :label="a.displayName || a.accountName" :value="a.id" />
-            </el-select>
-            <el-button type="primary" :loading="syncing" :disabled="!selectedAccountId" @click="syncProducts">
-              <el-icon><Refresh /></el-icon> 同步商品
-            </el-button>
-          </div>
+    <!-- 头部操作栏 -->
+    <el-card style="margin-bottom: 16px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 16px; font-weight: 600;">商品管理</span>
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <el-select v-model="selectedAccountId" placeholder="选择账号" style="width: 200px;" :loading="accountsLoading" clearable>
+            <el-option v-for="a in accounts" :key="a.id" :label="a.displayName || a.accountName" :value="a.id" />
+          </el-select>
+          <el-button type="primary" :loading="syncing" :disabled="!selectedAccountId" @click="syncProducts">
+            <el-icon><Refresh /></el-icon> 同步商品
+          </el-button>
         </div>
-      </template>
-
-      <!-- 同步进度弹窗 -->
-    <el-dialog v-model="syncProgressVisible" title="同步商品" width="420px" :close-on-click-modal="false" :show-close="false">
-      <div style="text-align: center; padding: 12px 0;">
-        <el-progress :percentage="syncProgress && syncProgress.total ? Math.round((syncProgress.current / syncProgress.total) * 100) : 0" :stroke-width="16" style="margin-bottom: 16px;" />
-        <div v-if="syncProgress" style="font-size: 14px; color: #606266;">
-          <div style="margin-bottom: 6px;">{{ syncProgress.message || '正在同步...' }}</div>
-          <div v-if="syncProgress.phase === 'DETAILING'" style="font-size: 12px; color: #909399;">
-            已处理 {{ syncProgress.current }} / {{ syncProgress.total }} 件
-          </div>
-        </div>
-        <div v-else style="font-size: 14px; color: #909399;">正在启动同步任务...</div>
       </div>
-    </el-dialog>
+    </el-card>
 
-    <el-tabs v-model="activeTab" @tab-change="loadProducts">
+    <!-- 主内容区 -->
+    <el-card>
+      <el-tabs v-model="activeTab" @tab-change="loadProducts">
         <el-tab-pane label="在售" name="ON_SALE" />
         <el-tab-pane label="全部" name="ALL" />
       </el-tabs>
 
-      <el-table :data="products" stripe v-loading="loading">
+      <el-table :data="products" stripe v-loading="loading" style="margin-top: 12px;">
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column label="图片" width="80">
           <template #default="{ row }">
@@ -68,6 +56,20 @@
         <el-pagination v-model:current-page="page" v-model:page-size="size" :total="total" layout="total, prev, pager, next" @current-change="loadProducts" />
       </div>
     </el-card>
+
+    <!-- 同步进度弹窗 -->
+    <el-dialog v-model="syncProgressVisible" title="同步商品" width="420px" :close-on-click-modal="false" :show-close="false">
+      <div style="text-align: center; padding: 12px 0;">
+        <el-progress :percentage="syncProgress && syncProgress.total ? Math.round((syncProgress.current / syncProgress.total) * 100) : 0" :stroke-width="16" style="margin-bottom: 16px;" />
+        <div v-if="syncProgress" style="font-size: 14px; color: #606266;">
+          <div style="margin-bottom: 6px;">{{ syncProgress.message || '正在同步...' }}</div>
+          <div v-if="syncProgress.phase === 'DETAILING'" style="font-size: 12px; color: #909399;">
+            已处理 {{ syncProgress.current }} / {{ syncProgress.total }} 件
+          </div>
+        </div>
+        <div v-else style="font-size: 14px; color: #909399;">正在启动同步任务...</div>
+      </div>
+    </el-dialog>
 
     <!-- 虚拟发货配置弹窗 -->
     <el-dialog v-model="vsConfigVisible" title="商品虚拟发货配置" width="640px">

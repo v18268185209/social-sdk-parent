@@ -2,6 +2,8 @@ package cn.net.rjnetwork.xianyu.manager.order.service;
 
 import cn.net.rjnetwork.xianyu.manager.order.mapper.OrderMapper;
 import cn.net.rjnetwork.xianyu.manager.order.model.XianyuOrder;
+import cn.net.rjnetwork.xianyu.manager.virtual.mapper.VirtualShipTaskMapper;
+import cn.net.rjnetwork.xianyu.manager.virtual.model.VirtualShipTask;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.stereotype.Service;
@@ -12,9 +14,11 @@ import java.math.BigDecimal;
 public class OrderService {
 
     private final OrderMapper orderMapper;
+    private final VirtualShipTaskMapper shipTaskMapper;
 
-    public OrderService(OrderMapper orderMapper) {
+    public OrderService(OrderMapper orderMapper, VirtualShipTaskMapper shipTaskMapper) {
         this.orderMapper = orderMapper;
+        this.shipTaskMapper = shipTaskMapper;
     }
 
     public Page<XianyuOrder> listPage(int pageNum, int pageSize, Long accountId, String type) {
@@ -30,11 +34,14 @@ public class OrderService {
         }
         wrapper.orderByDesc(XianyuOrder::getUpdatedAt);
         orderMapper.selectPage(page, wrapper);
+        page.getRecords().forEach(this::fillVirtualShipTask);
         return page;
     }
 
     public XianyuOrder getById(Long id) {
-        return orderMapper.selectById(id);
+        XianyuOrder order = orderMapper.selectById(id);
+        fillVirtualShipTask(order);
+        return order;
     }
 
     public XianyuOrder delivery(Long orderId, String trackingNo) {
@@ -50,5 +57,17 @@ public class OrderService {
         order.setCreatedAt(java.time.LocalDateTime.now());
         order.setUpdatedAt(java.time.LocalDateTime.now());
         orderMapper.insert(order);
+    }
+
+    private void fillVirtualShipTask(XianyuOrder order) {
+        if (order == null) return;
+        VirtualShipTask task = shipTaskMapper.selectOne(
+                new LambdaQueryWrapper<VirtualShipTask>()
+                        .eq(VirtualShipTask::getOrderId, order.getId())
+                        .last("LIMIT 1"));
+        if (task == null) return;
+        order.setVirtualShipTaskStatus(task.getStatus());
+        order.setVirtualShipTaskError(task.getErrorMessage());
+        order.setVirtualShipExecuteAt(task.getExecuteAt());
     }
 }

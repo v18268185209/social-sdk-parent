@@ -49,7 +49,7 @@
       <!-- 知识库 -->
       <div v-show="activeTab === 'knowledge'">
         <div style="margin-bottom: 12px;">
-          <el-button type="primary" size="small">新增知识条目</el-button>
+          <el-button type="primary" size="small" @click="showAddDialog">新增知识条目</el-button>
         </div>
         <el-table :data="knowledgeList" stripe size="small">
           <el-table-column prop="question" label="问题" min-width="200" />
@@ -60,8 +60,41 @@
             </template>
           </el-table-column>
           <el-table-column prop="priority" label="优先级" sortable width="100" />
+          <el-table-column label="操作" width="120" fixed="right">
+            <template #default="{ row }">
+              <el-button size="small" type="danger" link @click="deleteKnowledge(row)">删除</el-button>
+            </template>
+          </el-table-column>
         </el-table>
       </div>
+
+      <!-- 新增知识条目弹窗 -->
+      <el-dialog v-model="dialogVisible" title="新增知识条目" width="500px">
+        <el-form :model="knowledgeForm" label-width="80px">
+          <el-form-item label="问题" required>
+            <el-input v-model="knowledgeForm.question" placeholder="请输入问题关键词" />
+          </el-form-item>
+          <el-form-item label="答案" required>
+            <el-input v-model="knowledgeForm.answer" type="textarea" :rows="4" placeholder="请输入标准答案" />
+          </el-form-item>
+          <el-form-item label="分类" required>
+            <el-select v-model="knowledgeForm.category" placeholder="请选择分类" style="width: 100%;">
+              <el-option label="价格议价" value="PRICE" />
+              <el-option label="物流咨询" value="SHIPPING" />
+              <el-option label="售后问题" value="AFTERSALES" />
+              <el-option label="商品咨询" value="PRODUCT" />
+              <el-option label="通用问题" value="GENERAL" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="优先级">
+            <el-input-number v-model="knowledgeForm.priority" :min="0" :max="99" />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="dialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="submitKnowledge">确定</el-button>
+        </template>
+      </el-dialog>
     </el-card>
   </div>
 </template>
@@ -75,6 +108,14 @@ const sessions = ref([])
 const sessionStates = ref([])
 const knowledgeList = ref([])
 
+const dialogVisible = ref(false)
+const knowledgeForm = ref({
+  question: '',
+  answer: '',
+  category: 'GENERAL',
+  priority: 0
+})
+
 async function loadData() {
   try {
     const [sr, kr] = await Promise.all([
@@ -83,6 +124,30 @@ async function loadData() {
     ])
     if (sr.success) sessions.value = sr.data?.records || []
     if (kr.success) knowledgeList.value = kr.data?.records || []
+  } catch (e) {}
+}
+
+function showAddDialog() {
+  knowledgeForm.value = { question: '', answer: '', category: 'GENERAL', priority: 0 }
+  dialogVisible.value = true
+}
+
+async function submitKnowledge() {
+  const form = knowledgeForm.value
+  if (!form.question || !form.answer || !form.category) return
+  try {
+    const res = await api.post('/ai/cs/knowledge', form)
+    if (res.success) {
+      dialogVisible.value = false
+      loadData()
+    }
+  } catch (e) {}
+}
+
+async function deleteKnowledge(row) {
+  try {
+    const res = await api.delete(`/ai/cs/knowledge/${row.id}`)
+    if (res.success) loadData()
   } catch (e) {}
 }
 

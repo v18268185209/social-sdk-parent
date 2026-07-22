@@ -7,21 +7,29 @@
           <el-select v-model="accountId" placeholder="选择账号" style="width: 220px" @change="loadReviews">
             <el-option v-for="a in accounts" :key="a.id" :label="a.accountName || a.id" :value="a.id" />
           </el-select>
-          <el-input v-model="buyerId" placeholder="买家 ID（留空拉全部）" style="width: 220px; margin-left: 12px" clearable />
+          <el-input v-model="buyerId" placeholder="用户 ID（留空拉当前账号）" style="width: 220px; margin-left: 12px" clearable />
           <el-button type="primary" @click="loadReviews" style="margin-left: 12px">拉评价列表</el-button>
         </div>
         <el-table :data="reviews" border style="margin-top: 16px" v-loading="loading">
-          <el-table-column prop="orderId" label="订单号" width="180" />
-          <el-table-column prop="rate" label="评分" width="80">
+          <el-table-column label="订单号" width="180">
+            <template #default="{ row }">{{ reviewOrderId(row) }}</template>
+          </el-table-column>
+          <el-table-column label="评分" width="80">
             <template #default="{ row }">
-              <el-tag :type="row.rate === 1 ? 'success' : row.rate === 3 ? 'danger' : 'info'" size="small">
-                {{ row.rate === 1 ? '好评' : row.rate === 2 ? '中评' : row.rate === 3 ? '差评' : row.rate || '-' }}
+              <el-tag :type="reviewRateType(row)" size="small">
+                {{ reviewRateLabel(row) }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="feedback" label="评价内容" />
-          <el-table-column prop="raterNick" label="评价人" width="120" />
-          <el-table-column prop="createTime" label="评价时间" width="180" />
+          <el-table-column label="评价内容">
+            <template #default="{ row }">{{ reviewFeedback(row) }}</template>
+          </el-table-column>
+          <el-table-column label="评价人" width="120">
+            <template #default="{ row }">{{ reviewRater(row) }}</template>
+          </el-table-column>
+          <el-table-column label="评价时间" width="180">
+            <template #default="{ row }">{{ reviewCreateTime(row) }}</template>
+          </el-table-column>
         </el-table>
 
         <el-divider content-position="left">发表评价</el-divider>
@@ -240,12 +248,91 @@ async function loadReviews() {
   try {
     const res = await listReviews(accountId.value, buyerId.value)
     const d = res.data
-    // mtop.idle.web.trade.rate.list 返回 {data:{totalCount, items/list:[...]}}
-    reviews.value = Array.isArray(d) ? d : (d?.data?.data?.items || d?.data?.data?.list || d?.data?.items || d?.data?.list || d?.items || d?.list || [])
+    reviews.value = extractReviewItems(d)
+    if (!reviews.value.length && isMtopFailed(d)) {
+      ElMessage.warning(mtopErrorMessage(d))
+    }
   } catch (e) {
-    ElMessage.error('拉评价失败: ' + e.message)
+    ElMessage.error('拉评价失败: ' + (e?.response?.data?.message || e.message))
     reviews.value = []
   } finally { loading.value = false }
+}
+
+function extractReviewItems(payload) {
+  if (Array.isArray(payload)) return payload
+  const candidates = [
+    payload?.data?.data?.cardList,
+    payload?.data?.data?.items,
+    payload?.data?.data?.list,
+    payload?.data?.data?.rateList,
+    payload?.data?.data?.rateInfos,
+    payload?.data?.cardList,
+    payload?.data?.items,
+    payload?.data?.list,
+    payload?.data?.rateList,
+    payload?.data?.rateInfos,
+    payload?.cardList,
+    payload?.items,
+    payload?.list,
+    payload?.rateList,
+    payload?.rateInfos,
+  ]
+  return candidates.find(Array.isArray) || []
+}
+
+function isMtopFailed(payload) {
+  const ret = payload?.ret || payload?.data?.ret
+  return Array.isArray(ret) && ret.some(item => String(item).startsWith('FAIL_'))
+}
+
+function mtopErrorMessage(payload) {
+  const ret = payload?.ret || payload?.data?.ret || []
+  return '闲鱼返回失败: ' + (ret[0] || '未知错误')
+}
+
+function reviewData(row) {
+  return row?.cardData || row || {}
+}
+
+function reviewOrderId(row) {
+  const data = reviewData(row)
+  return data?.orderId || data?.tradeId || data?.bizOrderId || data?.orderNo || data?.trade?.id || data?.trade?.orderId || '-'
+}
+
+function reviewRate(row) {
+  const data = reviewData(row)
+  return data?.rate ?? data?.rateType ?? data?.rating ?? data?.score ?? data?.star
+}
+
+function reviewRateLabel(row) {
+  const rate = reviewRate(row)
+  const text = String(rate ?? '')
+  if (rate === 1 || text === '1' || text.toUpperCase() === 'GOOD') return '好评'
+  if (rate === 2 || text === '2' || text.toUpperCase() === 'NORMAL') return '中评'
+  if (rate === 3 || text === '3' || text.toUpperCase() === 'BAD') return '差评'
+  return rate || '-'
+}
+
+function reviewRateType(row) {
+  const label = reviewRateLabel(row)
+  if (label === '好评') return 'success'
+  if (label === '差评') return 'danger'
+  return 'info'
+}
+
+function reviewFeedback(row) {
+  const data = reviewData(row)
+  return data?.feedback || data?.content || data?.comment || data?.rateContent || data?.text || '-'
+}
+
+function reviewRater(row) {
+  const data = reviewData(row)
+  return data?.raterNick || data?.raterUserNick || data?.raterNickname || data?.raterName || data?.userNick || data?.nick || data?.user?.nick || '-'
+}
+
+function reviewCreateTime(row) {
+  const data = reviewData(row)
+  return data?.createTime || data?.gmtCreate || data?.gmtCreateStr || data?.rateTime || data?.timeDesc || data?.time || '-'
 }
 
 async function submitReview() {

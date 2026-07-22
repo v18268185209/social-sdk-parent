@@ -722,6 +722,22 @@ CREATE INDEX idx_open_app_key ON open_app(app_key);
 
 -- ======================== 价格历史 & 市场情报 ========================
 
+-- 市场情报追踪关键词（独立于监控任务，轻量管理）
+CREATE TABLE IF NOT EXISTS market_keyword (
+    id INTEGER PRIMARY KEY,
+    keyword VARCHAR(256) UNIQUE NOT NULL,             -- 追踪关键词
+    status VARCHAR(16) DEFAULT 'ACTIVE',              -- ACTIVE / PAUSED
+    crawl_interval_minutes INTEGER DEFAULT 30,        -- 抓取间隔（分钟）
+    last_crawl_at DATETIME,                           -- 上次抓取时间
+    last_crawl_result_count INTEGER DEFAULT 0,        -- 上次抓取到的商品数
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0
+);
+
+CREATE INDEX idx_market_keyword_status ON market_keyword(status);
+CREATE INDEX idx_market_keyword_deleted ON market_keyword(deleted);
+
 -- 市场搜索快照（定时抓取指定关键词的商品列表，用于价格趋势分析）
 CREATE TABLE IF NOT EXISTS market_snapshot (
     id INTEGER PRIMARY KEY,

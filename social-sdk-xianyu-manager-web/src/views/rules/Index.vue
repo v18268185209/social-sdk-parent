@@ -77,7 +77,7 @@
               />
             </el-select>
             <div style="color: #999; font-size: 12px; margin-top: 4px;">
-              <router-link to="/ai">前往 AI 管理添加模型</router-link>
+              <router-link to="/ai" style="text-decoration: none;">前往 AI 管理添加模型</router-link>
             </div>
           </el-form-item>
           <el-form-item label="Temperature">

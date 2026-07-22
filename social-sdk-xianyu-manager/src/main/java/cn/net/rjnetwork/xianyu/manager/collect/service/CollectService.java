@@ -197,6 +197,46 @@ public class CollectService {
         }
     }
 
+    /**
+     * 根据类型和ID自动查询目标名称（用于添加收藏弹窗的"自动识别"）
+     * ITEM → 调 getProductDetail 拿标题；USER → 调 getUserHomePage 拿昵称
+     */
+    public Map<String, String> lookupTarget(Long accountId, String targetType, String targetId) {
+        XianyuAccount acc = requireAccount(accountId);
+        XianyuApiFacade api = new XianyuApiFacade(acc.getCookieHeader());
+        Map<String, String> result = new LinkedHashMap<>();
+        result.put("targetId", targetId);
+        result.put("targetType", targetType);
+        try {
+            if ("ITEM".equalsIgnoreCase(targetType)) {
+                JsonNode resp = api.getProductDetail(targetId);
+                if (isRisk(resp)) {
+                    throw new IllegalStateException("查询商品失败（可能触发风控）");
+                }
+                String title = resp.path("data").path("item").path("title").asText("");
+                if (title.isBlank()) title = resp.path("data").path("title").asText("");
+                result.put("targetName", title);
+            } else if ("USER".equalsIgnoreCase(targetType)) {
+                JsonNode resp = api.getUserHomePage(targetId);
+                if (isRisk(resp)) {
+                    throw new IllegalStateException("查询用户失败（可能触发风控）");
+                }
+                String nickname = resp.path("data").path("user").path("nickname").asText("");
+                if (nickname.isBlank()) nickname = resp.path("data").path("nick").asText("");
+                result.put("targetName", nickname);
+            } else if ("SHOP".equalsIgnoreCase(targetType)) {
+                // 店铺暂无独立查询接口，返回空名称让用户手填
+                result.put("targetName", "");
+            } else {
+                throw new IllegalArgumentException("不支持的类型: " + targetType);
+            }
+        } catch (Exception e) {
+            log.warn("[COLLECT] lookupTarget failed: type={}, id={}, err={}", targetType, targetId, e.getMessage());
+            throw new RuntimeException("查询目标信息失败: " + e.getMessage());
+        }
+        return result;
+    }
+
     // ======================== 内部工具方法 ========================
 
     private boolean exists(Long accountId, String targetId) {

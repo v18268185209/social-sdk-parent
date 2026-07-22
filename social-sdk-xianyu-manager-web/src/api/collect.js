@@ -24,3 +24,8 @@ export function syncCollects(accountId) {
 export function searchCollectItems(accountId, keyword) {
   return api.get('/collect/search', { params: { accountId, keyword } })
 }
+
+// ===== 根据类型和ID自动查询目标名称（用于添加收藏弹窗的自动识别） =====
+export function lookupCollectTarget(accountId, targetType, targetId) {
+  return api.get('/collect/lookup', { params: { accountId, targetType, targetId } })
+}

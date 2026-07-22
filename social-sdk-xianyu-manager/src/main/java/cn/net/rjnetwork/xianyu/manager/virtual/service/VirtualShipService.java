@@ -14,7 +14,6 @@ import cn.net.rjnetwork.xianyu.manager.virtual.model.VirtualCardPool;
 import cn.net.rjnetwork.xianyu.manager.virtual.model.VirtualShipConfig;
 import cn.net.rjnetwork.xianyu.manager.virtual.model.VirtualShipTask;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -98,14 +97,18 @@ public class VirtualShipService {
         if (existing != null) return existing;
 
         VirtualShipConfig config = getConfig(order.getAccountId());
-        int delaySeconds = config != null && config.getDelaySeconds() != null ? config.getDelaySeconds() : 0;
+        if (config != null && Boolean.FALSE.equals(config.getEnabled())) return null;
+        int delaySeconds = config != null && config.getDelaySeconds() != null ? Math.max(config.getDelaySeconds(), 0) : 0;
+        LocalDateTime now = LocalDateTime.now();
 
         VirtualShipTask task = new VirtualShipTask();
         task.setOrderId(orderId);
         task.setProductId(product.getId());
         task.setStatus("PENDING");
         task.setRetryCount(0);
-        task.setCreatedAt(LocalDateTime.now());
+        task.setExecuteAt(now.plusSeconds(delaySeconds));
+        task.setCreatedAt(now);
+        task.setUpdatedAt(now);
         shipTaskMapper.insert(task);
 
         // 更新订单虚拟发货相关字段
@@ -125,13 +128,16 @@ public class VirtualShipService {
     // ======================================================================
 
     /**
-     * 每 30 秒扫描一次待发货任务
+     * 扫描到期的待发货任务，由 ScheduledTasks 统一调度。
      */
-    @Scheduled(fixedDelay = 30_000)
     public void scanAndShip() {
         List<VirtualShipTask> pending = shipTaskMapper.selectList(
                 new LambdaQueryWrapper<VirtualShipTask>()
                         .eq(VirtualShipTask::getStatus, "PENDING")
+                        .and(w -> w.isNull(VirtualShipTask::getExecuteAt)
+                                .or()
+                                .le(VirtualShipTask::getExecuteAt, LocalDateTime.now()))
+                        .orderByAsc(VirtualShipTask::getExecuteAt)
                         .orderByAsc(VirtualShipTask::getCreatedAt)
                         .last("LIMIT 20"));
         for (VirtualShipTask task : pending) {
@@ -140,9 +146,8 @@ public class VirtualShipService {
     }
 
     /**
-     * 每 5 分钟扫描失败任务重试（最多重试 3 次）
+     * 扫描失败任务重试（最多重试 3 次），由 ScheduledTasks 统一调度。
      */
-    @Scheduled(fixedDelay = 300_000)
     public void retryFailedShipTasks() {
         List<VirtualShipTask> failed = shipTaskMapper.selectList(
                 new LambdaQueryWrapper<VirtualShipTask>()
@@ -223,6 +228,7 @@ public class VirtualShipService {
             if (card == null) return null;
 
             card.setStatus("USED");
+            card.setUsedOrderId(order.getId());
             card.setUsedAt(LocalDateTime.now());
             cardPoolMapper.updateById(card);
 
@@ -327,9 +333,8 @@ public class VirtualShipService {
     // ======================================================================
 
     /**
-     * 每 30 分钟扫描需要确认收货的订单
+     * 扫描需要确认收货的订单，由 ScheduledTasks 统一调度。
      */
-    @Scheduled(fixedDelay = 1_800_000)
     public void autoConfirmReceipt() {
         List<XianyuOrder> toConfirm = orderMapper.selectList(
                 new LambdaQueryWrapper<XianyuOrder>()

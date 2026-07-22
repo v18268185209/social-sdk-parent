@@ -1,5 +1,6 @@
 package cn.net.rjnetwork.xianyu.manager.order.model;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -54,4 +55,16 @@ public class XianyuOrder extends BaseEntity {
 
     /** 发货内容快照 */
     private String deliverContent;
+
+    /** 虚拟发货任务状态（列表展示用，非订单表字段） */
+    @TableField(exist = false)
+    private String virtualShipTaskStatus;
+
+    /** 虚拟发货失败原因（列表展示用，非订单表字段） */
+    @TableField(exist = false)
+    private String virtualShipTaskError;
+
+    /** 虚拟发货计划执行时间（列表展示用，非订单表字段） */
+    @TableField(exist = false)
+    private java.time.LocalDateTime virtualShipExecuteAt;
 }

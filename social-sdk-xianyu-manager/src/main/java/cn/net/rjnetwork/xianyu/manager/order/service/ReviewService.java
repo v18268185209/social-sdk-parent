@@ -41,11 +41,12 @@ public class ReviewService {
         return ret;
     }
 
-    /** 拉买家评价列表（buyerId=null 时拉自己收到的评价） */
+    /** 拉评价列表（buyerId 为空时用当前账号 userId；旧账号 userId 为空则从登录 cookie 的 unb 兜底） */
     public JsonNode getReviewList(Long accountId, String buyerId, int page, int pageSize) throws Exception {
         XianyuAccount acc = requireAccount(accountId);
         XianyuApiFacade api = new XianyuApiFacade(acc.getCookieHeader());
-        return api.getReviewList(buyerId, String.valueOf(page), String.valueOf(pageSize));
+        String ratedUid = firstNotBlank(buyerId, acc.getUserId(), getCookieValue(acc.getCookieHeader(), "unb"));
+        return api.getReviewList(ratedUid, String.valueOf(page), String.valueOf(pageSize));
     }
 
     /** 拉用户信用画像（ userId=null 时取自己） */
@@ -80,6 +81,27 @@ public class ReviewService {
         XianyuAccount acc = requireAccount(accountId);
         XianyuApiFacade api = new XianyuApiFacade(acc.getCookieHeader());
         return api.getRefundDetail(refundId);
+    }
+
+    private String firstNotBlank(String... values) {
+        if (values == null) return null;
+        for (String value : values) {
+            if (value != null && !value.isBlank()) return value.trim();
+        }
+        return null;
+    }
+
+    private String getCookieValue(String cookieHeader, String name) {
+        if (cookieHeader == null || cookieHeader.isBlank() || name == null || name.isBlank()) return null;
+        String prefix = name + "=";
+        for (String part : cookieHeader.split(";")) {
+            String item = part.trim();
+            if (item.startsWith(prefix)) {
+                String value = item.substring(prefix.length()).trim();
+                return value.isBlank() ? null : value;
+            }
+        }
+        return null;
     }
 
     private boolean isRisk(JsonNode resp) {

@@ -56,9 +56,9 @@
       </el-table>
     </el-card>
 
-    <!-- 添加收藏弹窗：搜索选择商品 -->
-    <el-dialog v-model="showAddDialog" title="添加收藏" width="600px">
-      <!-- 类型选择 -->
+    <!-- 添加收藏弹窗 -->
+    <el-dialog v-model="showAddDialog" title="添加收藏" width="640px">
+      <!-- 类型 + 账号 -->
       <el-form :model="addForm" label-width="80px">
         <el-form-item label="类别">
           <el-radio-group v-model="addForm.targetType" @change="onTypeChange">
@@ -67,16 +67,52 @@
             <el-radio-button value="SHOP">店铺</el-radio-button>
           </el-radio-group>
         </el-form-item>
+        <el-form-item label="账号">
+          <el-select v-model="addForm.accountId" style="width: 100%;" :disabled="!!selectedAccountId">
+            <el-option v-for="a in accounts" :key="a.id" :label="a.accountName" :value="a.id" />
+          </el-select>
+        </el-form-item>
       </el-form>
 
-      <!-- 商品类：搜索选择 -->
-      <template v-if="addForm.targetType === 'ITEM'">
+      <!-- 快速输入：粘贴链接或输入ID -->
+      <el-divider>快速输入</el-divider>
+      <el-form :model="addForm" label-width="80px">
+        <el-form-item label="链接/ID">
+          <el-input
+            v-model="quickInput"
+            :placeholder="quickInputPlaceholder"
+            clearable
+            @clear="onQuickInputClear"
+          >
+            <template #append>
+              <el-button :loading="parsing" @click="onQuickInputConfirm">识别</el-button>
+            </template>
+          </el-input>
+          <div class="input-tip">
+            粘贴
+            <a v-if="addForm.targetType==='ITEM'" href="https://www.goofish.com/" target="_blank">闲鱼商品链接</a>
+            <a v-else-if="addForm.targetType==='USER'" href="https://www.goofish.com/" target="_blank">用户主页链接</a>
+            <span v-else>店铺链接或ID</span>
+            ，或直接在右侧输入目标ID
+          </div>
+        </el-form-item>
+      </el-form>
+
+      <!-- 识别结果预览 -->
+      <div v-if="addForm.targetId" class="selected-preview">
+        <el-descriptions :column="2" size="small" border>
+          <el-descriptions-item label="类型">{{ typeLabel(addForm.targetType) }}</el-descriptions-item>
+          <el-descriptions-item label="ID">{{ addForm.targetId }}</el-descriptions-item>
+          <el-descriptions-item label="名称" :span="2">
+            <el-input v-model="addForm.targetName" placeholder="自动识别失败时可手填" size="small" />
+          </el-descriptions-item>
+        </el-descriptions>
+      </div>
+
+      <!-- 商品类：关键词搜索（备选方式） -->
+      <template v-if="addForm.targetType === 'ITEM' && !addForm.targetId">
+        <el-divider>或 关键词搜索</el-divider>
         <el-form :model="addForm" label-width="80px">
-          <el-form-item label="账号">
-            <el-select v-model="addForm.accountId" style="width: 100%;" :disabled="!!selectedAccountId">
-              <el-option v-for="a in accounts" :key="a.id" :label="a.accountName" :value="a.id" />
-            </el-select>
-          </el-form-item>
           <el-form-item label="关键词">
             <el-input
               v-model="searchKeyword"
@@ -122,44 +158,6 @@
         <div v-else-if="searchKeyword && !searching && searched" class="no-result">
           无搜索结果，换个关键词试试
         </div>
-
-        <!-- 选中后预览 -->
-        <div v-if="addForm.targetId" class="selected-preview">
-          <el-descriptions :column="1" size="small" border>
-            <el-descriptions-item label="商品ID">{{ addForm.targetId }}</el-descriptions-item>
-            <el-descriptions-item label="商品名">{{ addForm.targetName }}</el-descriptions-item>
-          </el-descriptions>
-        </div>
-
-        <!-- 手动输入兜底 -->
-        <div v-if="!addForm.targetId" style="margin-top: 12px;">
-          <el-divider>手动填写</el-divider>
-          <el-form :model="addForm" label-width="80px">
-            <el-form-item label="商品ID">
-              <el-input v-model="addForm.targetId" placeholder="输入商品ID" />
-            </el-form-item>
-            <el-form-item label="名称">
-              <el-input v-model="addForm.targetName" placeholder="可选" />
-            </el-form-item>
-          </el-form>
-        </div>
-      </template>
-
-      <!-- 非商品类 -->
-      <template v-else>
-        <el-form :model="addForm" label-width="80px">
-          <el-form-item label="账号">
-            <el-select v-model="addForm.accountId" style="width: 100%;">
-              <el-option v-for="a in accounts" :key="a.id" :label="a.accountName" :value="a.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="目标ID">
-            <el-input v-model="addForm.targetId" placeholder="输入目标ID" />
-          </el-form-item>
-          <el-form-item label="名称">
-            <el-input v-model="addForm.targetName" placeholder="可选" />
-          </el-form-item>
-        </el-form>
       </template>
 
       <template #footer>
@@ -171,11 +169,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import api from '@/api/request'
-import { listCollects, addCollect, removeCollect, syncCollects, searchCollectItems } from '@/api/collect'
+import { listCollects, addCollect, removeCollect, syncCollects, searchCollectItems, lookupCollectTarget } from '@/api/collect'
 
 const accounts = ref([])
 const collects = ref([])
@@ -187,11 +185,22 @@ const syncing = ref(false)
 const loading = ref(false)
 const addForm = ref({ targetType: 'ITEM', targetId: '', targetName: '', accountId: null })
 
+// 快速输入（链接/ID）
+const quickInput = ref('')
+const parsing = ref(false)
+
 // 搜索相关
 const searchKeyword = ref('')
 const searchResults = ref([])
 const searching = ref(false)
 const searched = ref(false)
+
+// 根据类型动态切换输入框提示
+const quickInputPlaceholder = computed(() => {
+  if (addForm.value.targetType === 'ITEM') return '粘贴商品链接，如 https://www.goofish.com/item?id=xxx'
+  if (addForm.value.targetType === 'USER') return '粘贴用户主页链接，如 https://www.goofish.com/user?id=xxx'
+  return '粘贴店铺链接或输入店铺ID'
+})
 
 async function loadAccounts() {
   try {
@@ -225,6 +234,7 @@ async function loadCollects() {
 
 function handleOpenAddDialog() {
   addForm.value = { targetType: 'ITEM', targetId: '', targetName: '', accountId: selectedAccountId.value }
+  quickInput.value = ''
   searchKeyword.value = ''
   searchResults.value = []
   searched.value = false
@@ -233,6 +243,7 @@ function handleOpenAddDialog() {
 
 function handleCloseAddDialog() {
   showAddDialog.value = false
+  quickInput.value = ''
   searchKeyword.value = ''
   searchResults.value = []
   searched.value = false
@@ -241,8 +252,84 @@ function handleCloseAddDialog() {
 function onTypeChange() {
   addForm.value.targetId = ''
   addForm.value.targetName = ''
+  quickInput.value = ''
   searchResults.value = []
   searchKeyword.value = ''
+}
+
+function onQuickInputClear() {
+  addForm.value.targetId = ''
+  addForm.value.targetName = ''
+  quickInput.value = ''
+}
+
+/**
+ * 从闲鱼链接中解析出目标ID
+ * 支持格式：
+ *   https://www.goofish.com/item?id=xxx
+ *   https://www.goofish.com/user?id=xxx
+ *   https://www.goofish.com/shop?id=xxx
+ *   https://m.goofish.com/xxx?id=xxx
+ *   纯数字ID
+ */
+function parseXianyuUrl(input, targetType) {
+  if (!input) return null
+  input = input.trim()
+  // 纯数字ID
+  if (/^\d+$/.test(input)) return input
+  try {
+    const url = new URL(input)
+    const params = url.searchParams
+    // 优先从 query 参数取 id
+    let id = params.get('id')
+    if (id) return id
+    // 从路径解析 /item/xxx 或 /user/xxx
+    const pathMatch = url.pathname.match(/\/(item|user|shop)\/(\d+)/)
+    if (pathMatch) return pathMatch[2]
+  } catch (e) {
+    // 不是合法URL，尝试从字符串中提取数字
+    const numMatch = input.match(/(\d{6,})/)
+    if (numMatch) return numMatch[1]
+  }
+  return null
+}
+
+/**
+ * 快速输入确认：解析链接/ID → 自动查询名称
+ */
+async function onQuickInputConfirm() {
+  if (!quickInput.value.trim()) {
+    ElMessage.warning('请输入链接或目标ID')
+    return
+  }
+  if (!addForm.value.accountId) {
+    ElMessage.warning('请先选择账号')
+    return
+  }
+  const targetId = parseXianyuUrl(quickInput.value, addForm.value.targetType)
+  if (!targetId) {
+    ElMessage.warning('无法识别目标ID，请检查输入')
+    return
+  }
+  parsing.value = true
+  try {
+    const res = await lookupCollectTarget(addForm.value.accountId, addForm.value.targetType, targetId)
+    if (res.success) {
+      addForm.value.targetId = res.data.targetId
+      addForm.value.targetName = res.data.targetName || ''
+      ElMessage.success('识别成功')
+    } else {
+      // 查询失败也允许继续（用户可手填名称）
+      addForm.value.targetId = targetId
+      addForm.value.targetName = ''
+      ElMessage.warning(res.message || '自动查询名称失败，可手填名称后继续')
+    }
+  } catch (e) {
+    addForm.value.targetId = targetId
+    addForm.value.targetName = ''
+    ElMessage.warning('自动查询名称失败，可手填名称后继续')
+  }
+  parsing.value = false
 }
 
 async function handleSearch() {
@@ -433,5 +520,21 @@ onMounted(loadAccounts)
   padding: 12px;
   background-color: #f0f9eb;
   border-radius: 4px;
+}
+
+.input-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.input-tip a {
+  color: #409eff;
+  text-decoration: none;
+}
+
+.input-tip a:hover {
+  text-decoration: underline;
 }
 </style>

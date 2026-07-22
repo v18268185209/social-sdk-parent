@@ -40,7 +40,16 @@
       <el-table :data="orders" stripe v-loading="loading">
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="orderId" label="订单号" width="180" />
+        <el-table-column prop="itemId" label="商品ID" width="150" show-overflow-tooltip />
         <el-table-column prop="itemTitle" label="商品标题" min-width="200" show-overflow-tooltip />
+        <el-table-column label="关联商品" width="130">
+          <template #default="{ row }">
+            <el-tag v-if="row.productId" size="small" :type="row.goodsType === 'VIRTUAL' ? 'warning' : 'info'">
+              #{{ row.productId }} · {{ row.goodsType || 'PHYSICAL' }}
+            </el-tag>
+            <span v-else style="color: #c0c4cc;">未关联</span>
+          </template>
+        </el-table-column>
         <el-table-column :label="activeTab === 'SOLD' ? '买家' : '卖家'" width="120">
           <template #default="{ row }">
             <span>{{ row.counterpartyName || '—' }}</span>
@@ -61,20 +70,29 @@
             <span>{{ formatTime(row.orderTime) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="trackingNo" label="物流单号" width="150" />
-        <el-table-column label="虚拟发货" width="180">
+        <el-table-column v-if="activeTab !== 'BOUGHT'" prop="trackingNo" label="物流单号" width="150" />
+        <el-table-column v-if="activeTab !== 'BOUGHT'" label="虚拟发货" width="200">
           <template #default="{ row }">
             <span v-if="!row.requireVirtualShip && row.goodsType !== 'VIRTUAL'" style="color: #c0c4cc;">—</span>
             <span v-else>
               <el-tag :type="virtualShipTagType(row)" size="small">{{ virtualShipLabel(row) }}</el-tag>
+              <el-tag v-if="row.virtualShipTaskStatus" :type="shipTaskTagType(row.virtualShipTaskStatus)" size="small" style="margin-left: 4px;">
+                {{ shipTaskLabel(row.virtualShipTaskStatus) }}
+              </el-tag>
+              <div v-if="row.virtualShipTaskError" style="font-size: 11px; color: #F56C6C; margin-top: 2px;" :title="row.virtualShipTaskError">
+                {{ row.virtualShipTaskError }}
+              </div>
+              <div v-else-if="row.virtualShipExecuteAt && !row.virtualShippedAt" style="font-size: 11px; color: #909399; margin-top: 2px;">
+                计划：{{ formatTime(row.virtualShipExecuteAt) }}
+              </div>
               <div v-if="row.virtualShippedAt" style="font-size: 11px; color: #909399; margin-top: 2px;">
                 {{ formatTime(row.virtualShippedAt) }}
               </div>
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="deliverContent" label="发货内容快照" min-width="200" show-overflow-tooltip />
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column v-if="activeTab !== 'BOUGHT'" prop="deliverContent" label="发货内容快照" min-width="200" show-overflow-tooltip />
+        <el-table-column v-if="activeTab !== 'BOUGHT'" label="操作" width="100" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="row.status === 'PAID' && activeTab === 'SOLD'"
@@ -213,6 +231,24 @@ function virtualShipTagType(row) {
   if (row.requireVirtualShip && !row.virtualShippedAt) return 'warning'
   if (row.virtualShippedAt) return 'success'
   return 'info'
+}
+function shipTaskLabel(status) {
+  return {
+    PENDING: '任务待执行',
+    PROCESSING: '执行中',
+    SHIPPED: '任务已完成',
+    FAILED: '任务失败',
+    SKIPPED: '已跳过'
+  }[status] || status
+}
+function shipTaskTagType(status) {
+  return {
+    PENDING: 'warning',
+    PROCESSING: 'primary',
+    SHIPPED: 'success',
+    FAILED: 'danger',
+    SKIPPED: 'info'
+  }[status] || 'info'
 }
 
 // 加载账号列表

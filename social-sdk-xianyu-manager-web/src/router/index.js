@@ -33,6 +33,11 @@ const routes = [
     meta: { public: true, title: '闲鱼管家' }
   },
   {
+    // 兼容直接访问 /dashboard，重定向到管理后台
+    path: '/dashboard',
+    redirect: '/app/dashboard'
+  },
+  {
     // 管理后台路由树挪到 /app，避免和介绍页根路径冲突
     path: '/app',
     component: () => import('@/layouts/MainLayout.vue'),

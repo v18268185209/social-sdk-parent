@@ -60,12 +60,15 @@ public class XianyuTradeAuxApiService {
      * 注意：字段名是 ratedUid 不是 buyerId，是 pageNumber 不是 page，是 rowsPerPage 不是 pageSize。
      * spm_cnt 应为 a21ybx.personal.0.0（在 RequestBuilder 中全局设置，此处无法单独覆盖）。</p>
      *
-     * @param buyerId 买家 id（对应闲鱼字段 ratedUid），可选传 null 拉全量
+     * @param buyerId 用户 id（对应闲鱼必填字段 ratedUid）
      */
     public JsonNode getReviewList(String buyerId, String page, String pageSize) {
+        if (buyerId == null || buyerId.isBlank()) {
+            throw new IllegalArgumentException("ratedUid is required for mtop.idle.web.trade.rate.list");
+        }
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("rateType", 0);
-        if (buyerId != null && !buyerId.isBlank()) data.put("ratedUid", buyerId);
+        data.put("ratedUid", buyerId.trim());
         data.put("raterType", 0);
         data.put("rowsPerPage", parseInt(pageSize, 20));
         data.put("pageNumber", parseInt(page, 1));

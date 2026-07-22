@@ -74,6 +74,7 @@ public class DatabaseInitializer {
             ensureRuleColumns();
             // ===== 新增模块的列补齐 =====
             ensureMarketColumns();
+            ensureMarketKeywordTable();
             ensureMonitorColumns();
             ensureBuyerProfileColumns();
             ensureCircuitBreakerColumns();
@@ -294,6 +295,35 @@ public class DatabaseInitializer {
         ensureColumn("xianyu_account", "chrome_crash_count", "INTEGER DEFAULT 0");
         ensureColumn("xianyu_account", "chrome_seed", "BIGINT");
         ensureColumn("xianyu_account", "chrome_launched_at", "DATETIME");
+    }
+
+    /**
+     * 确保 market_keyword 表存在（已有数据库不会自动新建，按 ensureTable 模式补建）
+     */
+    private void ensureMarketKeywordTable() {
+        try (java.sql.Connection conn = dataSource.getConnection()) {
+            if (tableExists(conn, "market_keyword")) {
+                return;
+            }
+            try (java.sql.Statement st = conn.createStatement()) {
+                st.execute("CREATE TABLE IF NOT EXISTS market_keyword ("
+                        + "id INTEGER PRIMARY KEY,"
+                        + "keyword VARCHAR(256) UNIQUE NOT NULL,"
+                        + "status VARCHAR(16) DEFAULT 'ACTIVE',"
+                        + "crawl_interval_minutes INTEGER DEFAULT 30,"
+                        + "last_crawl_at DATETIME,"
+                        + "last_crawl_result_count INTEGER DEFAULT 0,"
+                        + "created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                        + "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                        + "deleted INTEGER DEFAULT 0"
+                        + ")");
+                st.execute("CREATE INDEX IF NOT EXISTS idx_market_keyword_status ON market_keyword(status)");
+                st.execute("CREATE INDEX IF NOT EXISTS idx_market_keyword_deleted ON market_keyword(deleted)");
+                logger.info("Created missing table market_keyword");
+            }
+        } catch (Exception e) {
+            logger.warn("ensureMarketKeywordTable skipped: {}", e.getMessage());
+        }
     }
 
     private void ensureAutoReplyLogTable() {

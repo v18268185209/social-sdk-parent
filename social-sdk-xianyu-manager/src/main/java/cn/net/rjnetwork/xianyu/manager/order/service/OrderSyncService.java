@@ -392,14 +392,22 @@ public class OrderSyncService {
                 boolean statusChanged = !str(existing.getStatus()).equals(str(order.getStatus()));
                 boolean titleChanged = !str(existing.getItemTitle()).equals(str(order.getItemTitle()));
 
+                existing.setItemId(order.getItemId());
                 existing.setItemTitle(order.getItemTitle());
                 existing.setCounterpartyName(order.getCounterpartyName());
+                existing.setBuyerId(order.getBuyerId());
+                existing.setSellerId(order.getSellerId());
+                existing.setOrderDetailUrl(order.getOrderDetailUrl());
+                existing.setRawData(order.getRawData());
                 existing.setAmount(order.getAmount());
                 existing.setStatus(order.getStatus());
                 existing.setOrderTime(order.getOrderTime());
                 existing.setTradeStatusEnum(order.getTradeStatusEnum());
+                existing.setIsSeller(order.getIsSeller());
+                resolveProductRef(existing, accountId);
                 existing.setUpdatedAt(LocalDateTime.now());
                 orderMapper.updateById(existing);
+                tryCreateVirtualShipTask(existing);
 
                 if (statusChanged || titleChanged) {
                     eventPublisher.publishEvent(new NotifyEvent(
@@ -414,6 +422,7 @@ public class OrderSyncService {
                 order.setCreatedAt(LocalDateTime.now());
                 order.setUpdatedAt(LocalDateTime.now());
                 orderMapper.insert(order);
+                tryCreateVirtualShipTask(order);
                 eventPublisher.publishEvent(new NotifyEvent("NEW_ORDER", accountId, accountName,
                         Map.of("accountName", accountName, "orderId", order.getOrderId(),
                                 "itemTitle", str(order.getItemTitle()), "amount", str(order.getAmount()),
@@ -442,26 +451,57 @@ public class OrderSyncService {
     }
 
     /**
-     * 按 itemTitle + accountId 精确反查本地商品，回填 order.productId + goodsType。
-     * 若查不到商品，productId 留空，后续虚拟发货任务创建时会跳过。
+     * 优先按 accountId + itemId 精准反查本地商品，兜底按 title 匹配。
      */
     private void resolveProductRef(XianyuOrder order, Long accountId) {
-        if (order.getItemTitle() == null || order.getItemTitle().isBlank()) return;
-        XianyuProduct product = productMapper.selectOne(
-                new LambdaQueryWrapper<XianyuProduct>()
-                        .eq(XianyuProduct::getAccountId, accountId)
-                        .eq(XianyuProduct::getTitle, order.getItemTitle())
-                        .last("LIMIT 1"));
+        XianyuProduct product = null;
+        if (order.getItemId() != null && !order.getItemId().isBlank()) {
+            product = productMapper.selectOne(
+                    new LambdaQueryWrapper<XianyuProduct>()
+                            .eq(XianyuProduct::getAccountId, accountId)
+                            .eq(XianyuProduct::getItemId, order.getItemId())
+                            .last("LIMIT 1"));
+        }
+        if (product == null && order.getItemTitle() != null && !order.getItemTitle().isBlank()) {
+            product = productMapper.selectOne(
+                    new LambdaQueryWrapper<XianyuProduct>()
+                            .eq(XianyuProduct::getAccountId, accountId)
+                            .eq(XianyuProduct::getTitle, order.getItemTitle())
+                            .last("LIMIT 1"));
+        }
         if (product != null) {
             order.setProductId(product.getId());
             if (product.getGoodsType() != null) {
                 order.setGoodsType(product.getGoodsType());
             }
-            // 虚拟商品默认需要虚拟发货
             if ("VIRTUAL".equals(product.getGoodsType())) {
                 order.setRequireVirtualShip(true);
             }
         }
+    }
+
+    private void tryCreateVirtualShipTask(XianyuOrder order) {
+        if (!isReadyForVirtualShip(order)) return;
+        try {
+            virtualShipService.createShipTaskIfVirtual(order.getId());
+        } catch (Exception e) {
+            eventPublisher.publishEvent(new NotifyEvent("VIRTUAL_SHIP_FAILED", order.getAccountId(), accountName(order.getAccountId()),
+                    Map.of("accountName", accountName(order.getAccountId()), "orderId", str(order.getOrderId()),
+                            "itemTitle", str(order.getItemTitle()), "error", e.getMessage() != null ? e.getMessage() : "")));
+        }
+    }
+
+    private boolean isReadyForVirtualShip(XianyuOrder order) {
+        if (!"SOLD".equals(order.getType())) return false;
+        if (!Boolean.TRUE.equals(order.getRequireVirtualShip())) return false;
+        if (order.getVirtualShippedAt() != null) return false;
+        String status = str(order.getStatus());
+        String tradeStatus = str(order.getTradeStatusEnum());
+        return "PAID".equals(status)
+                || "BUYER_TO_CONFIRM".equals(status)
+                || "buyer_to_confirm".equals(tradeStatus)
+                || "paid".equals(tradeStatus)
+                || "trade_paid".equals(tradeStatus);
     }
 
     private String getText(JsonNode node, String field) {

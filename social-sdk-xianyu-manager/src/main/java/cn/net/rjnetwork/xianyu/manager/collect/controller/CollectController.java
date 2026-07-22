@@ -30,6 +30,25 @@ public class CollectController {
     }
 
     /**
+     * 根据类型和ID自动查询目标名称 — 用于"添加收藏"弹窗的自动识别
+     */
+    @GetMapping("/lookup")
+    public ApiResponse<Map<String, String>> lookup(
+            @RequestParam Long accountId,
+            @RequestParam String targetType,
+            @RequestParam String targetId) {
+        try {
+            Map<String, String> result = collectService.lookupTarget(accountId, targetType, targetId);
+            return ApiResponse.ok(result);
+        } catch (IllegalArgumentException e) {
+            return ApiResponse.badRequest(e.getMessage());
+        } catch (Exception e) {
+            log.error("[COLLECT] lookup failed", e);
+            return ApiResponse.error("LOOKUP_ERROR", "查询失败: " + e.getMessage());
+        }
+    }
+
+    /**
      * 搜索闲鱼商品 — 用于"添加收藏"弹窗里的关键词搜索
      */
     @GetMapping("/search")
