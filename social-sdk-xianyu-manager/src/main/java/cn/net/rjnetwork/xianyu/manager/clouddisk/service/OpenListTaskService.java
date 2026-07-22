@@ -189,11 +189,15 @@ public class OpenListTaskService {
                 } catch (UnsupportedOperationException ignored) {}
             }
 
+            // 确保 dataDir 存在并写入 config.json 配置端口
+            Files.createDirectories(dataDir);
+            writeConfigJson();
+
+            // OpenList server 不支持 --port flag，端口通过 config.json 的 scheme.http_port 配置
             ProcessBuilder pb = new ProcessBuilder(
                 execPath.toString(),
                 "server",
-                "--data", dataDir.toString(),
-                "--port", String.valueOf(properties.getPort())
+                "--data", dataDir.toString()
             );
             pb.directory(dataDir.toFile());
             pb.redirectErrorStream(true);
@@ -226,6 +230,34 @@ public class OpenListTaskService {
 
         } catch (Exception e) {
             updatePhase("failed", "启动失败: " + e.getMessage(), 0.0);
+        }
+    }
+
+    /**
+     * 写入 config.json：配置端口、用户名、密码。
+     * OpenList 首次启动时会从该文件读取配置。
+     */
+    private void writeConfigJson() {
+        Path configFile = dataDir.resolve("config.json");
+        try {
+            String config = String.format(
+                "{\n" +
+                "  \"scheme\": {\n" +
+                "    \"http_port\": %d,\n" +
+                "    \"https_port\": 0\n" +
+                "  },\n" +
+                "  \"jwt_secret\": \"%s\",\n" +
+                "  \"admin_username\": \"%s\",\n" +
+                "  \"admin_password\": \"%s\"\n" +
+                "}\n",
+                properties.getPort(),
+                UUID.randomUUID().toString().replace("-", ""),
+                properties.getUsername(),
+                properties.getPassword()
+            );
+            Files.writeString(configFile, config);
+        } catch (IOException e) {
+            System.err.println("[OpenList] 写入 config.json 失败: " + e.getMessage());
         }
     }
 

@@ -92,9 +92,14 @@ public class MessageService {
                 row.put("direction", last.getDirection());
             }
 
-            // 会话标题必须取“对方”信息：优先该会话最新 INCOMING 消息；
-            // 如果最近消息是我发出的，不能用 OUTGOING 的 senderName（那是自己的账号名）。
-            XianyuMessage peerMsg = messageMapper.selectLatestIncoming(accountId, sid);
+            // 会话标题必须取“对方”信息：按 senderId 排除当前账号自己。
+            // 历史库里曾有 direction 全写成 INCOMING 的数据，不能再依赖 direction='INCOMING' 判断对方。
+            String selfUserId = extractSelfUserId(accountId);
+            XianyuMessage peerMsg = messageMapper.selectLatestPeerMessage(
+                    accountId, sid, selfUserId, ensureGoofishSuffix(selfUserId));
+            if (peerMsg == null) {
+                peerMsg = messageMapper.selectLatestIncoming(accountId, sid);
+            }
             String peer = peerMsg != null ? peerMsg.getSenderName() : null;
             String peerId = peerMsg != null ? peerMsg.getSenderId() : null;
             String peerAvatar = peerMsg != null ? peerMsg.getSenderAvatar() : null;
@@ -108,7 +113,7 @@ public class MessageService {
     }
 
     public List<XianyuMessage> getHistory(Long accountId, String sessionId, int limit) {
-        return messageMapper.selectBySession(accountId, sessionId, limit);
+        return normalizeDirections(accountId, messageMapper.selectBySession(accountId, sessionId, limit));
     }
 
     public XianyuMessage getById(Long id) {
@@ -206,7 +211,7 @@ public class MessageService {
         wrapper.eq(XianyuMessage::getAccountId, accountId)
                .orderByDesc(XianyuMessage::getMessageTime)
                .last("LIMIT " + limit);
-        return messageMapper.selectList(wrapper);
+        return normalizeDirections(accountId, messageMapper.selectList(wrapper));
     }
 
     /** 定时任务：每 30 秒拉取一次所有活跃账号的消息 */
@@ -921,7 +926,7 @@ public class MessageService {
         // 直接判会把对方发的当成 OUTGOING，方向全反）。必须用 selfUserId 比对：senderId == selfId → OUTGOING。
         String selfUserId = extractSelfUserId(accountId);
         String senderId = entity.getSenderId();
-        boolean isOutgoing = !selfUserId.isEmpty() && selfUserId.equals(senderId);
+        boolean isOutgoing = isSelfSender(selfUserId, senderId);
         entity.setDirection(isOutgoing ? "OUTGOING" : "INCOMING");
         entity.setMsgType(msg.path("msgType").asText("TEXT"));
         entity.setAutoReply(Boolean.TRUE.equals(msg.path("isAutoReply").asBoolean()));
@@ -1024,7 +1029,7 @@ public class MessageService {
         // 原 bug：写死 INCOMING，导致自己发的消息被当进来消息，会话列表全是自己回自己的怪状
         String selfUserId = extractSelfUserId(accountId);
         String senderId = entity.getSenderId();
-        boolean isOutgoing = !selfUserId.isEmpty() && selfUserId.equals(senderId);
+        boolean isOutgoing = isSelfSender(selfUserId, senderId);
         entity.setDirection(isOutgoing ? "OUTGOING" : "INCOMING");
         entity.setAutoReply(false);
         // messageTime: 用闲鱼返回的真实时间（msgTime / createTime / timestamp 字段，毫秒级 Unix）
@@ -1194,6 +1199,36 @@ public class MessageService {
         return "";
     }
 
+    private List<XianyuMessage> normalizeDirections(Long accountId, List<XianyuMessage> rows) {
+        if (rows == null || rows.isEmpty()) return rows;
+        String selfUserId = extractSelfUserId(accountId);
+        for (XianyuMessage row : rows) {
+            if (row == null) continue;
+            row.setDirection(isSelfSender(selfUserId, row.getSenderId()) ? "OUTGOING" : "INCOMING");
+        }
+        return rows;
+    }
+
+    private boolean isSelfSender(String selfUserId, String senderId) {
+        if (selfUserId == null || selfUserId.isBlank() || senderId == null || senderId.isBlank()) return false;
+        String selfBare = stripGoofishSuffix(selfUserId);
+        String senderBare = stripGoofishSuffix(senderId);
+        return !selfBare.isBlank() && selfBare.equals(senderBare);
+    }
+
+    private String ensureGoofishSuffix(String userId) {
+        if (userId == null || userId.isBlank()) return "";
+        String trimmed = userId.trim();
+        return trimmed.contains("@") ? trimmed : trimmed + "@goofish";
+    }
+
+    private String stripGoofishSuffix(String userId) {
+        if (userId == null) return "";
+        String trimmed = userId.trim();
+        int at = trimmed.indexOf('@');
+        return at > 0 ? trimmed.substring(0, at) : trimmed;
+    }
+
     /**
      * 从闲鱼 LWP 消息里解析真实时间戳，多个候选字段名兼容
      * 候选：msgTime / createTime / timestamp / time（毫秒级 Unix），转 LocalDateTime
@@ -1231,7 +1266,11 @@ public class MessageService {
         if (selfUserId.isBlank()) {
             throw new IllegalStateException("无法从账号 cookie 提取 selfUserId，请重新登录");
         }
-        XianyuMessage peerMsg = messageMapper.selectLatestIncoming(request.getAccountId(), request.getSessionId());
+        XianyuMessage peerMsg = messageMapper.selectLatestPeerMessage(
+                request.getAccountId(), request.getSessionId(), selfUserId, ensureGoofishSuffix(selfUserId));
+        if (peerMsg == null) {
+            peerMsg = messageMapper.selectLatestIncoming(request.getAccountId(), request.getSessionId());
+        }
         String peerUserId = peerMsg != null ? peerMsg.getSenderId() : "";
         if (peerUserId.isBlank()) {
             // 该会话还没收到过对方消息（刚发起的会话），用 sessionId 兜底

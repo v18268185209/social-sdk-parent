@@ -241,7 +241,7 @@ async function loadReviews() {
     const res = await listReviews(accountId.value, buyerId.value)
     const d = res.data
     // mtop.idle.web.trade.rate.list 返回 {data:{totalCount, items/list:[...]}}
-    reviews.value = Array.isArray(d) ? d : (d?.data?.items || d?.data?.list || d?.items || d?.list || [])
+    reviews.value = Array.isArray(d) ? d : (d?.data?.data?.items || d?.data?.data?.list || d?.data?.items || d?.data?.list || d?.items || d?.list || [])
   } catch (e) {
     ElMessage.error('拉评价失败: ' + e.message)
     reviews.value = []

@@ -13,6 +13,7 @@ import cn.net.rjnetwork.xianyu.manager.product.service.SyncProgressService.Progr
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ import java.util.UUID;
 public class ProductService {
 
     private static final Logger logger = LoggerFactory.getLogger(ProductService.class);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final ProductMapper productMapper;
     private final AccountService accountService;
@@ -919,133 +921,44 @@ public class ProductService {
             throw new IllegalStateException("Account has no cookie, please re-login: " + accountId);
         }
 
-        // 构造 SDK：先 MtopApiClient（带 cookie），再 ProductApiService
         XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(account.getCookieHeader());
         XianyuProductApiService productApi = new XianyuProductApiService(mtopClient);
-
-        // 1. 拉在线商品列表（mtop.idle.web.xyh.item.list）
-        JsonNode resp = productApi.getMyProducts("1", String.valueOf(Math.min(100, Math.max(1, pageSize))));
-
-        // 真实返回结构（CDP 抓包验证 2026-07-18）：
-        //   data.cardList[] → 每项 .cardData 含 id/itemId/title/soldPrice/priceInfo.price
-        //   /categoryId/itemStatus/picInfo.picUrl/detailParams.picUrl/detailUrl/auctionType
-        JsonNode listNode = resolveProductList(resp);
+        List<JsonNode> cards = fetchAllProductCards(productApi, pageSize, null);
+        List<XianyuProduct> toUpsert = collectFromDetail(accountId, productApi, cards, null, cards.size());
 
         int inserted = 0;
         int updated = 0;
         int failed = 0;
-        int total = 0;
-        if (listNode != null && listNode.isArray()) {
-            total = listNode.size();
-            logger.info("syncFromXianyu: account {} got {} items from list, fetching details...", accountId, total);
-            for (int i = 0; i < total; i++) {
-                JsonNode card = listNode.get(i);
-                // card.cardData 才是真正的商品节点
-                JsonNode item = card.has("cardData") ? card.get("cardData") : card;
-                String itemId = pickString(item, "id", "itemId", "item_id");
-                if (itemId == null || itemId.isBlank()) continue;
-
-                // 2. 约详情接口（mtop.taobao.idle.pc.detail）补齐 description / 库存 / 多图 / 状态
-                String description = null;
-                Integer stock = null;
-                String images = null;
-                String detailStatus = null;
-                try {
-                    JsonNode detailResp = productApi.getProductDetail(itemId);
-                    if (isMtopSuccess(detailResp)) {
-                        JsonNode detailData = detailResp.path("data");
-                        JsonNode b2cItem = detailData.path("b2cItemDO");
-                        JsonNode picDetail = detailData.path("picDetailDO");
-                        JsonNode itemDO = detailData.path("itemDO");
-
-                        // 描述：b2cItemDO.desc / data.desc（列表接口不返回描述，详情才有）
-                        description = pickText(b2cItem, "desc");
-                        if (description.isEmpty()) description = pickText(detailData, "desc");
-
-                        // 库存：真字段是 data.itemDO.quantity / b2cItemDO.quantity（列表不返回）
-                        Integer q = pickInt(itemDO, "quantity");
-                        if (q == null) q = pickInt(b2cItem, "quantity");
-                        if (q != null) stock = q;
-
-                        // 多图：picDetailDO.picUrlList[] → JSON 数组字符串
-                        images = extractImagesJson(picDetail.path("picUrlList"));
-                        if (images == null) images = extractImagesJson(b2cItem.path("picUrlList"));
-                        if (images == null) images = extractImagesJson(detailData.path("picUrlList"));
-
-                        // 状态：data.itemDO.itemStatus / data.itemStatus
-                        detailStatus = pickString(itemDO, "itemStatus");
-                        if (detailStatus.isEmpty()) detailStatus = pickString(detailData, "itemStatus");
-                    }
-                } catch (Exception e) {
-                    logger.warn("syncFromXianyu: detail failed for item {}: {}", itemId, e.getMessage());
-                }
-
-                // 主图：优先取详情第一张，兜底用列表接口的 picInfo.picUrl
-                String mainImageUrl = pickString(item, "picInfo.picUrl", "detailParams.picUrl", "picUrl");
-
-                // 状态：优先用列表 itemStatus（数字），详情兜底
-                String rawStatus = pickString(item, "itemStatus", "status");
-                if (rawStatus.isEmpty()) rawStatus = detailStatus;
-
-                // upsert：按 accountId + itemId 查
+        for (XianyuProduct p : toUpsert) {
+            try {
                 LambdaQueryWrapper<XianyuProduct> qw = new LambdaQueryWrapper<>();
                 qw.eq(XianyuProduct::getAccountId, accountId)
-                        .eq(XianyuProduct::getItemId, itemId);
+                        .eq(XianyuProduct::getItemId, p.getItemId());
                 XianyuProduct existing = productMapper.selectOne(qw);
-
-                XianyuProduct p = existing != null ? existing : new XianyuProduct();
-                if (existing == null) {
-                    p.setAccountId(accountId);
-                    p.setItemId(itemId);
+                if (existing != null) {
+                    p.setId(existing.getId());
+                    p.setCreatedAt(existing.getCreatedAt());
+                    productMapper.updateById(p);
+                    updated++;
+                } else {
                     p.setCreatedAt(LocalDateTime.now());
-                    p.setViewCount(0);
-                    p.setFavoriteCount(0);
+                    productMapper.insert(p);
+                    inserted++;
                 }
-                p.setTitle(pickString(item, "title", "name", "itemTitle"));
-                // 真实结构：priceInfo.price 嵌套 / detailParams.soldPrice 嵌套 / detailParams.picUrl 嵌套；itemStatus 是数字 0=在售
-                BigDecimal price = pickBigDecimal(item, "priceInfo.price", "detailParams.soldPrice", "soldPrice", "price", "itemPrice");
-                if (price != null) p.setPrice(price);
-                BigDecimal orig = pickBigDecimal(item, "originalPrice", "oriPrice", "marketPrice");
-                if (orig != null) p.setOriginalPrice(orig);
-                if (stock != null) p.setStock(stock);
-
-                // 主图 + 多图 + 描述 + 状态
-                p.setImageUrl(mainImageUrl);
-                p.setImages(images);
-                if (description != null) p.setDescription(description);
-                String status = mapStatus(rawStatus);
-                if (status != null) p.setStatus(status);
-
-                p.setUpdatedAt(LocalDateTime.now());
-
-                try {
-                    if (existing == null) {
-                        productMapper.insert(p);
-                        inserted++;
-                    } else {
-                        productMapper.updateById(p);
-                        updated++;
-                    }
-                } catch (Exception e) {
-                    logger.error("syncFromXianyu: upsert failed for item {}: {}", itemId, e.getMessage());
-                    failed++;
-                }
-                // 每 10 条打一条日志，方便跟踪进度
-                if ((i + 1) % 10 == 0 || (i + 1) == total) {
-                    logger.info("syncFromXianyu: progress {}/{} (ins={} upd={} fail={})",
-                            i + 1, total, inserted, updated, failed);
-                }
+            } catch (Exception e) {
+                logger.error("syncFromXianyu: upsert failed for item {}: {}", p.getItemId(), e.getMessage());
+                failed++;
             }
         }
-        logger.info("syncFromXianyu: account {} done. synced={} inserted={} updated={} failed={}",
-                accountId, inserted + updated, inserted, updated, failed);
+        logger.info("syncFromXianyu: account {} done. fetched={} synced={} inserted={} updated={} failed={}",
+                accountId, cards.size(), inserted + updated, inserted, updated, failed);
         return new SyncResult(inserted + updated, inserted, updated);
     }
 
     /**
-     * 异步执行商品同步（供 controller 调用）。后台跑完整同步流程，进度写到 SyncProgressService。
+     * 执行商品同步（供 controller 手动提交到线程池调用，本方法不再加 @Async 注解，
+     * 避免与手动线程池提交混在一起导致静默失败）。
      */
-    @Async(AsyncConfig.SYNC_EXECUTOR)
     public void syncFromXianyuAsync(Long accountId, String syncId) {
         syncProgressService.update(Progress.listing(syncId));
         try {
@@ -1063,18 +976,16 @@ public class ProductService {
 
             XianyuMtopApiClient mtopClient = new XianyuMtopApiClient(account.getCookieHeader());
             XianyuProductApiService productApi = new XianyuProductApiService(mtopClient);
-            JsonNode resp = productApi.getMyProducts("1", "100");
-            JsonNode listNode = resolveProductList(resp);
-            if (listNode == null || !listNode.isArray() || listNode.size() == 0) {
+            List<JsonNode> cards = fetchAllProductCards(productApi, 20, syncId);
+            if (cards.isEmpty()) {
                 syncProgressService.update(Progress.completed(syncId, 0, 0, 0));
                 syncProgressService.finish(accountId, syncId);
                 return;
             }
-            // 标记进入详情阶段（total 暂时放列表总数，后面用 current 显示进度）
-            int total = listNode.size();
+            int total = cards.size();
             syncProgressService.update(Progress.detailing(syncId, 0, total));
 
-            List<XianyuProduct> toUpsert = collectFromDetail(productApi, listNode, syncId, total);
+            List<XianyuProduct> toUpsert = collectFromDetail(accountId, productApi, cards, syncId, total);
 
             int inserted = 0, updated = 0, failed = 0;
             for (XianyuProduct p : toUpsert) {
@@ -1111,11 +1022,11 @@ public class ProductService {
      * 拉详情、列出待 upsert 的 XianyuProduct 列表（在独立事务外调，避免长事务）。
      * 每处理一条就更新进度。
      */
-    private List<XianyuProduct> collectFromDetail(XianyuProductApiService productApi,
-                                                    JsonNode listNode, String syncId, int total) {
+    private List<XianyuProduct> collectFromDetail(Long accountId, XianyuProductApiService productApi,
+                                                    List<JsonNode> cards, String syncId, int total) {
         List<XianyuProduct> list = new ArrayList<>();
         int current = 0;
-        for (JsonNode card : listNode) {
+        for (JsonNode card : cards) {
             current++;
             JsonNode item = card.has("cardData") ? card.get("cardData") : card;
             String itemId = pickString(item, "id", "itemId", "item_id");
@@ -1149,7 +1060,7 @@ public class ProductService {
                     if (images == null) images = extractImagesJson(b2cItem.path("picUrlList"));
                     if (images == null) images = extractImagesJson(detailData.path("picUrlList"));
                     detailStatus = pickString(itemDO, "itemStatus");
-                    if (detailStatus.isEmpty()) detailStatus = pickString(detailData, "itemStatus");
+                    if (detailStatus == null || detailStatus.isEmpty()) detailStatus = pickString(detailData, "itemStatus");
                     // 主图兜底：取详情第一张
                     String detailMain = firstPicUrl(picDetail.path("picUrlList"));
                     if (detailMain == null) detailMain = firstPicUrl(b2cItem.path("picUrlList"));
@@ -1159,10 +1070,14 @@ public class ProductService {
                 logger.warn("sync: detail failed item {}: {}", itemId, e.getMessage());
             }
 
-            if (rawStatus.isEmpty()) rawStatus = detailStatus;
+            if (rawStatus == null || rawStatus.isEmpty()) rawStatus = detailStatus;
             String status = mapStatus(rawStatus);
+            if (images == null) images = extractImagesFromImageInfos(pickString(item, "detailParams.imageInfos"));
+            if (mainImageUrl == null || mainImageUrl.isBlank()) mainImageUrl = firstImageFromJsonArray(images);
+            if (orig == null) orig = extractOriginalPriceFromLabels(item);
 
             XianyuProduct p = new XianyuProduct();
+            p.setAccountId(accountId);
             p.setItemId(itemId);
             p.setTitle(title);
             if (price != null) p.setPrice(price);
@@ -1172,11 +1087,12 @@ public class ProductService {
             p.setImages(images);
             if (description != null) p.setDescription(description);
             if (status != null) p.setStatus(status);
+            applyListFields(p, item, card, rawStatus);
             p.setUpdatedAt(LocalDateTime.now());
             list.add(p);
 
             // 诊断：每 10 条记录一次字段写入情况，定位同步是否拿到数据
-            if (current % 10 == 0 || current == total) {
+            if (syncId != null && (current % 10 == 0 || current == total)) {
                 logger.info("sync: detail item {} descLen={} imgLen={} imgUrl={}",
                         itemId,
                         description == null ? "null" : String.valueOf(description.length()),
@@ -1245,6 +1161,91 @@ public class ProductService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private List<JsonNode> fetchAllProductCards(XianyuProductApiService productApi, int pageSize, String syncId) {
+        int size = Math.min(100, Math.max(1, pageSize));
+        List<JsonNode> cards = new ArrayList<>();
+        for (int page = 1; page <= 100; page++) {
+            JsonNode resp = productApi.getMyProducts(String.valueOf(page), String.valueOf(size));
+            JsonNode listNode = resolveProductList(resp);
+            int count = 0;
+            if (listNode != null && listNode.isArray()) {
+                for (JsonNode card : listNode) {
+                    cards.add(card);
+                    count++;
+                }
+            }
+            boolean nextPage = hasNextProductPage(resp);
+            logger.info("sync products page {} size={} count={} nextPage={} totalFetched={}", page, size, count, nextPage, cards.size());
+            if (syncId != null) {
+                syncProgressService.update(Progress.listing(syncId));
+            }
+            if (!nextPage || count == 0) break;
+        }
+        return cards;
+    }
+
+    private boolean hasNextProductPage(JsonNode resp) {
+        JsonNode data = resp != null && resp.has("data") ? resp.path("data") : resp;
+        return data != null && data.path("nextPage").asBoolean(false);
+    }
+
+    private void applyListFields(XianyuProduct p, JsonNode item, JsonNode card, String rawStatus) {
+        p.setCategoryId(pickString(item, "categoryId", "detailParams.categoryId"));
+        p.setDetailUrl(pickString(item, "detailUrl"));
+        p.setAuctionType(pickString(item, "auctionType"));
+        p.setItemStatusRaw(rawStatus);
+        p.setPostInfo(pickString(item, "detailParams.postInfo", "postInfo"));
+        p.setImageInfos(pickString(item, "detailParams.imageInfos"));
+        p.setPicWidth(pickInt(item, "picInfo.width", "detailParams.picWidth"));
+        p.setPicHeight(pickInt(item, "picInfo.height", "detailParams.picHeight"));
+        JsonNode hasVideo = navigate(item, "picInfo.hasVideo");
+        if (hasVideo != null && !hasVideo.isMissingNode() && !hasVideo.isNull()) {
+            p.setHasVideo(hasVideo.asBoolean(false));
+        }
+        p.setRawData(serializeJson(item != null && !item.isMissingNode() ? item : card));
+    }
+
+    private String serializeJson(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) return null;
+        try {
+            return MAPPER.writeValueAsString(node);
+        } catch (Exception e) {
+            return node.toString();
+        }
+    }
+
+    private String extractImagesFromImageInfos(String imageInfos) {
+        if (imageInfos == null || imageInfos.isBlank()) return null;
+        try {
+            JsonNode arr = MAPPER.readTree(imageInfos);
+            return extractImagesJson(arr);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String firstImageFromJsonArray(String imagesJson) {
+        if (imagesJson == null || imagesJson.isBlank()) return null;
+        try {
+            JsonNode arr = MAPPER.readTree(imagesJson);
+            if (arr.isArray() && arr.size() > 0) return arr.get(0).asText(null);
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private BigDecimal extractOriginalPriceFromLabels(JsonNode item) {
+        JsonNode tagList = item.path("itemLabelDataVO").path("labelData").path("r3").path("tagList");
+        if (!tagList.isArray()) return null;
+        for (JsonNode tag : tagList) {
+            String content = pickString(tag, "data.content");
+            if (content == null || !content.startsWith("¥")) continue;
+            try {
+                return new BigDecimal(content.substring(1).trim());
+            } catch (NumberFormatException ignored) {}
+        }
+        return null;
     }
 
     /** 闲鱼返回结构多变，按优先级探若干路径名。真实结构为 data.cardList[] */

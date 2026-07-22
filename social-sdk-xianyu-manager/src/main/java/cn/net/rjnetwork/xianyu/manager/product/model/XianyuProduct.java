@@ -37,4 +37,23 @@ public class XianyuProduct extends BaseEntity {
     private String imageUrl; // 主图 URL（商品列表返回的首图）
     private Integer viewCount;
     private Integer favoriteCount;
+
+    /** 列表接口原始 cardData JSON，保留闲鱼未显式建模字段 */
+    private String rawData;
+
+    /** auctionType，如 b */
+    private String auctionType;
+
+    /** 闲鱼原始 itemStatus 数字/字符串 */
+    private String itemStatusRaw;
+
+    /** 邮寄/自提信息，如 包邮 / 仅自提 / 包邮或自提 */
+    private String postInfo;
+
+    /** 列表 detailParams.imageInfos 原始 JSON 字符串 */
+    private String imageInfos;
+
+    private Integer picWidth;
+    private Integer picHeight;
+    private Boolean hasVideo;
 }

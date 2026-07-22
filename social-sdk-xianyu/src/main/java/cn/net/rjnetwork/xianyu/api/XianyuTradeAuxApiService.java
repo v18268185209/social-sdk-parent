@@ -67,7 +67,7 @@ public class XianyuTradeAuxApiService {
         data.put("rateType", 0);
         if (buyerId != null && !buyerId.isBlank()) data.put("ratedUid", buyerId);
         data.put("raterType", 0);
-        data.put("rowsPerPage", parseInt(page, 20));
+        data.put("rowsPerPage", parseInt(pageSize, 20));
         data.put("pageNumber", parseInt(page, 1));
         data.put("foldFlag", 0);
         data.put("fishAdCode", "330110");

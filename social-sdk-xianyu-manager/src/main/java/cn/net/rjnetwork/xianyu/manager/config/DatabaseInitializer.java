@@ -221,6 +221,14 @@ public class DatabaseInitializer {
 
     private void ensureProductColumns() {
         ensureColumn("xianyu_product", "image_url", "VARCHAR(512)");
+        ensureColumn("xianyu_product", "raw_data", "TEXT");
+        ensureColumn("xianyu_product", "auction_type", "VARCHAR(32)");
+        ensureColumn("xianyu_product", "item_status_raw", "VARCHAR(32)");
+        ensureColumn("xianyu_product", "post_info", "VARCHAR(64)");
+        ensureColumn("xianyu_product", "image_infos", "TEXT");
+        ensureColumn("xianyu_product", "pic_width", "INTEGER");
+        ensureColumn("xianyu_product", "pic_height", "INTEGER");
+        ensureColumn("xianyu_product", "has_video", "BOOLEAN");
     }
 
     private void ensureAiColumns() {

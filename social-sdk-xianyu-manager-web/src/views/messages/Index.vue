@@ -94,8 +94,8 @@
                   </el-avatar>
                   <div class="bubble">
                     <div v-if="isJsonCard(msg.content)" class="bubble-card">
-                      <div class="card-title">{{ parseJsonCard(msg.content).title }}</div>
-                      <div class="card-subtitle">{{ parseJsonCard(msg.content).subtitle }}</div>
+                      <div v-if="parseJsonCard(msg.content).title" class="card-title">{{ parseJsonCard(msg.content).title }}</div>
+                      <div v-if="parseJsonCard(msg.content).subtitle" class="card-subtitle">{{ parseJsonCard(msg.content).subtitle }}</div>
                       <img v-if="parseJsonCard(msg.content).leftImg" :src="parseJsonCard(msg.content).leftImg" class="card-left-img" />
                       <el-button
                         v-if="parseJsonCard(msg.content).buttonText"
@@ -105,6 +105,8 @@
                         @click="parseJsonCard(msg.content).targetUrl && window.open(parseJsonCard(msg.content).targetUrl, '_blank')"
                       >{{ parseJsonCard(msg.content).buttonText }}</el-button>
                       <div v-if="parseJsonCard(msg.content).subTitle" class="card-desc">{{ parseJsonCard(msg.content).subTitle }}</div>
+                      <!-- 当提取不出任何有意义字段时，降级展示原始 JSON -->
+                      <pre v-if="!parseJsonCard(msg.content).hasContent" class="card-raw">{{ msg.content }}</pre>
                     </div>
                     <div class="bubble-text" v-else-if="msg.msgType === 'TEXT'">{{ msg.content || '[空消息]' }}</div>
                     <img v-else-if="msg.msgType === 'IMAGE'" :src="msg.content" alt="图片" class="bubble-img" @click="openMedia(msg.content)" />
@@ -175,30 +177,73 @@ function isJsonCard(content) {
   if (!content || typeof content !== 'string') return false
   try {
     const obj = JSON.parse(content)
-    return obj && (obj.dxCard || obj.contentType)
+    if (!obj || typeof obj !== 'object') return false
+    // 只要不是纯文本数字/字符串，就认为是卡片
+    return !Array.isArray(obj) && Object.keys(obj).length > 0
   } catch {
     return false
   }
 }
 
 function parseJsonCard(content) {
-  const fallback = { title: '', subtitle: '', buttonText: '', buttonBgColor: '', targetUrl: '', leftImg: '', subTitle: '' }
+  const fallback = { title: '', subtitle: '', buttonText: '', buttonBgColor: '', targetUrl: '', leftImg: '', subTitle: '', hasContent: false }
   if (!content) return fallback
   try {
     const obj = typeof content === 'string' ? JSON.parse(content) : content
-    const dxCard = obj?.dxCard || obj?.dxcard
-    const main = dxCard?.item?.main || dxCard?.item || {}
-    const exContent = main?.exContent || main?.excontent || {}
-    const button = exContent?.button || {}
-    return {
-      title: exContent?.title || main?.title || '',
-      subtitle: exContent?.subtitle || main?.subtitle || '',
-      subTitle: exContent?.subTitle || main?.subTitle || '',
-      buttonText: button?.text || '',
-      buttonBgColor: button?.bgColor || '',
-      targetUrl: button?.targetUrl || main?.targetUrl || dxCard?.item?.main?.targetUrl || '',
-      leftImg: button?.leftImg || ''
+    if (!obj || typeof obj !== 'object') return fallback
+
+    // 递归展平：收集所有叶子节点的值（按 key 归类）
+    const leaves = []
+    const walk = (node, depth = 0) => {
+      if (depth > 10) return // 防止循环引用
+      if (node && typeof node === 'object' && !Array.isArray(node)) {
+        for (const [k, v] of Object.entries(node)) {
+          if (v && typeof v === 'object') walk(v, depth + 1)
+          else leaves.push({ key: k, value: v })
+        }
+      } else if (Array.isArray(node)) {
+        node.forEach((item, i) => {
+          if (item && typeof item === 'object') walk(item, depth + 1)
+          else leaves.push({ key: `[${i}]`, value: item })
+        })
+      }
     }
+    walk(obj)
+
+    // 按 key 归类
+    const byKey = {}
+    for (const { key, value } of leaves) {
+      const k = key.toLowerCase()
+      if (!byKey[k]) byKey[k] = []
+      byKey[k].push(value)
+    }
+
+    const pick = (...keys) => {
+      for (const k of keys) {
+        const arr = byKey[k.toLowerCase()]
+        if (arr && arr.length > 0) {
+          // 优先取非空字符串
+          const str = arr.find(v => typeof v === 'string' && v.trim())
+          if (str) return str.trim()
+          // 其次取数字
+          const num = arr.find(v => typeof v === 'number')
+          if (num != null) return String(num)
+        }
+      }
+      return ''
+    }
+
+    const title = pick('title', 'name', 'subject', 'headline', 'header')
+    const subtitle = pick('subtitle', 'subTitle', 'sub_title', 'desc', 'description', 'summary', 'content', 'text', 'message')
+    const subTitle = pick('subTitle', 'subtitle', 'sub_title', 'remark', 'note', 'footer')
+    const buttonText = pick('buttonText', 'button', 'btnText', 'btn', 'actionText', 'label')
+    const buttonBgColor = pick('buttonBgColor', 'bgColor', 'color', 'buttonColor')
+    const targetUrl = pick('targetUrl', 'url', 'link', 'href', 'jumpUrl', 'actionUrl', 'target')
+    const leftImg = pick('leftImg', 'img', 'image', 'icon', 'avatar', 'pic', 'thumbnail')
+
+    const hasContent = !!(title || subtitle || buttonText || subTitle || leftImg)
+
+    return { title, subtitle, buttonText, buttonBgColor, targetUrl, leftImg, subTitle, hasContent }
   } catch {
     return fallback
   }
@@ -234,6 +279,42 @@ function scrollToBottom() {
   })
 }
 
+function buildSessionsFromMessages(rows) {
+  const map = new Map()
+  for (const msg of rows || []) {
+    if (!msg?.sessionId) continue
+    const old = map.get(msg.sessionId)
+    const oldTime = old?.lastTime || ''
+    const msgTime = msg.messageTime ? String(msg.messageTime) : ''
+    if (!old || msgTime >= oldTime) {
+      const peerName = msg.direction === 'INCOMING'
+        ? msg.senderName
+        : (old?.counterpartyName || old?.counterpartyId || '')
+      const peerId = msg.direction === 'INCOMING'
+        ? msg.senderId
+        : (old?.counterpartyId || '')
+      const peerAvatar = msg.direction === 'INCOMING'
+        ? msg.senderAvatar
+        : (old?.counterpartyAvatar || '')
+      map.set(msg.sessionId, {
+        sessionId: msg.sessionId,
+        counterpartyName: peerName || peerId || '未知用户',
+        counterpartyId: peerId,
+        counterpartyAvatar: peerAvatar,
+        lastContent: msg.content,
+        contentType: msg.msgType || 'TEXT',
+        lastTime: msgTime,
+        direction: msg.direction
+      })
+    } else if (msg.direction === 'INCOMING') {
+      old.counterpartyName = old.counterpartyName || msg.senderName || msg.senderId
+      old.counterpartyId = old.counterpartyId || msg.senderId
+      old.counterpartyAvatar = old.counterpartyAvatar || msg.senderAvatar
+    }
+  }
+  return Array.from(map.values())
+}
+
 // ==================== 数据加载 ====================
 
 async function loadAccounts() {
@@ -250,40 +331,46 @@ async function loadSessions() {
     // 会话摘要由后端按 sessionId 聚合，并且优先返回对方(INCOMING)用户信息；
     // 不能在前端用最新消息 senderName 推断，否则最后一条是自己发出时会展示自己的账号名。
     const res = await api.get('/messages/sessions', { params: { accountId: selectedAccount.value } })
-    if (res.success && Array.isArray(res.data)) {
-      let list = res.data
-      // 按最后消息时间倒序（最新的在前面）
-      list.sort((a, b) => {
-        const ta = a.lastTime || ''
-        const tb = b.lastTime || ''
-        return tb.localeCompare(ta)
-      })
-      // 检测新消息 -> 未读标红（当前选中会话不标红）
-      const newUnread = new Set(unreadSet.value)
-      for (const s of list) {
-        const sid = s.sessionId
-        const newTime = s.lastTime || ''
-        const cached = sessionLastTimeCache.value[sid]
-        if (cached !== undefined && newTime > cached && sid !== selectedSession.value) {
-          newUnread.add(sid)
-        }
-        sessionLastTimeCache.value[sid] = newTime
+    let list = res.success && Array.isArray(res.data) ? res.data : []
+
+    // 兜底：如果 /sessions 为空，再拉 /messages/list 从本地已同步消息前端分组。
+    // 这样可以直接区分：/list 有数据就是页面聚合展示问题；/list 也为空就是同步没入库。
+    if (list.length === 0) {
+      const localRes = await api.get('/messages/list', { params: { accountId: selectedAccount.value, limit: 500 } })
+      if (localRes.success && Array.isArray(localRes.data) && localRes.data.length > 0) {
+        list = buildSessionsFromMessages(localRes.data)
       }
-      unreadSet.value = newUnread
-      sessions.value = list
-      // 保持之前选中的会话，或选第一个
-      if (prevSelected && list.find(s => s.sessionId === prevSelected)) {
-        const found = list.find(s => s.sessionId === prevSelected)
-        selectedSession.value = prevSelected
-        selectedSessionData.value = found
-      } else if (list.length > 0) {
-        selectSession(list[0])
-      } else {
-        selectedSession.value = ''
-        selectedSessionData.value = { counterpartyName: '', lastContent: '' }
+    }
+
+    // 按最后消息时间倒序（最新的在前面）
+    list.sort((a, b) => {
+      const ta = a.lastTime || ''
+      const tb = b.lastTime || ''
+      return tb.localeCompare(ta)
+    })
+    // 检测新消息 -> 未读标红（当前选中会话不标红）
+    const newUnread = new Set(unreadSet.value)
+    for (const s of list) {
+      const sid = s.sessionId
+      const newTime = s.lastTime || ''
+      const cached = sessionLastTimeCache.value[sid]
+      if (cached !== undefined && newTime > cached && sid !== selectedSession.value) {
+        newUnread.add(sid)
       }
+      sessionLastTimeCache.value[sid] = newTime
+    }
+    unreadSet.value = newUnread
+    sessions.value = list
+    // 保持之前选中的会话，或选第一个
+    if (prevSelected && list.find(s => s.sessionId === prevSelected)) {
+      const found = list.find(s => s.sessionId === prevSelected)
+      selectedSession.value = prevSelected
+      selectedSessionData.value = found
+    } else if (list.length > 0) {
+      selectSession(list[0])
     } else {
-      sessions.value = []
+      selectedSession.value = ''
+      selectedSessionData.value = { counterpartyName: '', lastContent: '' }
     }
   } catch (e) {
     sessions.value = []
@@ -699,6 +786,18 @@ onUnmounted(() => {
   color: #fff !important;
   border: none !important;
   font-weight: 500;
+}
+.card-raw {
+  margin-top: 8px;
+  padding: 8px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #666;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 120px;
+  overflow-y: auto;
 }
 
 /* 输入框 */
