@@ -671,6 +671,27 @@ CREATE TABLE IF NOT EXISTS cloud_storage_file (
 CREATE INDEX idx_cloud_storage_account_account ON cloud_storage_account(account_id);
 CREATE INDEX idx_cloud_storage_file_account ON cloud_storage_file(storage_account_id);
 
+-- ======================== OpenList 网盘服务 ========================
+
+-- OpenList 实例表（存储初始账号密码、运行状态）
+CREATE TABLE IF NOT EXISTS openlist_instance (
+    id INTEGER PRIMARY KEY,
+    port INTEGER NOT NULL DEFAULT 5244,
+    url VARCHAR(256) DEFAULT 'http://127.0.0.1:5244',
+    data_dir VARCHAR(512),
+    initial_username VARCHAR(128),
+    initial_password VARCHAR(128),
+    install_path VARCHAR(512),
+    os_name VARCHAR(32),
+    arch VARCHAR(16),
+    installed INTEGER DEFAULT 0,
+    running INTEGER DEFAULT 0,
+    first_started_at DATETIME,
+    last_started_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ======================== 对外 OpenAPI ========================
 
 -- 对外应用（调用方凭证）。app_secret_enc 为 AES 加密后的明文 secret，绝不落明文。

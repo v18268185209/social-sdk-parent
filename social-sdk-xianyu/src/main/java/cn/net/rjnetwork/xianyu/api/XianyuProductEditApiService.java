@@ -3,7 +3,9 @@ package cn.net.rjnetwork.xianyu.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -12,14 +14,32 @@ import java.util.Map;
  *
  * <p>所有业务参数通过 data JSON 传递，底层 XianyuMtopApiClient 自动计算 sign、预热 token、
  * 设置 Referer/Origin，无需手动构造 URL 和签名。</p>
+ *
+ * <p>改价/改库存采用「获取原商品信息 → 改字段 → 发布新商品 → 下架原商品」完整流程，
+ * 因为闲鱼 PC 无独立改价/改库存接口。</p>
  */
 public class XianyuProductEditApiService {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final XianyuMtopApiClient apiClient;
+    private final XianyuProductApiService productApiService;
+    private final XianyuPublishApiService publishApiService;
 
-    public XianyuProductEditApiService(XianyuMtopApiClient apiClient) {
+    public XianyuProductEditApiService(XianyuMtopApiClient apiClient,
+                                       XianyuProductApiService productApiService,
+                                       XianyuPublishApiService publishApiService) {
         this.apiClient = apiClient;
+        this.productApiService = productApiService;
+        this.publishApiService = publishApiService;
+    }
+
+    /**
+     * 兼容旧构造函数（不依赖 publish/product 服务，但 updatePrice/updateStock 会抛异常）
+     * @deprecated 推荐用三参数构造函数
+     */
+    @Deprecated
+    public XianyuProductEditApiService(XianyuMtopApiClient apiClient) {
+        this(apiClient, null, null);
     }
 
     // ==================== 商品编辑 ====================
@@ -94,49 +114,323 @@ public class XianyuProductEditApiService {
     // ==================== 价格调整 ====================
 
     /**
-     * 调整商品价格 — 闲鱼 PC 无独立改价接口
-     * <p>真实定位结论（2026-07-19 全参考项目翻查）：</p>
-     * <ul>
-     *   <li>参考项目 XianYuApis / XianyuAutoAgent / xianyu-auto-reply 均无改价接口实现</li>
-     *   <li>闲鱼 PC 卖家后台没有「直接改价」的 mtop 接口，原候选 mtop.taobao.idlemanage.item.price.update 不存在</li>
-     *   <li>真正的改价路径是「编辑商品重新 publish」：调 mtop.idle.pc.idleitem.publish 带 itemId + 新价格 + 原商品全套信息，
-     *       itemId 保留，浏览量/收藏不清零。但这需要先调 getProductDetail 拿原商品全部字段，工程量不小</li>
-     * </ul>
+     * 调整商品价格 — 完整流程：获取原商品信息 → 改价格 → 发布新商品 → 下架原商品
+     * <p>闲鱼 PC 无独立改价接口，走「新建替代」路径：不传 itemId 给 publishItem（pcMainPublish），
+     * 生成新商品后，将原来的商品下架，实现改价效果。</p>
      *
-     * <p><b>当前实现</b>：抛明确异常，提示用户走闲鱼 App 卖家中心或编辑重发。
-     * 调用方（ProductService.updatePrice）应捕获此异常，前端跳闲鱼 App 或提示。
-     * 若后续要走编辑重发路径，本方法应改成调 publishItem(itemId, ..., newPrice, ...)。</p>
-     *
-     * @param itemId 闲鱼商品 id
-     * @param price  新价格（元，如 "99.00"）— 当前实现忽略，只抛异常
+     * @param itemId    要改价的原商品 id
+     * @param price     新价格（元，如 "99.00"），内部转分后传给发布接口
+     * @return 新商品的发布结果，data 含新 itemId
      */
     public JsonNode updatePrice(String itemId, String price) {
-        throw new UnsupportedOperationException(
-                "闲鱼 PC 无独立改价接口，请到闲鱼 App 卖家中心改价，或走「编辑商品重新 publish」流程（调 publishItem 带 itemId + 新价格 + 原商品全套信息）。"
-        );
-    }
+        if (productApiService == null || publishApiService == null) {
+            throw new IllegalStateException(
+                "updatePrice 需要 XianyuProductApiService 和 XianyuPublishApiService，请使用三参数构造函数"
+            );
+        }
+        // 1. 获取原商品详情（完整字段）
+        JsonNode detail = productApiService.getProductDetail(itemId);
+        JsonNode itemDO = detail.path("data").path("itemDO");
+        if (itemDO.isMissingNode()) {
+            throw new IllegalStateException("商品详情获取失败，无 itemDO: " + detail);
+        }
 
-    /** 调整商品原价 — 同 updatePrice，闲鱼 PC 无独立改原价接口 */
-    public JsonNode updateOriginalPrice(String itemId, String originalPrice) {
-        throw new UnsupportedOperationException(
-                "闲鱼 PC 无独立改原价接口，请到闲鱼 App 卖家中心改原价，或走「编辑商品重新 publish」流程。"
-        );
-    }
+        // 2. 提取原商品字段，构造发布参数
+        String title = extractTitle(itemDO);
+        String description = extractDescription(itemDO);
+        String origPriceCent = extractOriginalPrice(itemDO);   // 原价保留
+        String stock = extractStock(itemDO);                    // 库存不变
+        List<Map<String, Object>> images = extractImages(itemDO);
+        Map<String, String> catDTO = extractCatDTO(itemDO, detail);
+        List<Map<String, Object>> labelExtList = extractLabelExtList(itemDO);
+        Map<String, Object> addrDTO = extractAddrDTO(itemDO);
+        Map<String, Object> deliverySettings = extractDeliverySettings(itemDO);
 
-    // ==================== 库存管理 ====================
+        // 3. 价格：元 → 分
+        String newPriceCent = priceToCent(price);
+
+        // 4. 发布新商品（itemId=null → pcMainPublish 场景，生成新商品）
+        JsonNode publishResult = publishApiService.publishItem(
+            null, title, description, newPriceCent, origPriceCent, stock,
+            images, catDTO, labelExtList, addrDTO, deliverySettings
+        );
+
+        // 5. 下架原商品
+        shelfOff(itemId);
+
+        return publishResult;
+    }
 
     /**
-     * 调整商品库存 — 闲鱼 PC 无独立改库存接口
-     * <p>真实定位结论同 updatePrice：参考项目全无实现，原候选 mtop.taobao.idlemanage.item.stock.update 不存在。
-     * 闲鱼改库存同样走「编辑商品重新 publish」或闲鱼 App 卖家中心。</p>
+     * 调整商品库存 — 完整流程：获取原商品信息 → 改库存 → 发布新商品 → 下架原商品
+     * <p>闲鱼 PC 无独立改库存接口，走「新建替代」路径：不传 itemId 给 publishItem（pcMainPublish），
+     * 生成新商品后，将原来的商品下架，实现改库存效果。</p>
      *
-     * @param itemId 闲鱼商品 id
-     * @param stock  新库存（如 "10"）— 当前实现忽略，只抛异常
+     * @param itemId  要改库存的原商品 id
+     * @param stock   新库存数量（如 "50"），直接传给发布接口的 quantity
+     * @return 新商品的发布结果，data 含新 itemId
      */
     public JsonNode updateStock(String itemId, String stock) {
-        throw new UnsupportedOperationException(
-                "闲鱼 PC 无独立改库存接口，请到闲鱼 App 卖家中心改库存，或走「编辑商品重新 publish」流程。"
+        if (productApiService == null || publishApiService == null) {
+            throw new IllegalStateException(
+                "updateStock 需要 XianyuProductApiService 和 XianyuPublishApiService，请使用三参数构造函数"
+            );
+        }
+        // 1. 获取原商品详情（完整字段）
+        JsonNode detail = productApiService.getProductDetail(itemId);
+        JsonNode itemDO = detail.path("data").path("itemDO");
+        if (itemDO.isMissingNode()) {
+            throw new IllegalStateException("商品详情获取失败，无 itemDO: " + detail);
+        }
+
+        // 2. 提取原商品字段，构造发布参数
+        String title = extractTitle(itemDO);
+        String description = extractDescription(itemDO);
+        String priceCent = extractPrice(itemDO);                // 价格不变
+        String origPriceCent = extractOriginalPrice(itemDO);   // 原价保留
+        List<Map<String, Object>> images = extractImages(itemDO);
+        Map<String, String> catDTO = extractCatDTO(itemDO, detail);
+        List<Map<String, Object>> labelExtList = extractLabelExtList(itemDO);
+        Map<String, Object> addrDTO = extractAddrDTO(itemDO);
+        Map<String, Object> deliverySettings = extractDeliverySettings(itemDO);
+
+        // 3. 发布新商品（不传 itemId → pcMainPublish 场景，生成新商品）
+        JsonNode publishResult = publishApiService.publishItem(
+            title, description, priceCent, origPriceCent, stock,
+            images, catDTO, labelExtList, addrDTO, deliverySettings
         );
+
+        // 4. 下架原商品
+        shelfOff(itemId);
+
+        return publishResult;
+    }
+
+    /** 调整商品原价 — 同 updatePrice 路径，一并修改 */
+    public JsonNode updateOriginalPrice(String itemId, String originalPrice) {
+        if (productApiService == null || publishApiService == null) {
+            throw new IllegalStateException(
+                "updateOriginalPrice 需要 XianyuProductApiService 和 XianyuPublishApiService，请使用三参数构造函数"
+            );
+        }
+        JsonNode detail = productApiService.getProductDetail(itemId);
+        JsonNode itemDO = detail.path("data").path("itemDO");
+        if (itemDO.isMissingNode()) {
+            throw new IllegalStateException("商品详情获取失败，无 itemDO: " + detail);
+        }
+
+        String title = extractTitle(itemDO);
+        String description = extractDescription(itemDO);
+        String priceCent = extractPrice(itemDO);                // 售价不变
+        String stock = extractStock(itemDO);                    // 库存不变
+        List<Map<String, Object>> images = extractImages(itemDO);
+        Map<String, String> catDTO = extractCatDTO(itemDO, detail);
+        List<Map<String, Object>> labelExtList = extractLabelExtList(itemDO);
+        Map<String, Object> addrDTO = extractAddrDTO(itemDO);
+        Map<String, Object> deliverySettings = extractDeliverySettings(itemDO);
+
+        String newOrigPriceCent = priceToCent(originalPrice);
+
+        JsonNode publishResult = publishApiService.publishItem(
+            title, description, priceCent, newOrigPriceCent, stock,
+            images, catDTO, labelExtList, addrDTO, deliverySettings
+        );
+
+        shelfOff(itemId);
+        return publishResult;
+    }
+
+    // ==================== 字段提取方法 ====================
+
+    /** 提取标题 */
+    private String extractTitle(JsonNode itemDO) {
+        return itemDO.path("title").asText("");
+    }
+
+    /** 提取描述 */
+    private String extractDescription(JsonNode itemDO) {
+        return itemDO.path("desc").asText(itemDO.path("description").asText(""));
+    }
+
+    /** 提取售价（分），从 priceInfo.price 或 soldPrice 拿 */
+    private String extractPrice(JsonNode itemDO) {
+        // getProductDetail 返回的 price 已经在 priceInfo.price（分）
+        JsonNode priceNode = itemDO.path("priceInfo").path("price");
+        if (!priceNode.isMissingNode() && priceNode.asLong() > 0) {
+            return String.valueOf(priceNode.asLong());
+        }
+        // 兜底：soldPrice 字段（分）
+        JsonNode soldPrice = itemDO.path("soldPrice");
+        if (!soldPrice.isMissingNode() && soldPrice.asLong() > 0) {
+            return String.valueOf(soldPrice.asLong());
+        }
+        // 再兜底：price 字段（可能带小数点，是元）
+        JsonNode price = itemDO.path("price");
+        if (!price.isMissingNode() && price.asDouble() > 0) {
+            return priceToCent(price.asText());
+        }
+        return "0";
+    }
+
+    /** 提取原价（分） */
+    private String extractOriginalPrice(JsonNode itemDO) {
+        JsonNode origPrice = itemDO.path("originalPrice");
+        if (!origPrice.isMissingNode() && origPrice.asLong() > 0) {
+            return String.valueOf(origPrice.asLong());
+        }
+        // 无原价时用售价兜底
+        return extractPrice(itemDO);
+    }
+
+    /** 提取库存 */
+    private String extractStock(JsonNode itemDO) {
+        JsonNode quantity = itemDO.path("quantity");
+        if (!quantity.isMissingNode() && quantity.asInt() > 0) {
+            return String.valueOf(quantity.asInt());
+        }
+        return "1"; // 默认 1
+    }
+
+    /** 提取图片列表 → publishItem 需要的 imageInfoList（含 url/height/width） */
+    private List<Map<String, Object>> extractImages(JsonNode itemDO) {
+        List<Map<String, Object>> images = new ArrayList<>();
+        // 主图：picInfo / picPath
+        JsonNode picInfo = itemDO.path("picInfo");
+        if (picInfo.isArray() && !picInfo.isEmpty()) {
+            for (JsonNode pic : picInfo) {
+                addImageFromPicNode(images, pic);
+            }
+        } else if (itemDO.path("picPath").isValueNode()) {
+            // 单图形式
+            Map<String, Object> img = new LinkedHashMap<>();
+            img.put("url", itemDO.path("picPath").asText(""));
+            img.put("height", itemDO.path("picHeight").asInt(800));
+            img.put("width", itemDO.path("picWidth").asInt(800));
+            images.add(img);
+        }
+        // 详情图：picDetailDO / imageList
+        JsonNode picDetailDO = itemDO.path("picDetailDO");
+        if (picDetailDO.isArray() && !picDetailDO.isEmpty()) {
+            for (JsonNode pic : picDetailDO) {
+                addImageFromPicNode(images, pic);
+            }
+        }
+        JsonNode imageList = itemDO.path("imageList");
+        if (imageList.isArray() && !imageList.isEmpty()) {
+            for (JsonNode img : imageList) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("url", img.path("url").asText(img.path("path").asText("")));
+                item.put("height", img.path("height").asInt(800));
+                item.put("width", img.path("width").asInt(800));
+                if (!item.get("url").toString().isEmpty()) {
+                    images.add(item);
+                }
+            }
+        }
+        return images;
+    }
+
+    private void addImageFromPicNode(List<Map<String, Object>> images, JsonNode pic) {
+        String url = pic.path("url").asText(pic.path("path").asText(""));
+        if (url.isEmpty()) return;
+        Map<String, Object> img = new LinkedHashMap<>();
+        img.put("url", url);
+        img.put("height", pic.path("height").asInt(pic.path("heightSize").asInt(800)));
+        img.put("width", pic.path("width").asInt(pic.path("widthSize").asInt(800)));
+        images.add(img);
+    }
+
+    /** 提取分类信息 → catDTO {catId, catName, channelCatId, tbCatId} */
+    private Map<String, String> extractCatDTO(JsonNode itemDO, JsonNode detail) {
+        Map<String, String> catDTO = new LinkedHashMap<>();
+        // 优先从 itemDO 提取
+        String catId = itemDO.path("categoryId").asText("");
+        if (!catId.isEmpty()) catDTO.put("catId", catId);
+        String channelCatId = itemDO.path("channelCatId").asText("");
+        if (!channelCatId.isEmpty()) catDTO.put("channelCatId", channelCatId);
+        String catName = itemDO.path("categoryName").asText("");
+        if (!catName.isEmpty()) catDTO.put("catName", catName);
+        // 兜底从 detail.data.trackParams 拿
+        if (catDTO.isEmpty()) {
+            JsonNode trackParams = detail.path("data").path("trackParams");
+            if (trackParams.path("categoryId").isValueNode()) {
+                catDTO.put("catId", trackParams.path("categoryId").asText(""));
+            }
+        }
+        return catDTO;
+    }
+
+    /** 提取属性标签列表 */
+    private List<Map<String, Object>> extractLabelExtList(JsonNode itemDO) {
+        List<Map<String, Object>> labels = new ArrayList<>();
+        JsonNode labelList = itemDO.path("itemLabelExtList");
+        if (labelList.isArray()) {
+            for (JsonNode label : labelList) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("labelId", label.path("labelId").asText(""));
+                item.put("labelName", label.path("labelName").asText(""));
+                item.put("labelValue", label.path("labelValue").asText(""));
+                labels.add(item);
+            }
+        }
+        return labels;
+    }
+
+    /** 提取所在地 → addrDTO {area, city, divisionId, gps, poiId, poi} */
+    private Map<String, Object> extractAddrDTO(JsonNode itemDO) {
+        Map<String, Object> addr = new LinkedHashMap<>();
+        JsonNode location = itemDO.path("location");
+        if (!location.isMissingNode()) {
+            addr.put("area", location.path("area").asText(""));
+            addr.put("city", location.path("city").asText(""));
+            addr.put("divisionId", location.path("divisionId").asText(""));
+            addr.put("gps", location.path("gps").asText(""));
+            addr.put("poiId", location.path("poiId").asText(""));
+            addr.put("poi", location.path("poi").asText(""));
+        } else {
+            // 兜底：从 itemDO 直接拿
+            addr.put("area", itemDO.path("area").asText(""));
+            addr.put("city", itemDO.path("city").asText(""));
+            addr.put("divisionId", itemDO.path("divisionId").asText(""));
+        }
+        return addr;
+    }
+
+    /** 提取运费设置 → deliverySettings {canFreeShipping, supportFreight, onlyTakeSelf, templateId, postPriceInCent} */
+    private Map<String, Object> extractDeliverySettings(JsonNode itemDO) {
+        Map<String, Object> delivery = new LinkedHashMap<>();
+        JsonNode postFee = itemDO.path("postFeeDTO");
+        if (postFee.isMissingNode()) {
+            postFee = itemDO.path("postFee");
+        }
+        if (!postFee.isMissingNode()) {
+            delivery.put("canFreeShipping", postFee.path("canFreeShipping").asBoolean(false));
+            delivery.put("supportFreight", postFee.path("supportFreight").asBoolean(false));
+            delivery.put("onlyTakeSelf", postFee.path("onlyTakeSelf").asBoolean(false));
+            if (postFee.path("templateId").isValueNode()) {
+                delivery.put("templateId", postFee.path("templateId").asText(""));
+            }
+            if (postFee.path("postPriceInCent").isValueNode()) {
+                delivery.put("postPriceInCent", postFee.path("postPriceInCent").asText(""));
+            }
+        } else {
+            // 默认包邮
+            delivery.put("canFreeShipping", true);
+            delivery.put("supportFreight", false);
+            delivery.put("onlyTakeSelf", false);
+        }
+        return delivery;
+    }
+
+    /** 价格：元 → 分（如 "99.00" → "9900"） */
+    private String priceToCent(String priceYuan) {
+        if (priceYuan == null || priceYuan.isEmpty()) return "0";
+        try {
+            double p = Double.parseDouble(priceYuan);
+            return String.valueOf(Math.round(p * 100));
+        } catch (NumberFormatException e) {
+            return "0";
+        }
     }
 
     // ==================== 商品分类 ====================

@@ -88,10 +88,27 @@ public class OpenListTaskService {
         s.put("phase", currentPhase);
         s.put("progress", progress);
         s.put("message", currentMessage);
-        // 暴露首次启动自动生成的账号密码（OpenList 首次启动时随机生成并打印在日志中）
-        s.put("initialUsername", initialUsername);
-        s.put("initialPassword", initialPassword);
-        s.put("initialCredsCaptured", initialCredsCaptured);
+        // 暴露首次启动自动生成的账号密码（优先内存，否则从数据库恢复）
+        String finalUsername = initialUsername;
+        String finalPassword = initialPassword;
+        boolean finalCaptured = initialCredsCaptured;
+        if (!initialCredsCaptured) {
+            try {
+                com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<OpenlistInstance> wrapper = new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+                wrapper.eq("port", properties.getPort());
+                OpenlistInstance instance = instanceMapper.selectOne(wrapper);
+                if (instance != null && instance.getInitialUsername() != null) {
+                    finalUsername = instance.getInitialUsername();
+                    finalPassword = instance.getInitialPassword();
+                    finalCaptured = true;
+                }
+            } catch (Exception e) {
+                System.err.println("[OpenList] 查询数据库账号失败: " + e.getMessage());
+            }
+        }
+        s.put("initialUsername", finalUsername);
+        s.put("initialPassword", finalPassword);
+        s.put("initialCredsCaptured", finalCaptured);
         return s;
     }
 
@@ -287,6 +304,50 @@ public class OpenListTaskService {
             this.initialPassword = password;
             this.initialCredsCaptured = true;
             System.out.println("[OpenList] 已抓取初始账号: " + username);
+            persistCredentialsToDb(username, password);
+        }
+    }
+
+    /**
+     * 将抓取到的初始账号密码持久化到数据库。
+     */
+    private void persistCredentialsToDb(String username, String password) {
+        try {
+            // 查找是否已有记录
+            com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<OpenlistInstance> wrapper = new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+            wrapper.eq("port", properties.getPort());
+            OpenlistInstance instance = instanceMapper.selectOne(wrapper);
+
+            LocalDateTime now = LocalDateTime.now();
+            if (instance == null) {
+                instance = new OpenlistInstance();
+                instance.setPort(properties.getPort());
+                instance.setUrl("http://127.0.0.1:" + properties.getPort());
+                instance.setDataDir(dataDir.toString());
+                instance.setInstallPath(installerService.getExecutablePath() != null ? installerService.getExecutablePath().toString() : null);
+                instance.setOsName(osName);
+                instance.setArch(arch);
+                instance.setInstalled(1);
+                instance.setRunning(1);
+                instance.setFirstStartedAt(now);
+                instance.setLastStartedAt(now);
+                instance.setCreatedAt(now);
+                instance.setUpdatedAt(now);
+            }
+            instance.setInitialUsername(username);
+            instance.setInitialPassword(password);
+            instance.setRunning(1);
+            instance.setLastStartedAt(now);
+            instance.setUpdatedAt(now);
+
+            if (instance.getId() == null) {
+                instanceMapper.insert(instance);
+            } else {
+                instanceMapper.updateById(instance);
+            }
+            System.out.println("[OpenList] 初始账号已持久化到数据库");
+        } catch (Exception e) {
+            System.err.println("[OpenList] 持久化账号失败: " + e.getMessage());
         }
     }
 

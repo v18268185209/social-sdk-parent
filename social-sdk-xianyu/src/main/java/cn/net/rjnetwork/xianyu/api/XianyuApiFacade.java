@@ -44,9 +44,10 @@ public class XianyuApiFacade {
         this.loginApiService = new XianyuLoginApiService(cookie);
         this.profileApiService = new XianyuProfileApiService(apiClient);
         this.productApiService = new XianyuProductApiService(apiClient);
-        this.productEditApiService = new XianyuProductEditApiService(apiClient);
         this.publishFormApiService = new XianyuPublishFormApiService(apiClient);
         this.publishApiService = new XianyuPublishApiService(apiClient);
+        // productEditApiService 依赖 productApiService + publishApiService，必须后初始化
+        this.productEditApiService = new XianyuProductEditApiService(apiClient, productApiService, publishApiService);
         this.mediaUploadApiService = new XianyuMediaUploadApiService(apiClient);
         this.messageApiService = new XianyuMessageApiService(apiClient);
         this.orderApiService = new XianyuOrderApiService(apiClient);

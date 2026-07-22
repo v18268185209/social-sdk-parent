@@ -81,6 +81,13 @@
           <el-descriptions-item label="默认账号">{{ status.username || 'openlist' }}</el-descriptions-item>
           <el-descriptions-item label="默认密码">{{ status.password || 'openlist' }}</el-descriptions-item>
           <el-descriptions-item label="系统架构">{{ status.arch || '检测中...' }}</el-descriptions-item>
+          <el-descriptions-item label="初始账号" v-if="status.initialCredsCaptured">
+            <el-tag size="small" type="success">{{ status.initialUsername }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="初始密码" v-if="status.initialCredsCaptured">
+            <el-tag size="small" type="warning">{{ status.initialPassword }}</el-tag>
+            <el-button size="small" text style="margin-left: 8px;" @click="copyText(status.initialPassword)">复制</el-button>
+          </el-descriptions-item>
         </el-descriptions>
 
         <el-alert
@@ -214,6 +221,15 @@ const status = ref({
 
 const starting = ref(false)
 const restarting = ref(false)
+
+const copyText = (text) => {
+  if (!text) return
+  navigator.clipboard.writeText(text).then(() => {
+    ElMessage.success('已复制到剪贴板')
+  }).catch(() => {
+    ElMessage.error('复制失败')
+  })
+}
 
 const busy = computed(() => {
   const p = status.value.phase
@@ -425,7 +441,6 @@ watch(filterMountPath, () => loadFiles())
 onMounted(() => {
   loadStatus()
   startPolling()
-})
 })
 
 onUnmounted(() => {
