@@ -19,7 +19,7 @@ services:
       - SPRING_PROFILES_ACTIVE=mysql
       - TZ=Asia/Shanghai
       # MySQL 数据源配置
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/xianyu_manager?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/xianyu_manager?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true&zeroDateTimeBehavior=CONVERT_TO_NULL
       - SPRING_DATASOURCE_USERNAME=xianyu
       - SPRING_DATASOURCE_PASSWORD=${MYSQL_PASSWORD:-xianyu123456}
       - SPRING_DATASOURCE_DRIVER_CLASS_NAME=com.mysql.cj.jdbc.Driver
