@@ -281,11 +281,19 @@ public class DatabaseInitializer {
                     st.execute(sql);
                     ok++;
                 } catch (Exception ex) {
-                    // 「表/索引已存在」是幂等建表（CREATE TABLE IF NOT EXISTS）的正常情况，跳过；
+                    // 「表/索引已存在」是幂等建表（CREATE TABLE IF NOT EXISTS / CREATE INDEX）的正常情况，跳过；
                     // 其他错误（语法错、列冲突等）是真错误，必须冒泡让 init() 停下，否则后续
                     // ensureColumn 会对着空库 ALTER TABLE 抛 no such table，刷屏。
+                    //
+                    // MySQL 8 的 CREATE INDEX 不支持 IF NOT EXISTS，二次启动会抛
+                    // "Duplicate key name 'xxx'"；PG 抛 "relation ... already exists"。
+                    // SQLite 抛 "already exists"。把这些幂等文案都当 skip。
                     String msg = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase();
-                    boolean alreadyExists = msg.contains("already exists") || msg.contains("已存在");
+                    boolean alreadyExists = msg.contains("already exists")
+                            || msg.contains("已存在")
+                            || msg.contains("duplicate key name")
+                            || msg.contains("duplicate entry")
+                            || msg.contains("relation") && msg.contains("already exists");
                     if (alreadyExists) {
                         skip++;
                         logger.debug("schema stmt skipped (already exists): {}", sql.substring(0, Math.min(80, sql.length())));
