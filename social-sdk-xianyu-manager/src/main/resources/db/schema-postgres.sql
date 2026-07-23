@@ -430,8 +430,8 @@ CREATE TABLE IF NOT EXISTS notify_digest_config (
 -- 给 xianyu_order 加虚拟发货/自动收货字段（已在 CREATE TABLE 中定义，此处注释避免重复）
 -- ALTER TABLE xianyu_order ADD COLUMN goods_type VARCHAR(16) DEFAULT 'PHYSICAL';
 -- ALTER TABLE xianyu_order ADD COLUMN require_virtual_ship BOOLEAN DEFAULT FALSE;
--- ALTER TABLE xianyu_order ADD COLUMN virtual_shipped_at DATETIME;
--- ALTER TABLE xianyu_order ADD COLUMN auto_receipt_at DATETIME;
+-- ALTER TABLE xianyu_order ADD COLUMN virtual_shipped_at TIMESTAMP;
+-- ALTER TABLE xianyu_order ADD COLUMN auto_receipt_at TIMESTAMP;
 -- ALTER TABLE xianyu_order ADD COLUMN deliver_content TEXT;     -- 实际发货内容快照
 
 -- 卡密池（Card / Account 类虚拟商品共用）
@@ -458,7 +458,7 @@ CREATE TABLE IF NOT EXISTS virtual_ship_task (
     status VARCHAR(16) DEFAULT 'PENDING', -- PENDING / PROCESSING / SHIPPED / FAILED / SKIPPED
     retry_count INTEGER DEFAULT 0,
     error_message TEXT,
-    execute_at DATETIME,
+    execute_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     processed_at TIMESTAMP,
@@ -595,7 +595,7 @@ CREATE TABLE IF NOT EXISTS ai_ops_task (
     payload TEXT,                                 -- JSON 任务参数
     result_summary TEXT,                          -- AI 生成摘要
     error_message TEXT,
-    execute_at DATETIME,
+    execute_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -978,6 +978,41 @@ CREATE TABLE IF NOT EXISTS local_product (
 );
 CREATE INDEX IF NOT EXISTS idx_local_product_account ON local_product(account_id);
 CREATE INDEX IF NOT EXISTS idx_local_product_status ON local_product(status);
+
+-- ===== market_keyword：市场关键词追踪表（与 SQLite schema-sqlite.sql 对齐） =====
+CREATE TABLE IF NOT EXISTS market_keyword (
+    id BIGSERIAL PRIMARY KEY,
+    keyword VARCHAR(256) UNIQUE NOT NULL,             -- 追踪关键词
+    status VARCHAR(16) DEFAULT 'ACTIVE',              -- ACTIVE / PAUSED
+    crawl_interval_minutes INTEGER DEFAULT 30,        -- 抓取间隔（分钟）
+    last_crawl_at TIMESTAMP,                          -- 上次抓取时间
+    last_crawl_result_count INTEGER DEFAULT 0,        -- 上次抓取到的商品数
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_keyword_keyword ON market_keyword(keyword);
+CREATE INDEX IF NOT EXISTS idx_market_keyword_status ON market_keyword(status);
+
+-- ===== openlist_instance：OpenList 网盘实例表（与 SQLite schema-sqlite.sql 对齐） =====
+CREATE TABLE IF NOT EXISTS openlist_instance (
+    id BIGSERIAL PRIMARY KEY,
+    port INTEGER NOT NULL DEFAULT 5244,
+    url VARCHAR(256) DEFAULT 'http://127.0.0.1:5244',
+    data_dir VARCHAR(512),
+    initial_username VARCHAR(128),
+    initial_password VARCHAR(128),
+    install_path VARCHAR(512),
+    os_name VARCHAR(32),
+    arch VARCHAR(16),
+    installed INTEGER DEFAULT 0,
+    running INTEGER DEFAULT 0,
+    first_started_at TIMESTAMP,
+    last_started_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 -- ===== proxy 模块表（与 SQLite proxy-bindings.sql 对齐） =====
 CREATE TABLE IF NOT EXISTS proxy_account_binding (
