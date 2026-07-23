@@ -34,6 +34,65 @@ public class DatabaseInitializer {
     @Value("${jwt.secret}")
     private String jwtSecret;
 
+    /** 当前方言（sqlite/mysql/postgres），databaseProvider 为空时兜底 sqlite */
+    private String dialect() {
+        return databaseProvider != null ? databaseProvider.dialect().toLowerCase() : "sqlite";
+    }
+
+    /** 是否 SQLite 方言 */
+    private boolean isSqlite() { return "sqlite".equals(dialect()); }
+
+    /**
+     * 查表是否存在（多方言）。
+     * SQLite: sqlite_master；MySQL/PG: information_schema.tables。
+     * MySQL 的 table_schema 是库名，用 DATABASE()；PG 的 table_schema 是 public。
+     */
+    private boolean tableExists(java.sql.Connection conn, String table) {
+        String sql = isSqlite()
+                ? "SELECT name FROM sqlite_master WHERE type='table' AND name='" + table + "'"
+                : "SELECT 1 FROM information_schema.tables WHERE table_schema = "
+                    + (dialect().equals("postgres") ? "'public'" : "DATABASE()")
+                    + " AND table_name = '" + table + "' LIMIT 1";
+        try (java.sql.Statement st = conn.createStatement();
+             java.sql.ResultSet rs = st.executeQuery(sql)) {
+            return rs.next();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 查列是否存在（多方言）。
+     * SQLite: sqlite_master 的 sql 字段正则匹配；MySQL/PG: information_schema.columns。
+     */
+    private boolean columnExists(java.sql.Connection conn, String table, String column) {
+        if (isSqlite()) {
+            try (java.sql.Statement st = conn.createStatement();
+                 java.sql.ResultSet rs = st.executeQuery(
+                         "SELECT sql FROM sqlite_master WHERE type='table' AND name='" + table + "'")) {
+                if (rs.next()) {
+                    String createSql = rs.getString(1);
+                    if (createSql == null) return false;
+                    return java.util.regex.Pattern.compile(
+                            "\\b" + java.util.regex.Pattern.quote(column) + "\\b",
+                            java.util.regex.Pattern.CASE_INSENSITIVE).matcher(createSql).find();
+                }
+            } catch (Exception ignored) {
+            }
+            return false;
+        }
+        // MySQL/PG: information_schema.columns
+        String sql = "SELECT 1 FROM information_schema.columns WHERE table_schema = "
+                + (dialect().equals("postgres") ? "'public'" : "DATABASE()")
+                + " AND table_name = '" + table + "' AND column_name = '" + column + "' LIMIT 1";
+        try (java.sql.Statement st = conn.createStatement();
+             java.sql.ResultSet rs = st.executeQuery(sql)) {
+            return rs.next();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     public DatabaseInitializer(DataSource dataSource, AuthService authService,
                                cn.net.rjnetwork.xianyu.manager.config.db.DatabaseProvider databaseProvider) {
         this.dataSource = dataSource;
@@ -108,33 +167,61 @@ public class DatabaseInitializer {
 
     private void ensureNotifyDigestConfigTable() {
         try (java.sql.Connection conn = dataSource.getConnection()) {
-            boolean hasTable = false;
-            try (java.sql.PreparedStatement ps = conn.prepareStatement(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name='notify_digest_config'")) {
-                try (java.sql.ResultSet rs = ps.executeQuery()) {
-                    hasTable = rs.next();
-                }
+            if (tableExists(conn, "notify_digest_config")) {
+                return;
             }
-            if (!hasTable) {
-                try (java.sql.Statement st = conn.createStatement()) {
-                    st.execute("CREATE TABLE notify_digest_config ("
-                            + "id INTEGER PRIMARY KEY, "
-                            + "enabled BOOLEAN DEFAULT FALSE, "
-                            + "channel_id INTEGER, "
-                            + "recipients TEXT, "
-                            + "hour INTEGER DEFAULT 9, "
-                            + "minute INTEGER DEFAULT 0, "
-                            + "scenarios TEXT, "
-                            + "include_in_app BOOLEAN DEFAULT TRUE, "
-                            + "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
-                            + "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
-                            + ")");
-                    ensureColumn("notify_digest_config", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
-                    logger.info("Created missing table notify_digest_config");
-                }
+            try (java.sql.Statement st = conn.createStatement()) {
+                st.execute(createNotifyDigestConfigSql());
+                logger.info("Created missing table notify_digest_config (dialect={})", dialect());
             }
         } catch (Exception e) {
             logger.warn("ensureNotifyDigestConfigTable skipped: {}", e.getMessage());
+        }
+    }
+
+    /** notify_digest_config 建表 SQL（按方言分发） */
+    private String createNotifyDigestConfigSql() {
+        String d = dialect();
+        switch (d) {
+            case "mysql":
+                return "CREATE TABLE notify_digest_config ("
+                        + "id BIGINT AUTO_INCREMENT PRIMARY KEY, "
+                        + "enabled TINYINT(1) DEFAULT 0, "
+                        + "channel_id INTEGER, "
+                        + "recipients TEXT, "
+                        + "hour INTEGER DEFAULT 9, "
+                        + "minute INTEGER DEFAULT 0, "
+                        + "scenarios TEXT, "
+                        + "include_in_app TINYINT(1) DEFAULT 1, "
+                        + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                        + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+                        + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+            case "postgres":
+                return "CREATE TABLE notify_digest_config ("
+                        + "id BIGSERIAL PRIMARY KEY, "
+                        + "enabled BOOLEAN DEFAULT FALSE, "
+                        + "channel_id INTEGER, "
+                        + "recipients TEXT, "
+                        + "hour INTEGER DEFAULT 9, "
+                        + "minute INTEGER DEFAULT 0, "
+                        + "scenarios TEXT, "
+                        + "include_in_app BOOLEAN DEFAULT TRUE, "
+                        + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                        + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                        + ")";
+            default:
+                return "CREATE TABLE notify_digest_config ("
+                        + "id INTEGER PRIMARY KEY, "
+                        + "enabled BOOLEAN DEFAULT FALSE, "
+                        + "channel_id INTEGER, "
+                        + "recipients TEXT, "
+                        + "hour INTEGER DEFAULT 9, "
+                        + "minute INTEGER DEFAULT 0, "
+                        + "scenarios TEXT, "
+                        + "include_in_app BOOLEAN DEFAULT TRUE, "
+                        + "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                        + "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                        + ")";
         }
     }
 
@@ -379,35 +466,68 @@ public class DatabaseInitializer {
 
     private void ensureOpenAppTable() {
         try (java.sql.Connection conn = dataSource.getConnection()) {
-            boolean hasTable = false;
-            try (java.sql.PreparedStatement ps = conn.prepareStatement(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name='open_app'")) {
-                try (java.sql.ResultSet rs = ps.executeQuery()) {
-                    hasTable = rs.next();
-                }
+            if (tableExists(conn, "open_app")) {
+                return;
             }
-            if (!hasTable) {
-                try (java.sql.Statement st = conn.createStatement()) {
-                    st.execute("CREATE TABLE open_app ("
-                            + "id INTEGER PRIMARY KEY, "
-                            + "app_name VARCHAR(128) NOT NULL, "
-                            + "app_key VARCHAR(64) NOT NULL UNIQUE, "
-                            + "app_secret_enc VARCHAR(512), "
-                            + "status VARCHAR(16) DEFAULT 'ENABLED', "
-                            + "bound_account_ids TEXT, "
-                            + "rate_limit_per_minute INTEGER DEFAULT 60, "
-                            + "expire_at DATETIME, "
-                            + "last_used_at DATETIME, "
-                            + "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
-                            + "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
-                            + "deleted INTEGER DEFAULT 0"
-                            + ")");
-                    st.execute("CREATE INDEX idx_open_app_key ON open_app(app_key)");
-                    logger.info("Created missing table open_app and index idx_open_app_key");
-                }
+            try (java.sql.Statement st = conn.createStatement()) {
+                st.execute(createOpenAppSql());
+                st.execute("CREATE INDEX idx_open_app_key ON open_app(app_key)");
+                logger.info("Created missing table open_app and index idx_open_app_key (dialect={})", dialect());
             }
         } catch (Exception e) {
             logger.warn("ensureOpenAppTable skipped: {}", e.getMessage());
+        }
+    }
+
+    /** open_app 建表 SQL（按方言分发） */
+    private String createOpenAppSql() {
+        String d = dialect();
+        switch (d) {
+            case "mysql":
+                return "CREATE TABLE open_app ("
+                        + "id BIGINT AUTO_INCREMENT PRIMARY KEY, "
+                        + "app_name VARCHAR(128) NOT NULL, "
+                        + "app_key VARCHAR(64) NOT NULL UNIQUE, "
+                        + "app_secret_enc VARCHAR(512), "
+                        + "status VARCHAR(16) DEFAULT 'ENABLED', "
+                        + "bound_account_ids TEXT, "
+                        + "rate_limit_per_minute INTEGER DEFAULT 60, "
+                        + "expire_at TIMESTAMP NULL, "
+                        + "last_used_at TIMESTAMP NULL, "
+                        + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                        + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, "
+                        + "deleted INTEGER DEFAULT 0"
+                        + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+            case "postgres":
+                return "CREATE TABLE open_app ("
+                        + "id BIGSERIAL PRIMARY KEY, "
+                        + "app_name VARCHAR(128) NOT NULL, "
+                        + "app_key VARCHAR(64) NOT NULL UNIQUE, "
+                        + "app_secret_enc VARCHAR(512), "
+                        + "status VARCHAR(16) DEFAULT 'ENABLED', "
+                        + "bound_account_ids TEXT, "
+                        + "rate_limit_per_minute INTEGER DEFAULT 60, "
+                        + "expire_at TIMESTAMP, "
+                        + "last_used_at TIMESTAMP, "
+                        + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                        + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                        + "deleted INTEGER DEFAULT 0"
+                        + ")";
+            default:
+                return "CREATE TABLE open_app ("
+                        + "id INTEGER PRIMARY KEY, "
+                        + "app_name VARCHAR(128) NOT NULL, "
+                        + "app_key VARCHAR(64) NOT NULL UNIQUE, "
+                        + "app_secret_enc VARCHAR(512), "
+                        + "status VARCHAR(16) DEFAULT 'ENABLED', "
+                        + "bound_account_ids TEXT, "
+                        + "rate_limit_per_minute INTEGER DEFAULT 60, "
+                        + "expire_at DATETIME, "
+                        + "last_used_at DATETIME, "
+                        + "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                        + "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                        + "deleted INTEGER DEFAULT 0"
+                        + ")";
         }
     }
 
@@ -491,29 +611,5 @@ public class DatabaseInitializer {
         }
     }
 
-    private boolean tableExists(java.sql.Connection conn, String table) {
-        try (java.sql.Statement st = conn.createStatement();
-             java.sql.ResultSet rs = st.executeQuery(
-                     "SELECT name FROM sqlite_master WHERE type='table' AND name='" + table + "'")) {
-            return rs.next();
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private boolean columnExists(java.sql.Connection conn, String table, String column) {
-        try (java.sql.Statement st = conn.createStatement();
-             java.sql.ResultSet rs = st.executeQuery(
-                     "SELECT sql FROM sqlite_master WHERE type='table' AND name='" + table + "'")) {
-            if (rs.next()) {
-                String createSql = rs.getString(1);
-                if (createSql == null) return false;
-                return java.util.regex.Pattern.compile(
-                        "\\b" + java.util.regex.Pattern.quote(column) + "\\b",
-                        java.util.regex.Pattern.CASE_INSENSITIVE).matcher(createSql).find();
-            }
-        } catch (Exception ignored) {
-        }
-        return false;
-    }
+    // tableExists / columnExists 已迁移到类顶部 dialect-aware 实现（information_schema / sqlite_master 分发）
 }
