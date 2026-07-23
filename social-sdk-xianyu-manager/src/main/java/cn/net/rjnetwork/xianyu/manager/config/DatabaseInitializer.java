@@ -144,13 +144,22 @@ public class DatabaseInitializer {
     }
 
     /**
-     * 执行 proxy 模块的 schema 文件（proxy-bindings.sql），建 proxy_account_binding / proxy_cool_down / proxy_audit_log。
+     * 执行 proxy 模块的 schema 文件，建 proxy_config / proxy_account_binding / proxy_cool_down / proxy_audit_log。
      * proxy 模块的 schema 在 social-sdk-proxys 里，本类只加载 manager 自己的 schema，proxy 表不会被建；
      * 启动时 findAllActive 会抛 no such table: proxy_account_binding。这里额外执行一次，保证所有表都建好。
+     *
+     * <p>按方言分发：sqlite 用原 schema-proxy.sql + proxy-bindings.sql（SQLite 方言），
+     * mysql/postgres 用 schema-proxy-{dialect}.sql（对应方言，含 proxy_config + proxy_account_binding 等全表）。
+     * 否则 MySQL 8 上 CREATE UNIQUE INDEX IF NOT EXISTS / INTEGER PRIMARY KEY / DATETIME 全炸。</p>
      */
     private void executeProxySchema() throws Exception {
-        executeSchemaFile("db/schema-proxy.sql");
-        executeSchemaFile("db/proxy-bindings.sql");
+        String dialect = databaseProvider != null ? databaseProvider.dialect() : "sqlite";
+        if ("mysql".equalsIgnoreCase(dialect) || "postgres".equalsIgnoreCase(dialect)) {
+            executeSchemaFile("db/schema-proxy-" + dialect.toLowerCase() + ".sql");
+        } else {
+            executeSchemaFile("db/schema-proxy.sql");
+            executeSchemaFile("db/proxy-bindings.sql");
+        }
     }
 
     private void executeSchemaFile(String schemaFile) throws Exception {

@@ -15,3 +15,18 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/xianyu_manager}
     username: ${DB_USERNAME:xianyu}
     password: ${DB_PASSWORD:}
+    # 覆盖 application.yml 的 SQLite wall filter 配置：
+    # 不切 db-type 的话，wall 用 SQLite 规则拦 PG schema 的 BIGSERIAL/行内注释，
+    # 导致 xianyu_account 建不出来，后续所有 FK 引它的表全炸。
+    druid:
+      filters: stat,slf4j
+      filter:
+        stat:
+          enabled: true
+          log-slow-sql: true
+          slow-sql-millis: 1000
+          merge-sql: true
+        slf4j:
+          enabled: true
+          statement-after-call-enabled: false
+          result-set-log-enabled: false

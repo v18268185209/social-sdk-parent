@@ -74,9 +74,13 @@ public class DruidConfig {
         }
 
         // ===== 过滤器 =====
-        // SQLite 本地文件库不启用 wall，避免拦截 AUTOINCREMENT 等 SQLite 方言语法。
+        // wall filter 默认会拦 schema 里的行内注释（-- comment）和 AUTOINCREMENT/BIGSERIAL 等
+        // 方言语法，导致 DatabaseInitializer 跑 schema 时 xianyu_account 建不出来，后续所有 FK
+        // 引它的表连锁炸（Failed to open referenced table）。MySQL/PG 走网络但库是私有的，
+        // 注入面与 SQLite 同源（管理后台/没外部写入），统一关 wall 只留 stat + slf4j。
+        // 业务方真要 wall 时可在 application-*.yml 用 `spring.datasource.druid.filters` 覆盖。
         String dialect = databaseProvider != null ? databaseProvider.dialect() : "sqlite";
-        ds.setFilters("sqlite".equalsIgnoreCase(dialect) ? "stat,slf4j" : "stat,wall,slf4j");
+        ds.setFilters("stat,slf4j");
 
         // ===== 连接泄漏检测 =====
         // SQLite 单连接启动初始化阶段容易被 removeAbandoned 误判，保持关闭。
